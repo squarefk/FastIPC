@@ -1,29 +1,30 @@
-import pymesh
+import meshio
 import numpy as np
 
 
 def read(testcase):
     if testcase == 0:
-        mesh = pymesh.load_mesh("input/Sharkey.obj")
-        dirichlet = np.array([i for i in range(12)])
-        mesh_scale= 1 / (np.amax(mesh.vertices) - np.amin(mesh.vertices)) * 0.6
-        mesh_offset = -(np.amax(mesh.vertices) + np.amin(mesh.vertices)) / 2 + 1.0
-        return mesh, dirichlet, mesh_scale, mesh_offset
+        # two spheres
+        mesh = meshio.read("input/sphere1K.vtk")
+        mesh_particles = np.vstack((mesh.points, mesh.points + [1.05, 0, 0]))
+        mesh_elements = np.vstack((mesh.cells[0].data, mesh.cells[0].data + len(mesh_particles) / 2))
+        mesh_scale = 0.8
+        mesh_offset = [-0.6, 0, 0]
+        dirichlet_fixed = np.zeros(len(mesh_particles) * 3, dtype=bool)
+        dirichlet_value = np.zeros(len(mesh_particles) * 3, dtype=np.float32)
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value
     elif testcase == 1:
-        mesh = pymesh.load_mesh("input/cubes.obj")
-        dirichlet = np.array([0, 1])
-        mesh_scale= 1 / (np.amax(mesh.vertices) - np.amin(mesh.vertices)) * 0.6
-        mesh_offset = -(np.amax(mesh.vertices) + np.amin(mesh.vertices)) / 2 + 0.9
-        mesh_scale, mesh_offset = 0.6, 0.4
-        return mesh, dirichlet, mesh_scale, mesh_offset
-    elif testcase == 2:
-        mesh = pymesh.load_mesh("input/Sharkey_floor.obj")
-        dirichlet = np.array([954, 955])
-        mesh_scale= 1 / (np.amax(mesh.vertices) - np.amin(mesh.vertices)) * 1
-        mesh_offset = -(np.amax(mesh.vertices) + np.amin(mesh.vertices)) / 2 + 1
-        return mesh, dirichlet, mesh_scale, mesh_offset
-    elif testcase == 3:
-        mesh = pymesh.load_mesh("input/spheres.obj")
-        dirichlet = np.array([0])
-        mesh_scale, mesh_offset = 1, 0.4
-        return mesh, dirichlet, mesh_scale, mesh_offset
+        mesh = meshio.read("input/mat20x20.vtk")
+        mesh_particles = mesh.points
+        mesh_elements = mesh.cells[0].data
+        mesh_scale = 0.8
+        mesh_offset = [0, 0, 0]
+        dirichlet_fixed = np.zeros(len(mesh_particles) * 3, dtype=bool)
+        for i in range(len(mesh_particles)):
+            if mesh_particles[i][0] < -0.45 or mesh_particles[i][0] > 0.45:
+                dirichlet_fixed[i * 3] = True
+                dirichlet_fixed[i * 3 + 1] = True
+                dirichlet_fixed[i * 3 + 2] = True
+                print(i, mesh_particles[i][0], mesh_particles[i][1], mesh_particles[i][2])
+        dirichlet_value = np.zeros(len(mesh_particles) * 3, dtype=np.float32)
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value

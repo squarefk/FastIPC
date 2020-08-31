@@ -1,4 +1,4 @@
-import sys, os, time
+import sys, os, time, math
 import taichi as ti
 import taichi_three as t3
 import numpy as np
@@ -8,16 +8,11 @@ from ipc import *
 import meshio
 import scipy.sparse
 import scipy.sparse.linalg
+from reader import *
 
 ##############################################################################
 
-mesh = meshio.read("input/sphere1K.vtk")
-mesh_particles = np.vstack((mesh.points, mesh.points + [1.05, 0, 0]))
-mesh_elements = np.vstack((mesh.cells[0].data, mesh.cells[0].data + len(mesh_particles) / 2))
-mesh_scale = 0.8
-mesh_offset = [-0.6, 0, 0]
-dirichlet_fixed = np.zeros(len(mesh_particles) * 3, dtype=bool)
-dirichlet_value = np.zeros(len(mesh_particles) * 3, dtype=np.float32)
+mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value = read(int(sys.argv[1]))
 triangles = set()
 for [p0, p1, p2, p3] in mesh_elements:
     triangles.add((p0, p2, p1))
@@ -59,11 +54,11 @@ vec = lambda: ti.Vector(dim, dt=real)
 mat = lambda: ti.Matrix(dim, dim, dt=real)
 
 dt = 0.01
-E = 1e4
+E = 2e4
 nu = 0.4
 la = E * nu / ((1 + nu) * (1 - 2 * nu))
 mu = E / (2 * (1 + nu))
-density = 100
+density = 1000
 n_particles = len(mesh_particles)
 n_elements = len(mesh_elements)
 n_boundary_points = len(boundary_points_)
@@ -77,6 +72,7 @@ vertices = ti.var(ti.i32)
 boundary_points = ti.var(ti.i32)
 boundary_edges = ti.var(ti.i32)
 boundary_triangles = ti.var(ti.i32)
+dirichlet = ti.var(ti.i32)
 ti.root.dense(ti.k, n_particles).place(x, x0, xPrev, xTilde, xn, v, m)
 ti.root.dense(ti.k, n_particles).place(zero)
 ti.root.dense(ti.i, n_elements).place(restT)
@@ -84,11 +80,12 @@ ti.root.dense(ti.ij, (n_elements, dim + 1)).place(vertices)
 ti.root.dense(ti.i, n_boundary_points).place(boundary_points)
 ti.root.dense(ti.ij, (n_boundary_edges, 2)).place(boundary_edges)
 ti.root.dense(ti.ij, (n_boundary_triangles, 3)).place(boundary_triangles)
+ti.root.dense(ti.i, n_particles * dim).place(dirichlet)
 
 data_rhs = ti.var(real, shape=n_particles * dim)
-data_row = ti.var(ti.i32, shape=2000000)
-data_col = ti.var(ti.i32, shape=2000000)
-data_val = ti.var(real, shape=2000000)
+data_row = ti.var(ti.i32, shape=10000000)
+data_col = ti.var(ti.i32, shape=10000000)
+data_val = ti.var(real, shape=10000000)
 data_sol = ti.var(real, shape=n_particles * dim)
 cnt = ti.var(dt=ti.i32, shape=())
 
@@ -292,11 +289,7 @@ def compute_restT_and_m():
             print("FATAL ERROR : mesh inverted")
         for d in ti.static(range(dim + 1)):
             m[vertices[i, d]] += mass
-    for i in range(n_particles):
-        if i < n_particles / 2:
-            v[i] = ti.Vector([1, 0, 0])
-        else:
-            v[i] = ti.Vector([-1, 0, 0])
+
 
 @ti.kernel
 def compute_xn_and_xTilde():
@@ -304,6 +297,21 @@ def compute_xn_and_xTilde():
         xn[i] = x[i]
         xTilde[i] = x[i] + dt * v[i]
         # xTilde(0)[i] -= dt * dt * 9.8
+
+
+@ti.kernel
+def move_nodes():
+    speed = math.pi / 15
+    for i in range(n_particles):
+        if dirichlet[i * dim]:
+            a, b, c = x(0)[i], x(1)[i], x(2)[i]
+            angle = ti.atan2(b, c)
+            if a < 0:
+                angle += speed
+            else:
+                angle -= speed
+            radius = ti.sqrt(b * b + c * c)
+            x(1)[i], x(2)[i] = radius * ti.sin(angle), radius * ti.cos(angle)
 
 
 @ti.kernel
@@ -629,6 +637,7 @@ def compute_hessian_and_gradient():
 
 
 def solve_system():
+    print("Total entries: ", cnt[None])
     row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
     rhs = data_rhs.to_numpy()
     c36 = n_PP[None]
@@ -652,6 +661,7 @@ def solve_system():
     val[dirichlet_fixed[col]] = 0
     indices = np.where(dirichlet_fixed[row] & dirichlet_fixed[col])
     val[indices] = 1
+    rhs[row[indices]] = 0
     rhs[row[indices]] += dirichlet_value[row[indices]]
     n = n_particles * dim
     A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
@@ -743,6 +753,7 @@ if __name__ == "__main__":
     boundary_points.from_numpy(np.array(list(boundary_points_)).astype(np.int32))
     boundary_edges.from_numpy(boundary_edges_.astype(np.int32))
     boundary_triangles.from_numpy(boundary_triangles_.astype(np.int32))
+    dirichlet.from_numpy(dirichlet_fixed.astype(np.int32))
     compute_restT_and_m()
     save_x0()
     zero.fill(0)
@@ -752,6 +763,7 @@ if __name__ == "__main__":
         total_time -= time.time()
         print("==================== Frame: ", f, " ====================")
         compute_xn_and_xTilde()
+        move_nodes()
         find_constraints()
         while True:
             data_row.fill(0)
