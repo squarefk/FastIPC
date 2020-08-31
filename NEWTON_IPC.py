@@ -312,12 +312,12 @@ def compute_energy() -> real:
     # inertia
     for i in range(n_particles):
         total_energy += 0.5 * m[i] * (x[i] - xTilde[i]).norm_sqr()
-    # # elasticity
-    # for e in range(n_elements):
-    #     F = compute_T(e) @ restT[e].inverse()
-    #     vol0 = restT[e].determinant() / dim / (dim - 1)
-    #     U, sig, V = ti.svd(F)
-    #     total_energy += fixed_corotated_energy(sig, la, mu) * dt * dt * vol0
+    # elasticity
+    for e in range(n_elements):
+        F = compute_T(e) @ restT[e].inverse()
+        vol0 = restT[e].determinant() / dim / (dim - 1)
+        U, sig, V = ti.svd(F)
+        total_energy += fixed_corotated_energy(sig, la, mu) * dt * dt * vol0
     # ipc
     for r in range(n_PP[None]):
         p0, p1 = x[PP[r, 0]], x[PP[r, 1]]
@@ -610,8 +610,8 @@ def compute_hessian_and_gradient():
     print("Start computing H and g.", end='')
     compute_inertia()
     print("inertia done.", end='')
-    # compute_elasticity()
-    # print("elasticity done")
+    compute_elasticity()
+    print("elasticity done")
     compute_ipc0()
     print("ipc0 done.", end='')
     compute_ipc1()
