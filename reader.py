@@ -28,3 +28,13 @@ def read(testcase):
                 print(i, mesh_particles[i][0], mesh_particles[i][1], mesh_particles[i][2])
         dirichlet_value = np.zeros(len(mesh_particles) * 3, dtype=np.float32)
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value
+    elif testcase == 2:
+        # one spheres
+        mesh = meshio.read("input/sphere1K.vtk")
+        mesh_particles = mesh.points
+        mesh_elements = mesh.cells[0].data
+        mesh_scale = 0.8
+        mesh_offset = [0, 0, 0]
+        dirichlet_fixed = np.zeros(len(mesh_particles) * 3, dtype=bool)
+        dirichlet_value = np.zeros(len(mesh_particles) * 3, dtype=np.float32)
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value
