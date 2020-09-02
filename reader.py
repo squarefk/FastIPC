@@ -6,10 +6,10 @@ def read(testcase):
     if testcase == 0:
         # two spheres
         mesh = meshio.read("input/sphere1K.vtk")
-        mesh_particles = np.vstack((mesh.points, mesh.points + [1.05, 0, 0]))
+        mesh_particles = np.vstack((mesh.points + [-0.51, 0, 0], mesh.points + [0.51, 0, 0]))
         mesh_elements = np.vstack((mesh.cells[0].data, mesh.cells[0].data + len(mesh_particles) / 2))
         mesh_scale = 0.8
-        mesh_offset = [-0.6, 0, 0]
+        mesh_offset = [0, 0, 0]
         dirichlet_fixed = np.zeros(len(mesh_particles) * 3, dtype=bool)
         dirichlet_value = np.zeros(len(mesh_particles) * 3, dtype=np.float32)
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value

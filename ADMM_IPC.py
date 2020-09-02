@@ -82,11 +82,11 @@ ti.root.dense(ti.i, n_boundary_points).place(boundary_points)
 ti.root.dense(ti.ij, (n_boundary_edges, 2)).place(boundary_edges)
 ti.root.dense(ti.ij, (n_boundary_triangles, 3)).place(boundary_triangles)
 
-data_rhs = ti.var(real, shape=2000)
-data_row = ti.var(ti.i32, shape=1000000)
-data_col = ti.var(ti.i32, shape=1000000)
-data_val = ti.var(real, shape=1000000)
-data_x = ti.var(real, shape=2000)
+data_rhs = ti.var(real, shape=n_particles * dim)
+data_row = ti.var(ti.i32, shape=2000000)
+data_col = ti.var(ti.i32, shape=2000000)
+data_val = ti.var(real, shape=2000000)
+data_x = ti.var(real, shape=n_particles * dim)
 cnt = ti.var(dt=ti.i32, shape=())
 
 # n_constraint = 1000000
@@ -416,6 +416,7 @@ def compute_restT_and_m():
                 m[vertices[i, d]] += mass
     for i in range(n_particles):
         x0[i] = x[i]
+        v(0)[i] = 2.0 if x(0)[i] < 0 else -2.0
 
 
 @ti.kernel
@@ -442,7 +443,7 @@ def X2F(p: ti.template(), q: ti.template(), i: ti.template(), j: ti.template(), 
             val = A[1, j]
         elif p == 3:
             val = A[2, j]
-        elif p == 1:
+        elif p == 0:
             val = -A[0, j] - A[1, j] - A[2, j]
     return val
 
@@ -493,6 +494,8 @@ def global_step():
     #             data_rhs[constraints[c, 1] * 2 + j] -= (y(j)[c, 0] - r(j)[c, 0]) * Q[c] * Q[c]
     #             data_rhs[constraints[c, 2] * 2 + j] -= (y(j)[c, 1] - r(j)[c, 1]) * Q[c] * Q[c]
     # cnt[None] += cc[None] * 18
+@ti.kernel
+def global_PP():
     ETE2 = ti.Matrix([[1, -1], [-1, 1]])
     for c in range(n_PP[None]):
         for p in ti.static(range(2)):
@@ -506,6 +509,8 @@ def global_step():
             data_rhs[PP[c, 0] * 3 + j] += (y_PP(j)[c, 0] - r_PP(j)[c, 0]) * Q * Q
             data_rhs[PP[c, 1] * 3 + j] -= (y_PP(j)[c, 0] - r_PP(j)[c, 0]) * Q * Q
     cnt[None] += n_PP[None] * 12
+@ti.kernel
+def global_PE():
     ETE3 = ti.Matrix([[2, -1, -1], [-1, 1, 0], [-1, 0, 1]])
     for c in range(n_PE[None]):
         for p in ti.static(range(3)):
@@ -521,6 +526,8 @@ def global_step():
             data_rhs[PE[c, 1] * 3 + j] -= (y_PE(j)[c, 0] - r_PE(j)[c, 0]) * Q * Q
             data_rhs[PE[c, 2] * 3 + j] -= (y_PE(j)[c, 1] - r_PE(j)[c, 1]) * Q * Q
     cnt[None] += n_PE[None] * 27
+@ti.kernel
+def global_PT():
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
     for c in range(n_PT[None]):
         for p in ti.static(range(4)):
@@ -538,6 +545,9 @@ def global_step():
             data_rhs[PT[c, 2] * 3 + j] -= (y_PT(j)[c, 1] - r_PT(j)[c, 1]) * Q * Q
             data_rhs[PT[c, 3] * 3 + j] -= (y_PT(j)[c, 2] - r_PT(j)[c, 2]) * Q * Q
     cnt[None] += n_PT[None] * 48
+@ti.kernel
+def global_EE():
+    ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
     for c in range(n_EE[None]):
         for p in ti.static(range(4)):
             for q in ti.static(range(4)):
@@ -554,6 +564,9 @@ def global_step():
             data_rhs[EE[c, 2] * 3 + j] -= (y_EE(j)[c, 1] - r_EE(j)[c, 1]) * Q * Q
             data_rhs[EE[c, 3] * 3 + j] -= (y_EE(j)[c, 2] - r_EE(j)[c, 2]) * Q * Q
     cnt[None] += n_EE[None] * 48
+@ti.kernel
+def global_EEM():
+    ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
     for c in range(n_EEM[None]):
         for p in ti.static(range(4)):
             for q in ti.static(range(4)):
@@ -570,6 +583,9 @@ def global_step():
             data_rhs[EEM[c, 2] * 3 + j] -= (y_EEM(j)[c, 1] - r_EEM(j)[c, 1]) * Q * Q
             data_rhs[EEM[c, 3] * 3 + j] -= (y_EEM(j)[c, 2] - r_EEM(j)[c, 2]) * Q * Q
     cnt[None] += n_EEM[None] * 48
+@ti.kernel
+def global_PPM():
+    ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
     for c in range(n_PPM[None]):
         for p in ti.static(range(4)):
             for q in ti.static(range(4)):
@@ -586,6 +602,9 @@ def global_step():
             data_rhs[PPM[c, 2] * 3 + j] -= (y_PPM(j)[c, 1] - r_PPM(j)[c, 1]) * Q * Q
             data_rhs[PPM[c, 3] * 3 + j] -= (y_PPM(j)[c, 2] - r_PPM(j)[c, 2]) * Q * Q
     cnt[None] += n_PPM[None] * 48
+@ti.kernel
+def global_PEM():
+    ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
     for c in range(n_PEM[None]):
         for p in ti.static(range(4)):
             for q in ti.static(range(4)):
@@ -813,7 +832,8 @@ def PPM_gradient(pos, posTilde, Q, r):
     dist2g = PP_3D_g(a0, b0)
     b = barrier_E(dist2, dHat2, kappa)
     bg = barrier_g(dist2, dHat2, kappa)
-    lg = bg * dist2g
+    idx = ti.static([0, 1, 2, 6, 7, 8])
+    lg = fill_vec(bg * dist2g, idx, 6)
     M = M_E(a0, a1, b0, b1, eps_x)
     Mg = M_g(a0, a1, b0, b1, eps_x)
     g = lg * M + b * Mg
@@ -830,8 +850,9 @@ def PPM_hessian(pos, posTilde, Q, r):
     dist2g = PP_3D_g(a0, b0)
     b = barrier_E(dist2, dHat2, kappa)
     bg = barrier_g(dist2, dHat2, kappa)
-    lg = bg * dist2g
-    lH = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(a0, b0)
+    idx = ti.static([0, 1, 2, 6, 7, 8])
+    lg = fill_vec(bg * dist2g, idx, 6)
+    lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(a0, b0), idx, 6)
     M = M_E(a0, a1, b0, b1, eps_x)
     Mg = M_g(a0, a1, b0, b1, eps_x)
     H = lH * M + lg.outer_product(Mg) + Mg.outer_product(lg) + b * M_H(a0, a1, b0, b1, eps_x)
@@ -859,7 +880,8 @@ def PEM_gradient(pos, posTilde, Q, r):
     dist2g = PE_3D_g(a0, b0, b1)
     b = barrier_E(dist2, dHat2, kappa)
     bg = barrier_g(dist2, dHat2, kappa)
-    lg = bg * dist2g
+    idx = ti.static([0, 1, 2, 6, 7, 8, 9, 10, 11])
+    lg = fill_vec(bg * dist2g, idx, 9)
     M = M_E(a0, a1, b0, b1, eps_x)
     Mg = M_g(a0, a1, b0, b1, eps_x)
     g = lg * M + b * Mg
@@ -876,8 +898,9 @@ def PEM_hessian(pos, posTilde, Q, r):
     dist2g = PE_3D_g(a0, b0, b1)
     b = barrier_E(dist2, dHat2, kappa)
     bg = barrier_g(dist2, dHat2, kappa)
-    lg = bg * dist2g
-    lH = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(a0, b0, b1)
+    idx = ti.static([0, 1, 2, 6, 7, 8, 9, 10, 11])
+    lg = fill_vec(bg * dist2g, idx, 9)
+    lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(a0, b0, b1), idx, 9)
     M = M_E(a0, a1, b0, b1, eps_x)
     Mg = M_g(a0, a1, b0, b1, eps_x)
     H = lH * M + lg.outer_product(Mg) + Mg.outer_product(lg) + b * M_H(a0, a1, b0, b1, eps_x)
@@ -1228,7 +1251,7 @@ if __name__ == "__main__":
         initial_guess()
         prs = []
         drs = []
-        for step in range(2):
+        for step in range(20):
             find_constraints()
 
             data_row.fill(0)
@@ -1236,7 +1259,16 @@ if __name__ == "__main__":
             data_val.fill(0)
             data_rhs.fill(0)
             data_x.fill(0)
+
             global_step()
+            global_PP()
+            global_PE()
+            global_PT()
+            global_EE()
+            global_EEM()
+            global_PPM()
+            global_PEM()
+
             solve_system()
 
             local_elasticity()
