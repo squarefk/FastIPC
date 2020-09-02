@@ -20,82 +20,50 @@ extern "C" {
         V00[0] = V(0, 0),  V01[0] = V(0, 1), V10[0] = V(1, 0), V11[0] = V(1, 1);
     }
 
-    void project_pd(float F00, float F01, float F02, float F03, float F04, float F05,
-                    float F10, float F11, float F12, float F13, float F14, float F15,
-                    float F20, float F21, float F22, float F23, float F24, float F25,
-                    float F30, float F31, float F32, float F33, float F34, float F35,
-                    float F40, float F41, float F42, float F43, float F44, float F45,
-                    float F50, float F51, float F52, float F53, float F54, float F55, float diagonal,
-                    float* PF00, float* PF01, float* PF02, float* PF03, float* PF04, float* PF05,
-                    float* PF10, float* PF11, float* PF12, float* PF13, float* PF14, float* PF15,
-                    float* PF20, float* PF21, float* PF22, float* PF23, float* PF24, float* PF25,
-                    float* PF30, float* PF31, float* PF32, float* PF33, float* PF34, float* PF35,
-                    float* PF40, float* PF41, float* PF42, float* PF43, float* PF44, float* PF45,
-                    float* PF50, float* PF51, float* PF52, float* PF53, float* PF54, float* PF55)
-    {
-        Eigen::Matrix<float, 6, 6> F;
-        F(0, 0) = F00; F(0, 1) = F01; F(0, 2) = F02; F(0, 3) = F03; F(0, 4) = F04; F(0, 5) = F05;
-        F(1, 0) = F10; F(1, 1) = F11; F(1, 2) = F12; F(1, 3) = F13; F(1, 4) = F14; F(1, 5) = F15;
-        F(2, 0) = F20; F(2, 1) = F21; F(2, 2) = F22; F(2, 3) = F23; F(2, 4) = F24; F(2, 5) = F25;
-        F(3, 0) = F30; F(3, 1) = F31; F(3, 2) = F32; F(3, 3) = F33; F(3, 4) = F34; F(3, 5) = F35;
-        F(4, 0) = F40; F(4, 1) = F41; F(4, 2) = F42; F(4, 3) = F43; F(4, 4) = F44; F(4, 5) = F45;
-        F(5, 0) = F50; F(5, 1) = F51; F(5, 2) = F52; F(5, 3) = F53; F(5, 4) = F54; F(5, 5) = F55;
-        JGSL::makePD(F);
-        for (int i = 0; i < 6; ++i)
-            F(i, i) += diagonal;
-        F = F.inverse();
-        PF00[0] = F(0, 0); PF01[0] = F(0, 1); PF02[0] = F(0, 2); PF03[0] = F(0, 3); PF04[0] = F(0, 4); PF05[0] = F(0, 5);
-        PF10[0] = F(1, 0); PF11[0] = F(1, 1); PF12[0] = F(1, 2); PF13[0] = F(1, 3); PF14[0] = F(1, 4); PF15[0] = F(1, 5);
-        PF20[0] = F(2, 0); PF21[0] = F(2, 1); PF22[0] = F(2, 2); PF23[0] = F(2, 3); PF24[0] = F(2, 4); PF25[0] = F(2, 5);
-        PF30[0] = F(3, 0); PF31[0] = F(3, 1); PF32[0] = F(3, 2); PF33[0] = F(3, 3); PF34[0] = F(3, 4); PF35[0] = F(3, 5);
-        PF40[0] = F(4, 0); PF41[0] = F(4, 1); PF42[0] = F(4, 2); PF43[0] = F(4, 3); PF44[0] = F(4, 4); PF45[0] = F(4, 5);
-        PF50[0] = F(5, 0); PF51[0] = F(5, 1); PF52[0] = F(5, 2); PF53[0] = F(5, 3); PF54[0] = F(5, 4); PF55[0] = F(5, 5);
-    }
-
-    void project_pd64(float F00, float F01, float F02, float F03, float F04, float F05,
-                    float F10, float F11, float F12, float F13, float F14, float F15,
-                    float F20, float F21, float F22, float F23, float F24, float F25,
-                    float F30, float F31, float F32, float F33, float F34, float F35,
-                    float F40, float F41, float F42, float F43, float F44, float F45,
-                    float F50, float F51, float F52, float F53, float F54, float F55, float diagonal,
-                    float* PF00, float* PF01, float* PF02, float* PF03,
-                    float* PF10, float* PF11, float* PF12, float* PF13,
-                    float* PF20, float* PF21, float* PF22, float* PF23,
-                    float* PF30, float* PF31, float* PF32, float* PF33)
-    {
-        Eigen::Matrix<float, 4, 4> F;
-        F(0, 0) = F22; F(0, 1) = F23; F(0, 2) = F24; F(0, 3) = F25;
-        F(1, 0) = F32; F(1, 1) = F33; F(1, 2) = F34; F(1, 3) = F35;
-        F(2, 0) = F42; F(2, 1) = F43; F(2, 2) = F44; F(2, 3) = F45;
-        F(3, 0) = F52; F(3, 1) = F53; F(3, 2) = F54; F(3, 3) = F55;
-        JGSL::makePD(F);
-        for (int i = 0; i < 4; ++i)
-            F(i, i) += diagonal;
-        F = F.inverse().eval();
-        PF00[0] = F(0, 0); PF01[0] = F(0, 1); PF02[0] = F(0, 2); PF03[0] = F(0, 3);
-        PF10[0] = F(1, 0); PF11[0] = F(1, 1); PF12[0] = F(1, 2); PF13[0] = F(1, 3);
-        PF20[0] = F(2, 0); PF21[0] = F(2, 1); PF22[0] = F(2, 2); PF23[0] = F(2, 3);
-        PF30[0] = F(3, 0); PF31[0] = F(3, 1); PF32[0] = F(3, 2); PF33[0] = F(3, 3);
-    }
-
-    void project_pd3(float F00, float F01, float F02,
-                     float F10, float F11, float F12,
-                     float F20, float F21, float F22,
-                     float* PF00, float* PF01, float* PF02,
-                     float* PF10, float* PF11, float* PF12,
-                     float* PF20, float* PF21, float* PF22)
+    void project_pd_3(float in_0, float in_1, float in_2, float in_3, float in_4, float in_5, float in_6, float in_7, float in_8, float* out_0, float* out_1, float* out_2, float* out_3, float* out_4, float* out_5, float* out_6, float* out_7, float* out_8)
     {
         Eigen::Matrix<float, 3, 3> F;
-        F(0, 0) = F00; F(0, 1) = F01; F(0, 2) = F02;
-        F(1, 0) = F10; F(1, 1) = F11; F(1, 2) = F12;
-        F(2, 0) = F20; F(2, 1) = F21; F(2, 2) = F22;
+        F(0, 0) = in_0; F(0, 1) = in_1; F(0, 2) = in_2; F(1, 0) = in_3; F(1, 1) = in_4; F(1, 2) = in_5; F(2, 0) = in_6; F(2, 1) = in_7; F(2, 2) = in_8;
         JGSL::makePD(F);
-        PF00[0] = F(0, 0); PF01[0] = F(0, 1); PF02[0] = F(0, 2);
-        PF10[0] = F(1, 0); PF11[0] = F(1, 1); PF12[0] = F(1, 2);
-        PF20[0] = F(2, 0); PF21[0] = F(2, 1); PF22[0] = F(2, 2);
+        out_0[0] = F(0, 0); out_1[0] = F(0, 1); out_2[0] = F(0, 2); out_3[0] = F(1, 0); out_4[0] = F(1, 1); out_5[0] = F(1, 2); out_6[0] = F(2, 0); out_7[0] = F(2, 1); out_8[0] = F(2, 2);
     }
 
-    void point_triangle_ccd(float p0, float p1, float p2,
+    void project_pd_6(float in_0, float in_1, float in_2, float in_3, float in_4, float in_5, float in_6, float in_7, float in_8, float in_9, float in_10, float in_11, float in_12, float in_13, float in_14, float in_15, float in_16, float in_17, float in_18, float in_19, float in_20, float in_21, float in_22, float in_23, float in_24, float in_25, float in_26, float in_27, float in_28, float in_29, float in_30, float in_31, float in_32, float in_33, float in_34, float in_35, float* out_0, float* out_1, float* out_2, float* out_3, float* out_4, float* out_5, float* out_6, float* out_7, float* out_8, float* out_9, float* out_10, float* out_11, float* out_12, float* out_13, float* out_14, float* out_15, float* out_16, float* out_17, float* out_18, float* out_19, float* out_20, float* out_21, float* out_22, float* out_23, float* out_24, float* out_25, float* out_26, float* out_27, float* out_28, float* out_29, float* out_30, float* out_31, float* out_32, float* out_33, float* out_34, float* out_35)
+    {
+        Eigen::Matrix<float, 6, 6> F;
+        F(0, 0) = in_0; F(0, 1) = in_1; F(0, 2) = in_2; F(0, 3) = in_3; F(0, 4) = in_4; F(0, 5) = in_5; F(1, 0) = in_6; F(1, 1) = in_7; F(1, 2) = in_8; F(1, 3) = in_9; F(1, 4) = in_10; F(1, 5) = in_11; F(2, 0) = in_12; F(2, 1) = in_13; F(2, 2) = in_14; F(2, 3) = in_15; F(2, 4) = in_16; F(2, 5) = in_17; F(3, 0) = in_18; F(3, 1) = in_19; F(3, 2) = in_20; F(3, 3) = in_21; F(3, 4) = in_22; F(3, 5) = in_23; F(4, 0) = in_24; F(4, 1) = in_25; F(4, 2) = in_26; F(4, 3) = in_27; F(4, 4) = in_28; F(4, 5) = in_29; F(5, 0) = in_30; F(5, 1) = in_31; F(5, 2) = in_32; F(5, 3) = in_33; F(5, 4) = in_34; F(5, 5) = in_35;
+        JGSL::makePD(F);
+        out_0[0] = F(0, 0); out_1[0] = F(0, 1); out_2[0] = F(0, 2); out_3[0] = F(0, 3); out_4[0] = F(0, 4); out_5[0] = F(0, 5); out_6[0] = F(1, 0); out_7[0] = F(1, 1); out_8[0] = F(1, 2); out_9[0] = F(1, 3); out_10[0] = F(1, 4); out_11[0] = F(1, 5); out_12[0] = F(2, 0); out_13[0] = F(2, 1); out_14[0] = F(2, 2); out_15[0] = F(2, 3); out_16[0] = F(2, 4); out_17[0] = F(2, 5); out_18[0] = F(3, 0); out_19[0] = F(3, 1); out_20[0] = F(3, 2); out_21[0] = F(3, 3); out_22[0] = F(3, 4); out_23[0] = F(3, 5); out_24[0] = F(4, 0); out_25[0] = F(4, 1); out_26[0] = F(4, 2); out_27[0] = F(4, 3); out_28[0] = F(4, 4); out_29[0] = F(4, 5); out_30[0] = F(5, 0); out_31[0] = F(5, 1); out_32[0] = F(5, 2); out_33[0] = F(5, 3); out_34[0] = F(5, 4); out_35[0] = F(5, 5);
+    }
+
+    void project_pd_9(float in_0, float in_1, float in_2, float in_3, float in_4, float in_5, float in_6, float in_7, float in_8, float in_9, float in_10, float in_11, float in_12, float in_13, float in_14, float in_15, float in_16, float in_17, float in_18, float in_19, float in_20, float in_21, float in_22, float in_23, float in_24, float in_25, float in_26, float in_27, float in_28, float in_29, float in_30, float in_31, float in_32, float in_33, float in_34, float in_35, float in_36, float in_37, float in_38, float in_39, float in_40, float in_41, float in_42, float in_43, float in_44, float in_45, float in_46, float in_47, float in_48, float in_49, float in_50, float in_51, float in_52, float in_53, float in_54, float in_55, float in_56, float in_57, float in_58, float in_59, float in_60, float in_61, float in_62, float in_63, float in_64, float in_65, float in_66, float in_67, float in_68, float in_69, float in_70, float in_71, float in_72, float in_73, float in_74, float in_75, float in_76, float in_77, float in_78, float in_79, float in_80, float* out_0, float* out_1, float* out_2, float* out_3, float* out_4, float* out_5, float* out_6, float* out_7, float* out_8, float* out_9, float* out_10, float* out_11, float* out_12, float* out_13, float* out_14, float* out_15, float* out_16, float* out_17, float* out_18, float* out_19, float* out_20, float* out_21, float* out_22, float* out_23, float* out_24, float* out_25, float* out_26, float* out_27, float* out_28, float* out_29, float* out_30, float* out_31, float* out_32, float* out_33, float* out_34, float* out_35, float* out_36, float* out_37, float* out_38, float* out_39, float* out_40, float* out_41, float* out_42, float* out_43, float* out_44, float* out_45, float* out_46, float* out_47, float* out_48, float* out_49, float* out_50, float* out_51, float* out_52, float* out_53, float* out_54, float* out_55, float* out_56, float* out_57, float* out_58, float* out_59, float* out_60, float* out_61, float* out_62, float* out_63, float* out_64, float* out_65, float* out_66, float* out_67, float* out_68, float* out_69, float* out_70, float* out_71, float* out_72, float* out_73, float* out_74, float* out_75, float* out_76, float* out_77, float* out_78, float* out_79, float* out_80)
+    {
+        Eigen::Matrix<float, 9, 9> F;
+        F(0, 0) = in_0; F(0, 1) = in_1; F(0, 2) = in_2; F(0, 3) = in_3; F(0, 4) = in_4; F(0, 5) = in_5; F(0, 6) = in_6; F(0, 7) = in_7; F(0, 8) = in_8; F(1, 0) = in_9; F(1, 1) = in_10; F(1, 2) = in_11; F(1, 3) = in_12; F(1, 4) = in_13; F(1, 5) = in_14; F(1, 6) = in_15; F(1, 7) = in_16; F(1, 8) = in_17; F(2, 0) = in_18; F(2, 1) = in_19; F(2, 2) = in_20; F(2, 3) = in_21; F(2, 4) = in_22; F(2, 5) = in_23; F(2, 6) = in_24; F(2, 7) = in_25; F(2, 8) = in_26; F(3, 0) = in_27; F(3, 1) = in_28; F(3, 2) = in_29; F(3, 3) = in_30; F(3, 4) = in_31; F(3, 5) = in_32; F(3, 6) = in_33; F(3, 7) = in_34; F(3, 8) = in_35; F(4, 0) = in_36; F(4, 1) = in_37; F(4, 2) = in_38; F(4, 3) = in_39; F(4, 4) = in_40; F(4, 5) = in_41; F(4, 6) = in_42; F(4, 7) = in_43; F(4, 8) = in_44; F(5, 0) = in_45; F(5, 1) = in_46; F(5, 2) = in_47; F(5, 3) = in_48; F(5, 4) = in_49; F(5, 5) = in_50; F(5, 6) = in_51; F(5, 7) = in_52; F(5, 8) = in_53; F(6, 0) = in_54; F(6, 1) = in_55; F(6, 2) = in_56; F(6, 3) = in_57; F(6, 4) = in_58; F(6, 5) = in_59; F(6, 6) = in_60; F(6, 7) = in_61; F(6, 8) = in_62; F(7, 0) = in_63; F(7, 1) = in_64; F(7, 2) = in_65; F(7, 3) = in_66; F(7, 4) = in_67; F(7, 5) = in_68; F(7, 6) = in_69; F(7, 7) = in_70; F(7, 8) = in_71; F(8, 0) = in_72; F(8, 1) = in_73; F(8, 2) = in_74; F(8, 3) = in_75; F(8, 4) = in_76; F(8, 5) = in_77; F(8, 6) = in_78; F(8, 7) = in_79; F(8, 8) = in_80;
+        JGSL::makePD(F);
+        out_0[0] = F(0, 0); out_1[0] = F(0, 1); out_2[0] = F(0, 2); out_3[0] = F(0, 3); out_4[0] = F(0, 4); out_5[0] = F(0, 5); out_6[0] = F(0, 6); out_7[0] = F(0, 7); out_8[0] = F(0, 8); out_9[0] = F(1, 0); out_10[0] = F(1, 1); out_11[0] = F(1, 2); out_12[0] = F(1, 3); out_13[0] = F(1, 4); out_14[0] = F(1, 5); out_15[0] = F(1, 6); out_16[0] = F(1, 7); out_17[0] = F(1, 8); out_18[0] = F(2, 0); out_19[0] = F(2, 1); out_20[0] = F(2, 2); out_21[0] = F(2, 3); out_22[0] = F(2, 4); out_23[0] = F(2, 5); out_24[0] = F(2, 6); out_25[0] = F(2, 7); out_26[0] = F(2, 8); out_27[0] = F(3, 0); out_28[0] = F(3, 1); out_29[0] = F(3, 2); out_30[0] = F(3, 3); out_31[0] = F(3, 4); out_32[0] = F(3, 5); out_33[0] = F(3, 6); out_34[0] = F(3, 7); out_35[0] = F(3, 8); out_36[0] = F(4, 0); out_37[0] = F(4, 1); out_38[0] = F(4, 2); out_39[0] = F(4, 3); out_40[0] = F(4, 4); out_41[0] = F(4, 5); out_42[0] = F(4, 6); out_43[0] = F(4, 7); out_44[0] = F(4, 8); out_45[0] = F(5, 0); out_46[0] = F(5, 1); out_47[0] = F(5, 2); out_48[0] = F(5, 3); out_49[0] = F(5, 4); out_50[0] = F(5, 5); out_51[0] = F(5, 6); out_52[0] = F(5, 7); out_53[0] = F(5, 8); out_54[0] = F(6, 0); out_55[0] = F(6, 1); out_56[0] = F(6, 2); out_57[0] = F(6, 3); out_58[0] = F(6, 4); out_59[0] = F(6, 5); out_60[0] = F(6, 6); out_61[0] = F(6, 7); out_62[0] = F(6, 8); out_63[0] = F(7, 0); out_64[0] = F(7, 1); out_65[0] = F(7, 2); out_66[0] = F(7, 3); out_67[0] = F(7, 4); out_68[0] = F(7, 5); out_69[0] = F(7, 6); out_70[0] = F(7, 7); out_71[0] = F(7, 8); out_72[0] = F(8, 0); out_73[0] = F(8, 1); out_74[0] = F(8, 2); out_75[0] = F(8, 3); out_76[0] = F(8, 4); out_77[0] = F(8, 5); out_78[0] = F(8, 6); out_79[0] = F(8, 7); out_80[0] = F(8, 8);
+    }
+
+    void inverse_6(float in_0, float in_1, float in_2, float in_3, float in_4, float in_5, float in_6, float in_7, float in_8, float in_9, float in_10, float in_11, float in_12, float in_13, float in_14, float in_15, float in_16, float in_17, float in_18, float in_19, float in_20, float in_21, float in_22, float in_23, float in_24, float in_25, float in_26, float in_27, float in_28, float in_29, float in_30, float in_31, float in_32, float in_33, float in_34, float in_35, float* out_0, float* out_1, float* out_2, float* out_3, float* out_4, float* out_5, float* out_6, float* out_7, float* out_8, float* out_9, float* out_10, float* out_11, float* out_12, float* out_13, float* out_14, float* out_15, float* out_16, float* out_17, float* out_18, float* out_19, float* out_20, float* out_21, float* out_22, float* out_23, float* out_24, float* out_25, float* out_26, float* out_27, float* out_28, float* out_29, float* out_30, float* out_31, float* out_32, float* out_33, float* out_34, float* out_35)
+    {
+        Eigen::Matrix<float, 6, 6> F;
+        F(0, 0) = in_0; F(0, 1) = in_1; F(0, 2) = in_2; F(0, 3) = in_3; F(0, 4) = in_4; F(0, 5) = in_5; F(1, 0) = in_6; F(1, 1) = in_7; F(1, 2) = in_8; F(1, 3) = in_9; F(1, 4) = in_10; F(1, 5) = in_11; F(2, 0) = in_12; F(2, 1) = in_13; F(2, 2) = in_14; F(2, 3) = in_15; F(2, 4) = in_16; F(2, 5) = in_17; F(3, 0) = in_18; F(3, 1) = in_19; F(3, 2) = in_20; F(3, 3) = in_21; F(3, 4) = in_22; F(3, 5) = in_23; F(4, 0) = in_24; F(4, 1) = in_25; F(4, 2) = in_26; F(4, 3) = in_27; F(4, 4) = in_28; F(4, 5) = in_29; F(5, 0) = in_30; F(5, 1) = in_31; F(5, 2) = in_32; F(5, 3) = in_33; F(5, 4) = in_34; F(5, 5) = in_35;
+        Eigen::Matrix<float, 6, 6> tmp = F;
+        F = tmp.inverse();
+        out_0[0] = F(0, 0); out_1[0] = F(0, 1); out_2[0] = F(0, 2); out_3[0] = F(0, 3); out_4[0] = F(0, 4); out_5[0] = F(0, 5); out_6[0] = F(1, 0); out_7[0] = F(1, 1); out_8[0] = F(1, 2); out_9[0] = F(1, 3); out_10[0] = F(1, 4); out_11[0] = F(1, 5); out_12[0] = F(2, 0); out_13[0] = F(2, 1); out_14[0] = F(2, 2); out_15[0] = F(2, 3); out_16[0] = F(2, 4); out_17[0] = F(2, 5); out_18[0] = F(3, 0); out_19[0] = F(3, 1); out_20[0] = F(3, 2); out_21[0] = F(3, 3); out_22[0] = F(3, 4); out_23[0] = F(3, 5); out_24[0] = F(4, 0); out_25[0] = F(4, 1); out_26[0] = F(4, 2); out_27[0] = F(4, 3); out_28[0] = F(4, 4); out_29[0] = F(4, 5); out_30[0] = F(5, 0); out_31[0] = F(5, 1); out_32[0] = F(5, 2); out_33[0] = F(5, 3); out_34[0] = F(5, 4); out_35[0] = F(5, 5);
+    }
+
+    void inverse_9(float in_0, float in_1, float in_2, float in_3, float in_4, float in_5, float in_6, float in_7, float in_8, float in_9, float in_10, float in_11, float in_12, float in_13, float in_14, float in_15, float in_16, float in_17, float in_18, float in_19, float in_20, float in_21, float in_22, float in_23, float in_24, float in_25, float in_26, float in_27, float in_28, float in_29, float in_30, float in_31, float in_32, float in_33, float in_34, float in_35, float in_36, float in_37, float in_38, float in_39, float in_40, float in_41, float in_42, float in_43, float in_44, float in_45, float in_46, float in_47, float in_48, float in_49, float in_50, float in_51, float in_52, float in_53, float in_54, float in_55, float in_56, float in_57, float in_58, float in_59, float in_60, float in_61, float in_62, float in_63, float in_64, float in_65, float in_66, float in_67, float in_68, float in_69, float in_70, float in_71, float in_72, float in_73, float in_74, float in_75, float in_76, float in_77, float in_78, float in_79, float in_80, float* out_0, float* out_1, float* out_2, float* out_3, float* out_4, float* out_5, float* out_6, float* out_7, float* out_8, float* out_9, float* out_10, float* out_11, float* out_12, float* out_13, float* out_14, float* out_15, float* out_16, float* out_17, float* out_18, float* out_19, float* out_20, float* out_21, float* out_22, float* out_23, float* out_24, float* out_25, float* out_26, float* out_27, float* out_28, float* out_29, float* out_30, float* out_31, float* out_32, float* out_33, float* out_34, float* out_35, float* out_36, float* out_37, float* out_38, float* out_39, float* out_40, float* out_41, float* out_42, float* out_43, float* out_44, float* out_45, float* out_46, float* out_47, float* out_48, float* out_49, float* out_50, float* out_51, float* out_52, float* out_53, float* out_54, float* out_55, float* out_56, float* out_57, float* out_58, float* out_59, float* out_60, float* out_61, float* out_62, float* out_63, float* out_64, float* out_65, float* out_66, float* out_67, float* out_68, float* out_69, float* out_70, float* out_71, float* out_72, float* out_73, float* out_74, float* out_75, float* out_76, float* out_77, float* out_78, float* out_79, float* out_80)
+    {
+        Eigen::Matrix<float, 9, 9> F;
+        F(0, 0) = in_0; F(0, 1) = in_1; F(0, 2) = in_2; F(0, 3) = in_3; F(0, 4) = in_4; F(0, 5) = in_5; F(0, 6) = in_6; F(0, 7) = in_7; F(0, 8) = in_8; F(1, 0) = in_9; F(1, 1) = in_10; F(1, 2) = in_11; F(1, 3) = in_12; F(1, 4) = in_13; F(1, 5) = in_14; F(1, 6) = in_15; F(1, 7) = in_16; F(1, 8) = in_17; F(2, 0) = in_18; F(2, 1) = in_19; F(2, 2) = in_20; F(2, 3) = in_21; F(2, 4) = in_22; F(2, 5) = in_23; F(2, 6) = in_24; F(2, 7) = in_25; F(2, 8) = in_26; F(3, 0) = in_27; F(3, 1) = in_28; F(3, 2) = in_29; F(3, 3) = in_30; F(3, 4) = in_31; F(3, 5) = in_32; F(3, 6) = in_33; F(3, 7) = in_34; F(3, 8) = in_35; F(4, 0) = in_36; F(4, 1) = in_37; F(4, 2) = in_38; F(4, 3) = in_39; F(4, 4) = in_40; F(4, 5) = in_41; F(4, 6) = in_42; F(4, 7) = in_43; F(4, 8) = in_44; F(5, 0) = in_45; F(5, 1) = in_46; F(5, 2) = in_47; F(5, 3) = in_48; F(5, 4) = in_49; F(5, 5) = in_50; F(5, 6) = in_51; F(5, 7) = in_52; F(5, 8) = in_53; F(6, 0) = in_54; F(6, 1) = in_55; F(6, 2) = in_56; F(6, 3) = in_57; F(6, 4) = in_58; F(6, 5) = in_59; F(6, 6) = in_60; F(6, 7) = in_61; F(6, 8) = in_62; F(7, 0) = in_63; F(7, 1) = in_64; F(7, 2) = in_65; F(7, 3) = in_66; F(7, 4) = in_67; F(7, 5) = in_68; F(7, 6) = in_69; F(7, 7) = in_70; F(7, 8) = in_71; F(8, 0) = in_72; F(8, 1) = in_73; F(8, 2) = in_74; F(8, 3) = in_75; F(8, 4) = in_76; F(8, 5) = in_77; F(8, 6) = in_78; F(8, 7) = in_79; F(8, 8) = in_80;
+        Eigen::Matrix<float, 9, 9> tmp = F;
+        F = tmp.inverse();
+        out_0[0] = F(0, 0); out_1[0] = F(0, 1); out_2[0] = F(0, 2); out_3[0] = F(0, 3); out_4[0] = F(0, 4); out_5[0] = F(0, 5); out_6[0] = F(0, 6); out_7[0] = F(0, 7); out_8[0] = F(0, 8); out_9[0] = F(1, 0); out_10[0] = F(1, 1); out_11[0] = F(1, 2); out_12[0] = F(1, 3); out_13[0] = F(1, 4); out_14[0] = F(1, 5); out_15[0] = F(1, 6); out_16[0] = F(1, 7); out_17[0] = F(1, 8); out_18[0] = F(2, 0); out_19[0] = F(2, 1); out_20[0] = F(2, 2); out_21[0] = F(2, 3); out_22[0] = F(2, 4); out_23[0] = F(2, 5); out_24[0] = F(2, 6); out_25[0] = F(2, 7); out_26[0] = F(2, 8); out_27[0] = F(3, 0); out_28[0] = F(3, 1); out_29[0] = F(3, 2); out_30[0] = F(3, 3); out_31[0] = F(3, 4); out_32[0] = F(3, 5); out_33[0] = F(3, 6); out_34[0] = F(3, 7); out_35[0] = F(3, 8); out_36[0] = F(4, 0); out_37[0] = F(4, 1); out_38[0] = F(4, 2); out_39[0] = F(4, 3); out_40[0] = F(4, 4); out_41[0] = F(4, 5); out_42[0] = F(4, 6); out_43[0] = F(4, 7); out_44[0] = F(4, 8); out_45[0] = F(5, 0); out_46[0] = F(5, 1); out_47[0] = F(5, 2); out_48[0] = F(5, 3); out_49[0] = F(5, 4); out_50[0] = F(5, 5); out_51[0] = F(5, 6); out_52[0] = F(5, 7); out_53[0] = F(5, 8); out_54[0] = F(6, 0); out_55[0] = F(6, 1); out_56[0] = F(6, 2); out_57[0] = F(6, 3); out_58[0] = F(6, 4); out_59[0] = F(6, 5); out_60[0] = F(6, 6); out_61[0] = F(6, 7); out_62[0] = F(6, 8); out_63[0] = F(7, 0); out_64[0] = F(7, 1); out_65[0] = F(7, 2); out_66[0] = F(7, 3); out_67[0] = F(7, 4); out_68[0] = F(7, 5); out_69[0] = F(7, 6); out_70[0] = F(7, 7); out_71[0] = F(7, 8); out_72[0] = F(8, 0); out_73[0] = F(8, 1); out_74[0] = F(8, 2); out_75[0] = F(8, 3); out_76[0] = F(8, 4); out_77[0] = F(8, 5); out_78[0] = F(8, 6); out_79[0] = F(8, 7); out_80[0] = F(8, 8);
+    }
+
+
+void point_triangle_ccd(float p0, float p1, float p2,
                             float t00, float t01, float t02,
                             float t10, float t11, float t12,
                             float t20, float t21, float t22,
