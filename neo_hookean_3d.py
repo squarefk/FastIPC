@@ -3,68 +3,78 @@ from math_tools import *
 
 
 @ti.func
-def fixed_corotated_energy(sig, la, mu):
+def elasticity_energy(sig, la, mu):
     sigma = ti.Vector([sig[0, 0], sig[1, 1], sig[2, 2]])
-    sigmam12Sum = (sigma - ti.Vector([1, 1, 1])).norm_sqr()
-    sigmaProdm1 = sigma[0] * sigma[1] * sigma[2] - 1
-    return mu * sigmam12Sum + la / 2 * sigmaProdm1 * sigmaProdm1
+    sigma2Sum = sigma.norm_sqr()
+    sigmaProd = sigma[0] * sigma[1] * sigma[2]
+    log_sigmaProd = ti.log(sigmaProd)
+    return mu / 2.0 * (sigma2Sum - 3) - (mu - la / 2.0 * log_sigmaProd) * log_sigmaProd
 
 
 @ti.func
-def fixed_corotated_gradient(sig, la, mu):
-    sigma = ti.Vector([sig[0, 0], sig[1, 1], sig[2, 2]])
-    sigmaProdm1lambda = la * (sigma[0] * sigma[1] * sigma[2] - 1)
-    sigmaProd_noI = ti.Vector([sigma[1] * sigma[2], sigma[2] * sigma[0], sigma[0] * sigma[1]])
-    _2u = mu * 2
-    return ti.Vector([_2u * (sigma[0] - 1) + sigmaProd_noI[0] * sigmaProdm1lambda,
-                      _2u * (sigma[1] - 1) + sigmaProd_noI[1] * sigmaProdm1lambda,
-                      _2u * (sigma[2] - 1) + sigmaProd_noI[2] * sigmaProdm1lambda])
-
-
-@ti.func
-def fixed_corotated_hessian(sig, la, mu):
+def elasticity_gradient(sig, la, mu):
     sigma = ti.Vector([sig[0, 0], sig[1, 1], sig[2, 2]])
     sigmaProd = sigma[0] * sigma[1] * sigma[2]
-    sigmaProd_noI = ti.Vector([sigma[1] * sigma[2], sigma[2] * sigma[0], sigma[0] * sigma[1]])
-    _2u = mu * 2
-    H01 = la * (sigma[2] * (sigmaProd - 1) + sigmaProd_noI[0] * sigmaProd_noI[1])
-    H02 = la * (sigma[1] * (sigmaProd - 1) + sigmaProd_noI[0] * sigmaProd_noI[2])
-    H12 = la * (sigma[0] * (sigmaProd - 1) + sigmaProd_noI[1] * sigmaProd_noI[2])
-    return ti.Matrix([[_2u + la * sigmaProd_noI[0] * sigmaProd_noI[0], H01, H02],
-                      [H01, _2u + la * sigmaProd_noI[1] * sigmaProd_noI[1], H12],
-                      [H02, H12, _2u + la * sigmaProd_noI[2] * sigmaProd_noI[2]]])
+    log_sigmaProd = ti.log(sigmaProd)
+    inv0 = 1.0 / sigma[0]
+    inv1 = 1.0 / sigma[1]
+    inv2 = 1.0 / sigma[2]
+    return ti.Vector([mu * (sigma[0] - inv0) + la * inv0 * log_sigmaProd,
+                      mu * (sigma[1] - inv1) + la * inv1 * log_sigmaProd,
+                      mu * (sigma[2] - inv2) + la * inv2 * log_sigmaProd])
 
 
 @ti.func
-def fixed_corotated_first_piola_kirchoff_stress(F, la, mu):
+def elasticity_hessian(sig, la, mu):
+    sigma = ti.Vector([sig[0, 0], sig[1, 1], sig[2, 2]])
+    sigmaProd = sigma[0] * sigma[1] * sigma[2]
+    log_sigmaProd = ti.log(sigmaProd)
+    inv2_0 = 1.0 / sigma[0] / sigma[0]
+    inv2_1 = 1.0 / sigma[1] / sigma[1]
+    inv2_2 = 1.0 / sigma[2] / sigma[2]
+    H00 = mu * (1.0 + inv2_0) - la * inv2_0 * (log_sigmaProd - 1.0)
+    H11 = mu * (1.0 + inv2_1) - la * inv2_1 * (log_sigmaProd - 1.0)
+    H22 = mu * (1.0 + inv2_2) - la * inv2_2 * (log_sigmaProd - 1.0)
+    H01 = la / sigma[0] / sigma[1]
+    H12 = la / sigma[1] / sigma[2]
+    H02 = la / sigma[0] / sigma[2]
+    return ti.Matrix([[H00, H01, H02],
+                      [H01, H11, H12],
+                      [H02, H12, H22]])
+
+
+@ti.func
+def elasticity_first_piola_kirchoff_stress(F, la, mu):
     J = F.determinant()
-    JFinvT = J * F.inverse().transpose()
-    U, sig, V = ti.svd(F)
-    R = U @ V.transpose()
-    return 2 * mu * (F - R) + la * (J - 1) * JFinvT
+    logJ = ti.log(J)
+    scale = la * logJ - mu
+    tau = mu * F * F.transpose() + scale * ti.Matrix([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    FinvT = F.inverse().transpose()
+    return tau * FinvT
 
 
 @ti.func
-def fixed_corotated_first_piola_kirchoff_stress_derivative(F, la, mu):
+def elasticity_first_piola_kirchoff_stress_derivative(F, la, mu):
     U, sig, V = ti.svd(F)
     sigma = ti.Vector([sig[0, 0], sig[1, 1], sig[2, 2]])
     sigmaProd = sigma[0] * sigma[1] * sigma[2]
+    middle = mu - la * ti.log(sigmaProd)
     dE_div_dsigma = fixed_corotated_gradient(sig, la, mu)
     d2E_div_dsigma2 = project_pd_3(fixed_corotated_hessian(sig, la, mu))
 
-    leftCoef = mu - la / 2 * sigma[2] * (sigmaProd - 1)
+    leftCoef = (mu + middle / sigma[0] / sigma[1]) / 2.0
     rightCoef = dE_div_dsigma[0] + dE_div_dsigma[1]
     sum_sigma = ti.max(sigma[0] + sigma[1], 0.000001)
     rightCoef /= (2 * sum_sigma)
     B0 = make_pd(ti.Matrix([[leftCoef + rightCoef, leftCoef - rightCoef], [leftCoef - rightCoef, leftCoef + rightCoef]]))
 
-    leftCoef = mu - la / 2 * sigma[0] * (sigmaProd - 1)
+    leftCoef = (mu + middle / sigma[1] / sigma[2]) / 2.0
     rightCoef = dE_div_dsigma[1] + dE_div_dsigma[2]
     sum_sigma = ti.max(sigma[1] + sigma[2], 0.000001)
     rightCoef /= (2 * sum_sigma)
     B1 = make_pd(ti.Matrix([[leftCoef + rightCoef, leftCoef - rightCoef], [leftCoef - rightCoef, leftCoef + rightCoef]]))
 
-    leftCoef = mu - la / 2 * sigma[1] * (sigmaProd - 1)
+    leftCoef = (mu + middle / sigma[2] / sigma[0]) / 2.0
     rightCoef = dE_div_dsigma[2] + dE_div_dsigma[0]
     sum_sigma = ti.max(sigma[2] + sigma[0], 0.000001)
     rightCoef /= (2 * sum_sigma)
