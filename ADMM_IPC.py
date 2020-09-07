@@ -416,7 +416,7 @@ def compute_restT_and_m():
                 m[vertices[i, d]] += mass
     for i in range(n_particles):
         x0[i] = x[i]
-        v(0)[i] = 2.0 if x(0)[i] < 0 else -2.0
+        # v(0)[i] = -1 if i >= n_particles / 2 else 0.0
 
 
 @ti.kernel
@@ -654,6 +654,8 @@ def PP_energy(pos, posTilde, Q):
     p0 = ti.Vector([0.0, 0.0, 0.0])
     p1 = ti.Vector([pos[0], pos[1], pos[2]])
     dist2 = PP_3D_E(p0, p1)
+    if dist2 < 1e-9:
+        print("ERROR PP", dist2)
     return barrier_E(dist2, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
 @ti.func
 def PP_gradient(pos, posTilde, Q):
@@ -680,6 +682,8 @@ def PE_energy(pos, posTilde, Q):
     e0 = ti.Vector([pos[0], pos[1], pos[2]])
     e1 = ti.Vector([pos[3], pos[4], pos[5]])
     dist2 = PE_3D_E(p, e0, e1)
+    if dist2 < 1e-9:
+        print("ERROR PE", dist2)
     return barrier_E(dist2, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
 @ti.func
 def PE_gradient(pos, posTilde, Q):
@@ -709,6 +713,8 @@ def PT_energy(pos, posTilde, Q):
     t1 = ti.Vector([pos[3], pos[4], pos[5]])
     t2 = ti.Vector([pos[6], pos[7], pos[8]])
     dist2 = PT_3D_E(p, t0, t1, t2)
+    if dist2 < 1e-9:
+        print("ERROR PT", dist2)
     return barrier_E(dist2, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
 @ti.func
 def PT_gradient(pos, posTilde, Q):
@@ -740,6 +746,8 @@ def EE_energy(pos, posTilde, Q):
     b0 = ti.Vector([pos[3], pos[4], pos[5]])
     b1 = ti.Vector([pos[6], pos[7], pos[8]])
     dist2 = EE_3D_E(a0, a1, b0, b1)
+    if dist2 < 1e-9:
+        print("ERROR EE", dist2)
     return barrier_E(dist2, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
 @ti.func
 def EE_gradient(pos, posTilde, Q):
@@ -773,6 +781,8 @@ def EEM_energy(pos, posTilde, Q, r):
     _a0, _a1, _b0, _b1 = x0[EEM[r, 0]], x0[EEM[r, 1]], x0[EEM[r, 2]], x0[EEM[r, 3]]
     eps_x = M_threshold(_a0, _a1, _b0, _b1)
     dist2 = EE_3D_E(a0, a1, b0, b1)
+    if dist2 < 1e-9:
+        print("ERROR EEM", dist2)
     return barrier_E(dist2, dHat2, kappa) * M_E(a0, a1, b0, b1, eps_x) + (pos - posTilde).norm_sqr() * Q * Q / 2
 @ti.func
 def EEM_gradient(pos, posTilde, Q, r):
@@ -819,6 +829,8 @@ def PPM_energy(pos, posTilde, Q, r):
     _a0, _a1, _b0, _b1 = x0[PPM[r, 0]], x0[PPM[r, 1]], x0[PPM[r, 2]], x0[PPM[r, 3]]
     eps_x = M_threshold(_a0, _a1, _b0, _b1)
     dist2 = PP_3D_E(a0, b0)
+    if dist2 < 1e-9:
+        print("ERROR EPPM", dist2)
     return barrier_E(dist2, dHat2, kappa) * M_E(a0, a1, b0, b1, eps_x) + (pos - posTilde).norm_sqr() * Q * Q / 2
 @ti.func
 def PPM_gradient(pos, posTilde, Q, r):
@@ -867,6 +879,8 @@ def PEM_energy(pos, posTilde, Q, r):
     _a0, _a1, _b0, _b1 = x0[PEM[r, 0]], x0[PEM[r, 1]], x0[PEM[r, 2]], x0[PEM[r, 3]]
     eps_x = M_threshold(_a0, _a1, _b0, _b1)
     dist2 = PE_3D_E(a0, b0, b1)
+    if dist2 < 1e-9:
+        print("ERROR PEM", dist2)
     return barrier_E(dist2, dHat2, kappa) * M_E(a0, a1, b0, b1, eps_x) + (pos - posTilde).norm_sqr() * Q * Q / 2
 @ti.func
 def PEM_gradient(pos, posTilde, Q, r):

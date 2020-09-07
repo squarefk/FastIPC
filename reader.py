@@ -38,3 +38,13 @@ def read(testcase):
         dirichlet_fixed = np.zeros(len(mesh_particles) * 3, dtype=bool)
         dirichlet_value = np.zeros(len(mesh_particles) * 3, dtype=np.float32)
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value
+    elif testcase == 3:
+        # two tets
+        mesh = meshio.read("input/tet.vtk")
+        mesh_particles = np.vstack((mesh.points + [0, 0, 0], mesh.points + [0.501, -0.5, 0.5]))
+        mesh_elements = np.vstack((mesh.cells[0].data, mesh.cells[0].data + len(mesh_particles) / 2))
+        mesh_scale = 0.6
+        mesh_offset = [0, 0, 0]
+        dirichlet_fixed = np.zeros(len(mesh_particles) * 3, dtype=bool)
+        dirichlet_value = np.zeros(len(mesh_particles) * 3, dtype=np.float32)
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value
