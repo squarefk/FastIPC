@@ -2,7 +2,7 @@ import sys, os, time, math
 import taichi as ti
 import taichi_three as t3
 import numpy as np
-from fixed_corotated_3d import *
+from neo_hookean_3d import *
 from math_tools import *
 from ipc import *
 import meshio
@@ -45,9 +45,9 @@ print('output directory:', directory)
 
 ##############################################################################
 
-ti.init(arch=ti.cpu)
+real = ti.f64
+ti.init(arch=ti.cpu, default_fp=real)
 
-real = ti.f32
 dim = 3
 scalar = lambda: ti.var(dt=real)
 vec = lambda: ti.Vector(dim, dt=real)
@@ -264,6 +264,13 @@ def compute_intersection_free_step_size() -> real:
                 if moving_edge_edge_ccd_broadphase(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, dHat):
                     dist2 = EE_dist2(x[a0], x[a1], x[b0], x[b1], EE_type(x[a0], x[a1], x[b0], x[b1]))
                     alpha = ti.min(alpha, edge_edge_ccd(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, 0.2, dist2))
+    for i in range(n_elements):
+        a, b, c, d = vertices[i, 0], vertices[i, 1], vertices[i, 2], vertices[i, 3]
+        da = ti.Vector([data_sol[a * dim + 0], data_sol[a * dim + 1], data_sol[a * dim + 2]])
+        db = ti.Vector([data_sol[b * dim + 0], data_sol[b * dim + 1], data_sol[b * dim + 2]])
+        dc = ti.Vector([data_sol[c * dim + 0], data_sol[c * dim + 1], data_sol[c * dim + 2]])
+        dd = ti.Vector([data_sol[d * dim + 0], data_sol[d * dim + 1], data_sol[d * dim + 2]])
+        alpha = ti.min(alpha, get_smallest_positive_real_cubic_root(x[a], x[b], x[c], x[d], da, db, dc, dd, 0.2))
     return alpha
 
 
@@ -325,7 +332,7 @@ def compute_energy() -> real:
         F = compute_T(e) @ restT[e].inverse()
         vol0 = restT[e].determinant() / dim / (dim - 1)
         U, sig, V = ti.svd(F)
-        total_energy += fixed_corotated_energy(sig, la, mu) * dt * dt * vol0
+        total_energy += elasticity_energy(sig, la, mu) * dt * dt * vol0
     # ipc
     for r in range(n_PP[None]):
         p0, p1 = x[PP[r, 0]], x[PP[r, 1]]
@@ -394,8 +401,8 @@ def compute_elasticity():
         F = compute_T(e) @ restT[e].inverse()
         IB = restT[e].inverse()
         vol0 = restT[e].determinant() / dim / (dim - 1)
-        dPdF = fixed_corotated_first_piola_kirchoff_stress_derivative(F, la, mu) * dt * dt * vol0
-        P = fixed_corotated_first_piola_kirchoff_stress(F, la, mu) * dt * dt * vol0
+        dPdF = elasticity_first_piola_kirchoff_stress_derivative(F, la, mu) * dt * dt * vol0
+        P = elasticity_first_piola_kirchoff_stress(F, la, mu) * dt * dt * vol0
         if ti.static(dim == 2):
             intermediate = ti.Matrix([[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
                                       [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]])
@@ -584,8 +591,8 @@ def compute_ipc5():
         b = barrier_E(dist2, dHat2, kappa)
         bg = barrier_g(dist2, dHat2, kappa)
         idx = ti.static([0, 1, 2, 6, 7, 8])
-        lg = fill_vec(bg * dist2g, idx, 6)
-        lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(a0, b0), idx, 6)
+        lg = fill_vec(bg * dist2g, idx, 6, real)
+        lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(a0, b0), idx, 6, real)
         M = M_E(a0, a1, b0, b1, eps_x)
         Mg = M_g(a0, a1, b0, b1, eps_x)
         g = lg * M + b * Mg
@@ -603,8 +610,8 @@ def compute_ipc6():
         b = barrier_E(dist2, dHat2, kappa)
         bg = barrier_g(dist2, dHat2, kappa)
         idx = ti.static([0, 1, 2, 6, 7, 8, 9, 10, 11])
-        lg = fill_vec(bg * dist2g, idx, 9)
-        lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(a0, b0, b1), idx, 9)
+        lg = fill_vec(bg * dist2g, idx, 9, real)
+        lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(a0, b0, b1), idx, 9, real)
         M = M_E(a0, a1, b0, b1, eps_x)
         Mg = M_g(a0, a1, b0, b1, eps_x)
         g = lg * M + b * Mg
@@ -732,7 +739,7 @@ def write_image(f):
             gui.circle(particle_pos[PE[i, 0]], radius=3, color=0xFF4444)
         gui.show(directory + f'images/{f:06d}.png')
     else:
-        model.vi.from_numpy(particle_pos.astype(np.float32))
+        model.vi.from_numpy(particle_pos.astype(np.float64))
         model.faces.from_numpy(boundary_triangles_.astype(np.int32))
         camera.from_mouse(gui)
         scene.render()
@@ -747,7 +754,7 @@ def write_image(f):
 
 
 if __name__ == "__main__":
-    x.from_numpy(mesh_particles.astype(np.float32))
+    x.from_numpy(mesh_particles.astype(np.float64))
     v.fill(0)
     vertices.from_numpy(mesh_elements.astype(np.int32))
     boundary_points.from_numpy(np.array(list(boundary_points_)).astype(np.int32))

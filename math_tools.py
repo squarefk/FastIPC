@@ -9,16 +9,16 @@ def make_semi_positive_definite(mat, n):
 
 
 @ti.func
-def fill_vec(v, idx: ti.template(), t: ti.template()):
-    vec = ti.Matrix.zero(ti.f32, 12)
+def fill_vec(v, idx: ti.template(), t: ti.template(), real: ti.template()):
+    vec = ti.Matrix.zero(real, 12)
     for i in ti.static(range(t)):
         vec[idx[i]] = v[i]
     return vec
 
 
 @ti.func
-def fill_mat(m, idx: ti.template(), t: ti.template()):
-    mat = ti.Matrix.zero(ti.f32, 12, 12)
+def fill_mat(m, idx: ti.template(), t: ti.template(), real: ti.template()):
+    mat = ti.Matrix.zero(real, 12, 12)
     for i in ti.static(range(t)):
         for j in ti.static(range(t)):
             mat[idx[i], idx[j]] = m[i, j]
@@ -99,6 +99,29 @@ def inverse_9(F):
     ti.external_func_call(func=so.inverse_9, args=(in_0, in_1, in_2, in_3, in_4, in_5, in_6, in_7, in_8, in_9, in_10, in_11, in_12, in_13, in_14, in_15, in_16, in_17, in_18, in_19, in_20, in_21, in_22, in_23, in_24, in_25, in_26, in_27, in_28, in_29, in_30, in_31, in_32, in_33, in_34, in_35, in_36, in_37, in_38, in_39, in_40, in_41, in_42, in_43, in_44, in_45, in_46, in_47, in_48, in_49, in_50, in_51, in_52, in_53, in_54, in_55, in_56, in_57, in_58, in_59, in_60, in_61, in_62, in_63, in_64, in_65, in_66, in_67, in_68, in_69, in_70, in_71, in_72, in_73, in_74, in_75, in_76, in_77, in_78, in_79, in_80), outputs=(out_0, out_1, out_2, out_3, out_4, out_5, out_6, out_7, out_8, out_9, out_10, out_11, out_12, out_13, out_14, out_15, out_16, out_17, out_18, out_19, out_20, out_21, out_22, out_23, out_24, out_25, out_26, out_27, out_28, out_29, out_30, out_31, out_32, out_33, out_34, out_35, out_36, out_37, out_38, out_39, out_40, out_41, out_42, out_43, out_44, out_45, out_46, out_47, out_48, out_49, out_50, out_51, out_52, out_53, out_54, out_55, out_56, out_57, out_58, out_59, out_60, out_61, out_62, out_63, out_64, out_65, out_66, out_67, out_68, out_69, out_70, out_71, out_72, out_73, out_74, out_75, out_76, out_77, out_78, out_79, out_80))
     return ti.Matrix([[out_0, out_1, out_2, out_3, out_4, out_5, out_6, out_7, out_8], [out_9, out_10, out_11, out_12, out_13, out_14, out_15, out_16, out_17], [out_18, out_19, out_20, out_21, out_22, out_23, out_24, out_25, out_26], [out_27, out_28, out_29, out_30, out_31, out_32, out_33, out_34, out_35], [out_36, out_37, out_38, out_39, out_40, out_41, out_42, out_43, out_44], [out_45, out_46, out_47, out_48, out_49, out_50, out_51, out_52, out_53], [out_54, out_55, out_56, out_57, out_58, out_59, out_60, out_61, out_62], [out_63, out_64, out_65, out_66, out_67, out_68, out_69, out_70, out_71], [out_72, out_73, out_74, out_75, out_76, out_77, out_78, out_79, out_80]])
 
+
+@ti.func
+def get_smallest_positive_real_cubic_root(x1, x2, x3, x4, p1, p2, p3, p4, eta):
+    v01 = x2 - x1
+    v02 = x3 - x1
+    v03 = x4 - x1
+    p01 = p2 - p1
+    p02 = p3 - p1
+    p03 = p4 - p1
+    p01xp02 = p01.cross(p02)
+    v01xp02pp01xv02 = v01.cross(p02) + p01.cross(v02)
+    v01xv02 = v01.cross(v02)
+    a = p03.dot(p01xp02)
+    b = v03.dot(p01xp02) + p03.dot(v01xp02pp01xv02)
+    c = p03.dot(v01xv02) + v03.dot(v01xp02pp01xv02)
+    d = v03.dot(v01xv02)
+    ret = 0.0
+    tol = 1e-8
+    ti.external_func_call(func=so.get_smallest_positive_real_cubic_root,
+                          args=(a, b, c, d, tol),
+                          outputs=(ret,))
+    ret = 1.0 if ret < 0.0 else ret * (1.0 - eta)
+    return ret
 
 
 @ti.func
