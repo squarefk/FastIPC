@@ -96,18 +96,18 @@ extern "C" {
             complex<double> i(0, 1);
             complex<double> delta0(b * b - 3 * a * c, 0);
             complex<double> delta1(2 * b * b * b - 9 * a * b * c + 27 * a * a * d, 0);
-            complex<double> C = pow((delta1 + sqrt(delta1 * delta1 - 4.0 * delta0 * delta0 * delta0)) / 2.0, 1.0 / 3.0);
+            complex<double> C = pow((delta1 + sqrt(delta1 * delta1 - double(4.0) * delta0 * delta0 * delta0)) / double(2.0), double(1.0 / 3.0));
             if (std::abs(C) == 0.0) {
                 // a corner case listed by wikipedia found by our collaborate from another project
-                C = pow((delta1 - sqrt(delta1 * delta1 - 4.0 * delta0 * delta0 * delta0)) / 2.0, 1.0 / 3.0);
+                C = pow((delta1 - sqrt(delta1 * delta1 - double(4.0) * delta0 * delta0 * delta0)) / double(2.0), double(1.0 / 3.0));
             }
 
-            complex<double> u2 = (-1.0 + sqrt(3.0) * i) / 2.0;
-            complex<double> u3 = (-1.0 - sqrt(3.0) * i) / 2.0;
+            complex<double> u2 = (double(-1.0) + double(sqrt(3.0)) * i) / double(2.0);
+            complex<double> u3 = (double(-1.0) - double(sqrt(3.0)) * i) / double(2.0);
 
-            complex<double> t1 = (b + C + delta0 / C) / (-3.0 * a);
-            complex<double> t2 = (b + u2 * C + delta0 / (u2 * C)) / (-3.0 * a);
-            complex<double> t3 = (b + u3 * C + delta0 / (u3 * C)) / (-3.0 * a);
+            complex<double> t1 = (b + C + delta0 / C) / double(-3.0 * a);
+            complex<double> t2 = (b + u2 * C + delta0 / (u2 * C)) / double(-3.0 * a);
+            complex<double> t3 = (b + u3 * C + delta0 / (u3 * C)) / double(-3.0 * a);
 
             if ((abs(imag(t1)) < tol) && (real(t1) > 0))
                 t = real(t1);
