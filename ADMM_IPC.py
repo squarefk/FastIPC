@@ -47,9 +47,8 @@ print('output directory:', directory)
 
 ##############################################################################
 
-ti.init(arch=ti.cpu)
-
-real = ti.f32
+real = ti.f64
+ti.init(arch=ti.cpu, default_fp=real)
 scalar = lambda: ti.var(dt=real)
 vec = lambda: ti.Vector(dim, dt=real)
 mat = lambda: ti.Matrix(dim, dim, dt=real)
@@ -416,7 +415,7 @@ def compute_restT_and_m():
                 m[vertices[i, d]] += mass
     for i in range(n_particles):
         x0[i] = x[i]
-        # v(0)[i] = -1 if i >= n_particles / 2 else 0.0
+        v(0)[i] = 2 if i < n_particles / 2 else -2
 
 
 @ti.kernel
@@ -638,15 +637,15 @@ def solve_system():
 @ti.func
 def local_energy(sigma, sigma_Dx_plus_u, vol0, W):
     sig = ti.Matrix([[sigma[0], 0.0, 0.0], [0.0, sigma[1], 0.0], [0.0, 0.0, sigma[2]]])
-    return fixed_corotated_energy(sig, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u).norm_sqr() * W * W / 2
+    return elasticity_energy(sig, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u).norm_sqr() * W * W / 2
 @ti.func
 def local_gradient(sigma, sigma_Dx_plus_u, vol0, W):
     sig = ti.Matrix([[sigma[0], 0.0, 0.0], [0.0, sigma[1], 0.0], [0.0, 0.0, sigma[2]]])
-    return fixed_corotated_gradient(sig, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u) * W * W
+    return elasticity_gradient(sig, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u) * W * W
 @ti.func
 def local_hessian(sigma, sigma_Dx_plus_u, vol0, W):
     sig = ti.Matrix([[sigma[0], 0.0, 0.0], [0.0, sigma[1], 0.0], [0.0, 0.0, sigma[2]]])
-    return project_pd_3(fixed_corotated_hessian(sig, la, mu)) * dt * dt * vol0 + ti.Matrix.identity(real, 3) * W * W
+    return project_pd_3(elasticity_hessian(sig, la, mu)) * dt * dt * vol0 + ti.Matrix.identity(real, 3) * W * W
 
 
 @ti.func
@@ -845,7 +844,7 @@ def PPM_gradient(pos, posTilde, Q, r):
     b = barrier_E(dist2, dHat2, kappa)
     bg = barrier_g(dist2, dHat2, kappa)
     idx = ti.static([0, 1, 2, 6, 7, 8])
-    lg = fill_vec(bg * dist2g, idx, 6)
+    lg = fill_vec(bg * dist2g, idx, 6, real)
     M = M_E(a0, a1, b0, b1, eps_x)
     Mg = M_g(a0, a1, b0, b1, eps_x)
     g = lg * M + b * Mg
@@ -863,8 +862,8 @@ def PPM_hessian(pos, posTilde, Q, r):
     b = barrier_E(dist2, dHat2, kappa)
     bg = barrier_g(dist2, dHat2, kappa)
     idx = ti.static([0, 1, 2, 6, 7, 8])
-    lg = fill_vec(bg * dist2g, idx, 6)
-    lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(a0, b0), idx, 6)
+    lg = fill_vec(bg * dist2g, idx, 6, real)
+    lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(a0, b0), idx, 6, real)
     M = M_E(a0, a1, b0, b1, eps_x)
     Mg = M_g(a0, a1, b0, b1, eps_x)
     H = lH * M + lg.outer_product(Mg) + Mg.outer_product(lg) + b * M_H(a0, a1, b0, b1, eps_x)
@@ -895,7 +894,7 @@ def PEM_gradient(pos, posTilde, Q, r):
     b = barrier_E(dist2, dHat2, kappa)
     bg = barrier_g(dist2, dHat2, kappa)
     idx = ti.static([0, 1, 2, 6, 7, 8, 9, 10, 11])
-    lg = fill_vec(bg * dist2g, idx, 9)
+    lg = fill_vec(bg * dist2g, idx, 9, real)
     M = M_E(a0, a1, b0, b1, eps_x)
     Mg = M_g(a0, a1, b0, b1, eps_x)
     g = lg * M + b * Mg
@@ -913,8 +912,8 @@ def PEM_hessian(pos, posTilde, Q, r):
     b = barrier_E(dist2, dHat2, kappa)
     bg = barrier_g(dist2, dHat2, kappa)
     idx = ti.static([0, 1, 2, 6, 7, 8, 9, 10, 11])
-    lg = fill_vec(bg * dist2g, idx, 9)
-    lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(a0, b0, b1), idx, 9)
+    lg = fill_vec(bg * dist2g, idx, 9, real)
+    lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(a0, b0, b1), idx, 9, real)
     M = M_E(a0, a1, b0, b1, eps_x)
     Mg = M_g(a0, a1, b0, b1, eps_x)
     H = lH * M + lg.outer_product(Mg) + Mg.outer_product(lg) + b * M_H(a0, a1, b0, b1, eps_x)
@@ -1249,7 +1248,7 @@ def write_image(f):
 
 
 if __name__ == "__main__":
-    x.from_numpy(mesh_particles.astype(np.float32))
+    x.from_numpy(mesh_particles.astype(np.float64))
     v.fill(0)
     vertices.from_numpy(mesh_elements.astype(np.int32))
     boundary_points.from_numpy(np.array(list(boundary_points_)).astype(np.int32))
