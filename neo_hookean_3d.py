@@ -48,9 +48,8 @@ def elasticity_first_piola_kirchoff_stress(F, la, mu):
     J = F.determinant()
     logJ = ti.log(J)
     scale = la * logJ - mu
-    tau = mu * F * F.transpose() + scale * ti.Matrix([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
     FinvT = F.inverse().transpose()
-    return tau * FinvT
+    return mu * F + scale * FinvT
 
 
 @ti.func
