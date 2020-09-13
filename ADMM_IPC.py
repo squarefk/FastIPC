@@ -204,124 +204,126 @@ def find_constraints():
         old_r_PEM[c, 0], old_r_PEM[c, 1], old_r_PEM[c, 2] = r_PEM[c, 0], r_PEM[c, 1], r_PEM[c, 2]
 
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
-    for i in range(n_boundary_points):
-        p = boundary_points[i]
-        for j in range(n_boundary_triangles):
-            t0 = boundary_triangles[j, 0]
-            t1 = boundary_triangles[j, 1]
-            t2 = boundary_triangles[j, 2]
-            if p != t0 and p != t1 and p != t2 and point_triangle_ccd_broadphase(x[p], x[t0], x[t1], x[t2], dHat):
-                case = PT_type(x[p], x[t0], x[t1], x[t2])
-                if case == 0:
-                    if PP_3D_E(x[p], x[t0]) < dHat2:
-                        n = ti.atomic_add(n_PP[None], 1)
-                        PP[n, 0], PP[n, 1] = p, t0
-                elif case == 1:
-                    if PP_3D_E(x[p], x[t1]) < dHat2:
-                        n = ti.atomic_add(n_PP[None], 1)
-                        PP[n, 0], PP[n, 1] = p, t1
-                elif case == 2:
-                    if PP_3D_E(x[p], x[t2]) < dHat2:
-                        n = ti.atomic_add(n_PP[None], 1)
-                        PP[n, 0], PP[n, 1] = p, t2
-                elif case == 3:
-                    if PE_3D_E(x[p], x[t0], x[t1]) < dHat2:
-                        n = ti.atomic_add(n_PE[None], 1)
-                        PE[n, 0], PE[n, 1], PE[n, 2] = p, t0, t1
-                elif case == 4:
-                    if PE_3D_E(x[p], x[t1], x[t2]) < dHat2:
-                        n = ti.atomic_add(n_PE[None], 1)
-                        PE[n, 0], PE[n, 1], PE[n, 2] = p, t1, t2
-                elif case == 5:
-                    if PE_3D_E(x[p], x[t2], x[t0]) < dHat2:
-                        n = ti.atomic_add(n_PE[None], 1)
-                        PE[n, 0], PE[n, 1], PE[n, 2] = p, t2, t0
-                elif case == 6:
-                    if PT_3D_E(x[p], x[t0], x[t1], x[t2]) < dHat2:
-                        n = ti.atomic_add(n_PT[None], 1)
-                        PT[n, 0], PT[n, 1], PT[n, 2], PT[n, 3] = p, t0, t1, t2
-    for i in range(n_boundary_edges):
-        a0 = boundary_edges[i, 0]
-        a1 = boundary_edges[i, 1]
-        for j in range(n_boundary_edges):
-            b0 = boundary_edges[j, 0]
-            b1 = boundary_edges[j, 1]
-            if i < j and a0 != b0 and a0 != b1 and a1 != b0 and a1 != b1 and edge_edge_ccd_broadphase(x[a0], x[a1], x[b0], x[b1], dHat):
-                EECN2 = EECN2_E(x[a0], x[a1], x[b0], x[b1])
-                eps_x = M_threshold(x0[a0], x0[a1], x0[b0], x0[b1])
-                case = EE_type(x[a0], x[a1], x[b0], x[b1])
-                if case == 0:
-                    if PP_3D_E(x[a0], x[b0]) < dHat2:
-                        if EECN2 < eps_x:
-                            n = ti.atomic_add(n_PPM[None], 1)
-                            PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a0, a1, b0, b1
-                        else:
+    for _ in range(1):
+        for i in range(n_boundary_points):
+            p = boundary_points[i]
+            for j in range(n_boundary_triangles):
+                t0 = boundary_triangles[j, 0]
+                t1 = boundary_triangles[j, 1]
+                t2 = boundary_triangles[j, 2]
+                if p != t0 and p != t1 and p != t2 and point_triangle_ccd_broadphase(x[p], x[t0], x[t1], x[t2], dHat):
+                    case = PT_type(x[p], x[t0], x[t1], x[t2])
+                    if case == 0:
+                        if PP_3D_E(x[p], x[t0]) < dHat2:
                             n = ti.atomic_add(n_PP[None], 1)
-                            PP[n, 0], PP[n, 1] = a0, b0
-                elif case == 1:
-                    if PP_3D_E(x[a0], x[b1]) < dHat2:
-                        if EECN2 < eps_x:
-                            n = ti.atomic_add(n_PPM[None], 1)
-                            PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a0, a1, b1, b0
-                        else:
+                            PP[n, 0], PP[n, 1] = p, t0
+                    elif case == 1:
+                        if PP_3D_E(x[p], x[t1]) < dHat2:
                             n = ti.atomic_add(n_PP[None], 1)
-                            PP[n, 0], PP[n, 1] = a0, b1
-                elif case == 2:
-                    if PE_3D_E(x[a0], x[b0], x[b1]) < dHat2:
-                        if EECN2 < eps_x:
-                            n = ti.atomic_add(n_PEM[None], 1)
-                            PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = a0, a1, b0, b1
-                        else:
-                            n = ti.atomic_add(n_PE[None], 1)
-                            PE[n, 0], PE[n, 1], PE[n, 2] = a0, b0, b1
-                elif case == 3:
-                    if PP_3D_E(x[a1], x[b0]) < dHat2:
-                        if EECN2 < eps_x:
-                            n = ti.atomic_add(n_PPM[None], 1)
-                            PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a1, a0, b0, b1
-                        else:
+                            PP[n, 0], PP[n, 1] = p, t1
+                    elif case == 2:
+                        if PP_3D_E(x[p], x[t2]) < dHat2:
                             n = ti.atomic_add(n_PP[None], 1)
-                            PP[n, 0], PP[n, 1] = a1, b0
-                elif case == 4:
-                    if PP_3D_E(x[a1], x[b1]) < dHat2:
-                        if EECN2 < eps_x:
-                            n = ti.atomic_add(n_PPM[None], 1)
-                            PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a1, a0, b1, b0
-                        else:
-                            n = ti.atomic_add(n_PP[None], 1)
-                            PP[n, 0], PP[n, 1] = a1, b1
-                elif case == 5:
-                    if PE_3D_E(x[a1], x[b0], x[b1]) < dHat2:
-                        if EECN2 < eps_x:
-                            n = ti.atomic_add(n_PEM[None], 1)
-                            PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = a1, a0, b0, b1
-                        else:
+                            PP[n, 0], PP[n, 1] = p, t2
+                    elif case == 3:
+                        if PE_3D_E(x[p], x[t0], x[t1]) < dHat2:
                             n = ti.atomic_add(n_PE[None], 1)
-                            PE[n, 0], PE[n, 1], PE[n, 2] = a1, b0, b1
-                elif case == 6:
-                    if PE_3D_E(x[b0], x[a0], x[a1]) < dHat2:
-                        if EECN2 < eps_x:
-                            n = ti.atomic_add(n_PEM[None], 1)
-                            PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = b0, b1, a0, a1
-                        else:
+                            PE[n, 0], PE[n, 1], PE[n, 2] = p, t0, t1
+                    elif case == 4:
+                        if PE_3D_E(x[p], x[t1], x[t2]) < dHat2:
                             n = ti.atomic_add(n_PE[None], 1)
-                            PE[n, 0], PE[n, 1], PE[n, 2] = b0, a0, a1
-                elif case == 7:
-                    if PE_3D_E(x[b1], x[a0], x[a1]) < dHat2:
-                        if EECN2 < eps_x:
-                            n = ti.atomic_add(n_PEM[None], 1)
-                            PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = b1, b0, a0, a1
-                        else:
+                            PE[n, 0], PE[n, 1], PE[n, 2] = p, t1, t2
+                    elif case == 5:
+                        if PE_3D_E(x[p], x[t2], x[t0]) < dHat2:
                             n = ti.atomic_add(n_PE[None], 1)
-                            PE[n, 0], PE[n, 1], PE[n, 2] = b1, a0, a1
-                elif case == 8:
-                    if EE_3D_E(x[a0], x[a1], x[b0], x[b1]) < dHat2:
-                        if EECN2 < eps_x:
-                            n = ti.atomic_add(n_EEM[None], 1)
-                            EEM[n, 0], EEM[n, 1], EEM[n, 2], EEM[n, 3] = a0, a1, b0, b1
-                        else:
-                            n = ti.atomic_add(n_EE[None], 1)
-                            EE[n, 0], EE[n, 1], EE[n, 2], EE[n, 3] = a0, a1, b0, b1
+                            PE[n, 0], PE[n, 1], PE[n, 2] = p, t2, t0
+                    elif case == 6:
+                        if PT_3D_E(x[p], x[t0], x[t1], x[t2]) < dHat2:
+                            n = ti.atomic_add(n_PT[None], 1)
+                            PT[n, 0], PT[n, 1], PT[n, 2], PT[n, 3] = p, t0, t1, t2
+    for _ in range(1):
+        for i in range(n_boundary_edges):
+            a0 = boundary_edges[i, 0]
+            a1 = boundary_edges[i, 1]
+            for j in range(n_boundary_edges):
+                b0 = boundary_edges[j, 0]
+                b1 = boundary_edges[j, 1]
+                if i < j and a0 != b0 and a0 != b1 and a1 != b0 and a1 != b1 and edge_edge_ccd_broadphase(x[a0], x[a1], x[b0], x[b1], dHat):
+                    EECN2 = EECN2_E(x[a0], x[a1], x[b0], x[b1])
+                    eps_x = M_threshold(x0[a0], x0[a1], x0[b0], x0[b1])
+                    case = EE_type(x[a0], x[a1], x[b0], x[b1])
+                    if case == 0:
+                        if PP_3D_E(x[a0], x[b0]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PPM[None], 1)
+                                PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a0, a1, b0, b1
+                            else:
+                                n = ti.atomic_add(n_PP[None], 1)
+                                PP[n, 0], PP[n, 1] = a0, b0
+                    elif case == 1:
+                        if PP_3D_E(x[a0], x[b1]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PPM[None], 1)
+                                PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a0, a1, b1, b0
+                            else:
+                                n = ti.atomic_add(n_PP[None], 1)
+                                PP[n, 0], PP[n, 1] = a0, b1
+                    elif case == 2:
+                        if PE_3D_E(x[a0], x[b0], x[b1]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PEM[None], 1)
+                                PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = a0, a1, b0, b1
+                            else:
+                                n = ti.atomic_add(n_PE[None], 1)
+                                PE[n, 0], PE[n, 1], PE[n, 2] = a0, b0, b1
+                    elif case == 3:
+                        if PP_3D_E(x[a1], x[b0]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PPM[None], 1)
+                                PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a1, a0, b0, b1
+                            else:
+                                n = ti.atomic_add(n_PP[None], 1)
+                                PP[n, 0], PP[n, 1] = a1, b0
+                    elif case == 4:
+                        if PP_3D_E(x[a1], x[b1]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PPM[None], 1)
+                                PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a1, a0, b1, b0
+                            else:
+                                n = ti.atomic_add(n_PP[None], 1)
+                                PP[n, 0], PP[n, 1] = a1, b1
+                    elif case == 5:
+                        if PE_3D_E(x[a1], x[b0], x[b1]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PEM[None], 1)
+                                PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = a1, a0, b0, b1
+                            else:
+                                n = ti.atomic_add(n_PE[None], 1)
+                                PE[n, 0], PE[n, 1], PE[n, 2] = a1, b0, b1
+                    elif case == 6:
+                        if PE_3D_E(x[b0], x[a0], x[a1]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PEM[None], 1)
+                                PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = b0, b1, a0, a1
+                            else:
+                                n = ti.atomic_add(n_PE[None], 1)
+                                PE[n, 0], PE[n, 1], PE[n, 2] = b0, a0, a1
+                    elif case == 7:
+                        if PE_3D_E(x[b1], x[a0], x[a1]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PEM[None], 1)
+                                PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = b1, b0, a0, a1
+                            else:
+                                n = ti.atomic_add(n_PE[None], 1)
+                                PE[n, 0], PE[n, 1], PE[n, 2] = b1, a0, a1
+                    elif case == 8:
+                        if EE_3D_E(x[a0], x[a1], x[b0], x[b1]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_EEM[None], 1)
+                                EEM[n, 0], EEM[n, 1], EEM[n, 2], EEM[n, 3] = a0, a1, b0, b1
+                            else:
+                                n = ti.atomic_add(n_EE[None], 1)
+                                EE[n, 0], EE[n, 1], EE[n, 2], EE[n, 3] = a0, a1, b0, b1
     print("Find constraints: ", n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None])
     # xTilde initiated y, r
     for r in range(n_PP[None]):
@@ -498,129 +500,136 @@ def global_step():
 @ti.kernel
 def global_PP():
     ETE2 = ti.Matrix([[1, -1], [-1, 1]])
-    for c in range(n_PP[None]):
-        for p in ti.static(range(2)):
-            for q in ti.static(range(2)):
-                for j in ti.static(range(3)):
-                    idx = cnt[None] + c * 12 + p * 6 + q * 3 + j
-                    data_row[idx] = PP[c, p] * 3 + j
-                    data_col[idx] = PP[c, q] * 3 + j
-                    data_val[idx] = ETE2[p, q] * Q * Q
-        for j in ti.static(range(3)):
-            data_rhs[PP[c, 0] * 3 + j] += (y_PP(j)[c, 0] - r_PP(j)[c, 0]) * Q * Q
-            data_rhs[PP[c, 1] * 3 + j] -= (y_PP(j)[c, 0] - r_PP(j)[c, 0]) * Q * Q
+    for _ in range(1):
+        for c in range(n_PP[None]):
+            for p in ti.static(range(2)):
+                for q in ti.static(range(2)):
+                    for j in ti.static(range(3)):
+                        idx = cnt[None] + c * 12 + p * 6 + q * 3 + j
+                        data_row[idx] = PP[c, p] * 3 + j
+                        data_col[idx] = PP[c, q] * 3 + j
+                        data_val[idx] = ETE2[p, q] * Q * Q
+            for j in ti.static(range(3)):
+                data_rhs[PP[c, 0] * 3 + j] += (y_PP(j)[c, 0] - r_PP(j)[c, 0]) * Q * Q
+                data_rhs[PP[c, 1] * 3 + j] -= (y_PP(j)[c, 0] - r_PP(j)[c, 0]) * Q * Q
     cnt[None] += n_PP[None] * 12
 @ti.kernel
 def global_PE():
     ETE3 = ti.Matrix([[2, -1, -1], [-1, 1, 0], [-1, 0, 1]])
-    for c in range(n_PE[None]):
-        for p in ti.static(range(3)):
-            for q in ti.static(range(3)):
-                for j in ti.static(range(3)):
-                    idx = cnt[None] + c * 27 + p * 9 + q * 3 + j
-                    data_row[idx] = PE[c, p] * 3 + j
-                    data_col[idx] = PE[c, q] * 3 + j
-                    data_val[idx] = ETE3[p, q] * Q * Q
-        for j in ti.static(range(3)):
-            data_rhs[PE[c, 0] * 3 + j] += (y_PE(j)[c, 0] - r_PE(j)[c, 0]) * Q * Q
-            data_rhs[PE[c, 0] * 3 + j] += (y_PE(j)[c, 1] - r_PE(j)[c, 1]) * Q * Q
-            data_rhs[PE[c, 1] * 3 + j] -= (y_PE(j)[c, 0] - r_PE(j)[c, 0]) * Q * Q
-            data_rhs[PE[c, 2] * 3 + j] -= (y_PE(j)[c, 1] - r_PE(j)[c, 1]) * Q * Q
+    for _ in range(1):
+        for c in range(n_PE[None]):
+            for p in ti.static(range(3)):
+                for q in ti.static(range(3)):
+                    for j in ti.static(range(3)):
+                        idx = cnt[None] + c * 27 + p * 9 + q * 3 + j
+                        data_row[idx] = PE[c, p] * 3 + j
+                        data_col[idx] = PE[c, q] * 3 + j
+                        data_val[idx] = ETE3[p, q] * Q * Q
+            for j in ti.static(range(3)):
+                data_rhs[PE[c, 0] * 3 + j] += (y_PE(j)[c, 0] - r_PE(j)[c, 0]) * Q * Q
+                data_rhs[PE[c, 0] * 3 + j] += (y_PE(j)[c, 1] - r_PE(j)[c, 1]) * Q * Q
+                data_rhs[PE[c, 1] * 3 + j] -= (y_PE(j)[c, 0] - r_PE(j)[c, 0]) * Q * Q
+                data_rhs[PE[c, 2] * 3 + j] -= (y_PE(j)[c, 1] - r_PE(j)[c, 1]) * Q * Q
     cnt[None] += n_PE[None] * 27
 @ti.kernel
 def global_PT():
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
-    for c in range(n_PT[None]):
-        for p in ti.static(range(4)):
-            for q in ti.static(range(4)):
-                for j in ti.static(range(3)):
-                    idx = cnt[None] + c * 48 + p * 12 + q * 3 + j
-                    data_row[idx] = PT[c, p] * 3 + j
-                    data_col[idx] = PT[c, q] * 3 + j
-                    data_val[idx] = ETE4[p, q] * Q * Q
-        for j in ti.static(range(3)):
-            data_rhs[PT[c, 0] * 3 + j] += (y_PT(j)[c, 0] - r_PT(j)[c, 0]) * Q * Q
-            data_rhs[PT[c, 0] * 3 + j] += (y_PT(j)[c, 1] - r_PT(j)[c, 1]) * Q * Q
-            data_rhs[PT[c, 0] * 3 + j] += (y_PT(j)[c, 2] - r_PT(j)[c, 2]) * Q * Q
-            data_rhs[PT[c, 1] * 3 + j] -= (y_PT(j)[c, 0] - r_PT(j)[c, 0]) * Q * Q
-            data_rhs[PT[c, 2] * 3 + j] -= (y_PT(j)[c, 1] - r_PT(j)[c, 1]) * Q * Q
-            data_rhs[PT[c, 3] * 3 + j] -= (y_PT(j)[c, 2] - r_PT(j)[c, 2]) * Q * Q
+    for _ in range(1):
+        for c in range(n_PT[None]):
+            for p in ti.static(range(4)):
+                for q in ti.static(range(4)):
+                    for j in ti.static(range(3)):
+                        idx = cnt[None] + c * 48 + p * 12 + q * 3 + j
+                        data_row[idx] = PT[c, p] * 3 + j
+                        data_col[idx] = PT[c, q] * 3 + j
+                        data_val[idx] = ETE4[p, q] * Q * Q
+            for j in ti.static(range(3)):
+                data_rhs[PT[c, 0] * 3 + j] += (y_PT(j)[c, 0] - r_PT(j)[c, 0]) * Q * Q
+                data_rhs[PT[c, 0] * 3 + j] += (y_PT(j)[c, 1] - r_PT(j)[c, 1]) * Q * Q
+                data_rhs[PT[c, 0] * 3 + j] += (y_PT(j)[c, 2] - r_PT(j)[c, 2]) * Q * Q
+                data_rhs[PT[c, 1] * 3 + j] -= (y_PT(j)[c, 0] - r_PT(j)[c, 0]) * Q * Q
+                data_rhs[PT[c, 2] * 3 + j] -= (y_PT(j)[c, 1] - r_PT(j)[c, 1]) * Q * Q
+                data_rhs[PT[c, 3] * 3 + j] -= (y_PT(j)[c, 2] - r_PT(j)[c, 2]) * Q * Q
     cnt[None] += n_PT[None] * 48
 @ti.kernel
 def global_EE():
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
-    for c in range(n_EE[None]):
-        for p in ti.static(range(4)):
-            for q in ti.static(range(4)):
-                for j in ti.static(range(3)):
-                    idx = cnt[None] + c * 48 + p * 12 + q * 3 + j
-                    data_row[idx] = EE[c, p] * 3 + j
-                    data_col[idx] = EE[c, q] * 3 + j
-                    data_val[idx] = ETE4[p, q] * Q * Q
-        for j in ti.static(range(3)):
-            data_rhs[EE[c, 0] * 3 + j] += (y_EE(j)[c, 0] - r_EE(j)[c, 0]) * Q * Q
-            data_rhs[EE[c, 0] * 3 + j] += (y_EE(j)[c, 1] - r_EE(j)[c, 1]) * Q * Q
-            data_rhs[EE[c, 0] * 3 + j] += (y_EE(j)[c, 2] - r_EE(j)[c, 2]) * Q * Q
-            data_rhs[EE[c, 1] * 3 + j] -= (y_EE(j)[c, 0] - r_EE(j)[c, 0]) * Q * Q
-            data_rhs[EE[c, 2] * 3 + j] -= (y_EE(j)[c, 1] - r_EE(j)[c, 1]) * Q * Q
-            data_rhs[EE[c, 3] * 3 + j] -= (y_EE(j)[c, 2] - r_EE(j)[c, 2]) * Q * Q
+    for _ in range(1):
+        for c in range(n_EE[None]):
+            for p in ti.static(range(4)):
+                for q in ti.static(range(4)):
+                    for j in ti.static(range(3)):
+                        idx = cnt[None] + c * 48 + p * 12 + q * 3 + j
+                        data_row[idx] = EE[c, p] * 3 + j
+                        data_col[idx] = EE[c, q] * 3 + j
+                        data_val[idx] = ETE4[p, q] * Q * Q
+            for j in ti.static(range(3)):
+                data_rhs[EE[c, 0] * 3 + j] += (y_EE(j)[c, 0] - r_EE(j)[c, 0]) * Q * Q
+                data_rhs[EE[c, 0] * 3 + j] += (y_EE(j)[c, 1] - r_EE(j)[c, 1]) * Q * Q
+                data_rhs[EE[c, 0] * 3 + j] += (y_EE(j)[c, 2] - r_EE(j)[c, 2]) * Q * Q
+                data_rhs[EE[c, 1] * 3 + j] -= (y_EE(j)[c, 0] - r_EE(j)[c, 0]) * Q * Q
+                data_rhs[EE[c, 2] * 3 + j] -= (y_EE(j)[c, 1] - r_EE(j)[c, 1]) * Q * Q
+                data_rhs[EE[c, 3] * 3 + j] -= (y_EE(j)[c, 2] - r_EE(j)[c, 2]) * Q * Q
     cnt[None] += n_EE[None] * 48
 @ti.kernel
 def global_EEM():
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
-    for c in range(n_EEM[None]):
-        for p in ti.static(range(4)):
-            for q in ti.static(range(4)):
-                for j in ti.static(range(3)):
-                    idx = cnt[None] + c * 48 + p * 12 + q * 3 + j
-                    data_row[idx] = EEM[c, p] * 3 + j
-                    data_col[idx] = EEM[c, q] * 3 + j
-                    data_val[idx] = ETE4[p, q] * Q * Q
-        for j in ti.static(range(3)):
-            data_rhs[EEM[c, 0] * 3 + j] += (y_EEM(j)[c, 0] - r_EEM(j)[c, 0]) * Q * Q
-            data_rhs[EEM[c, 0] * 3 + j] += (y_EEM(j)[c, 1] - r_EEM(j)[c, 1]) * Q * Q
-            data_rhs[EEM[c, 0] * 3 + j] += (y_EEM(j)[c, 2] - r_EEM(j)[c, 2]) * Q * Q
-            data_rhs[EEM[c, 1] * 3 + j] -= (y_EEM(j)[c, 0] - r_EEM(j)[c, 0]) * Q * Q
-            data_rhs[EEM[c, 2] * 3 + j] -= (y_EEM(j)[c, 1] - r_EEM(j)[c, 1]) * Q * Q
-            data_rhs[EEM[c, 3] * 3 + j] -= (y_EEM(j)[c, 2] - r_EEM(j)[c, 2]) * Q * Q
+    for _ in range(1):
+        for c in range(n_EEM[None]):
+            for p in ti.static(range(4)):
+                for q in ti.static(range(4)):
+                    for j in ti.static(range(3)):
+                        idx = cnt[None] + c * 48 + p * 12 + q * 3 + j
+                        data_row[idx] = EEM[c, p] * 3 + j
+                        data_col[idx] = EEM[c, q] * 3 + j
+                        data_val[idx] = ETE4[p, q] * Q * Q
+            for j in ti.static(range(3)):
+                data_rhs[EEM[c, 0] * 3 + j] += (y_EEM(j)[c, 0] - r_EEM(j)[c, 0]) * Q * Q
+                data_rhs[EEM[c, 0] * 3 + j] += (y_EEM(j)[c, 1] - r_EEM(j)[c, 1]) * Q * Q
+                data_rhs[EEM[c, 0] * 3 + j] += (y_EEM(j)[c, 2] - r_EEM(j)[c, 2]) * Q * Q
+                data_rhs[EEM[c, 1] * 3 + j] -= (y_EEM(j)[c, 0] - r_EEM(j)[c, 0]) * Q * Q
+                data_rhs[EEM[c, 2] * 3 + j] -= (y_EEM(j)[c, 1] - r_EEM(j)[c, 1]) * Q * Q
+                data_rhs[EEM[c, 3] * 3 + j] -= (y_EEM(j)[c, 2] - r_EEM(j)[c, 2]) * Q * Q
     cnt[None] += n_EEM[None] * 48
 @ti.kernel
 def global_PPM():
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
-    for c in range(n_PPM[None]):
-        for p in ti.static(range(4)):
-            for q in ti.static(range(4)):
-                for j in ti.static(range(3)):
-                    idx = cnt[None] + c * 48 + p * 12 + q * 3 + j
-                    data_row[idx] = PPM[c, p] * 3 + j
-                    data_col[idx] = PPM[c, q] * 3 + j
-                    data_val[idx] = ETE4[p, q] * Q * Q
-        for j in ti.static(range(3)):
-            data_rhs[PPM[c, 0] * 3 + j] += (y_PPM(j)[c, 0] - r_PPM(j)[c, 0]) * Q * Q
-            data_rhs[PPM[c, 0] * 3 + j] += (y_PPM(j)[c, 1] - r_PPM(j)[c, 1]) * Q * Q
-            data_rhs[PPM[c, 0] * 3 + j] += (y_PPM(j)[c, 2] - r_PPM(j)[c, 2]) * Q * Q
-            data_rhs[PPM[c, 1] * 3 + j] -= (y_PPM(j)[c, 0] - r_PPM(j)[c, 0]) * Q * Q
-            data_rhs[PPM[c, 2] * 3 + j] -= (y_PPM(j)[c, 1] - r_PPM(j)[c, 1]) * Q * Q
-            data_rhs[PPM[c, 3] * 3 + j] -= (y_PPM(j)[c, 2] - r_PPM(j)[c, 2]) * Q * Q
+    for _ in range(1):
+        for c in range(n_PPM[None]):
+            for p in ti.static(range(4)):
+                for q in ti.static(range(4)):
+                    for j in ti.static(range(3)):
+                        idx = cnt[None] + c * 48 + p * 12 + q * 3 + j
+                        data_row[idx] = PPM[c, p] * 3 + j
+                        data_col[idx] = PPM[c, q] * 3 + j
+                        data_val[idx] = ETE4[p, q] * Q * Q
+            for j in ti.static(range(3)):
+                data_rhs[PPM[c, 0] * 3 + j] += (y_PPM(j)[c, 0] - r_PPM(j)[c, 0]) * Q * Q
+                data_rhs[PPM[c, 0] * 3 + j] += (y_PPM(j)[c, 1] - r_PPM(j)[c, 1]) * Q * Q
+                data_rhs[PPM[c, 0] * 3 + j] += (y_PPM(j)[c, 2] - r_PPM(j)[c, 2]) * Q * Q
+                data_rhs[PPM[c, 1] * 3 + j] -= (y_PPM(j)[c, 0] - r_PPM(j)[c, 0]) * Q * Q
+                data_rhs[PPM[c, 2] * 3 + j] -= (y_PPM(j)[c, 1] - r_PPM(j)[c, 1]) * Q * Q
+                data_rhs[PPM[c, 3] * 3 + j] -= (y_PPM(j)[c, 2] - r_PPM(j)[c, 2]) * Q * Q
     cnt[None] += n_PPM[None] * 48
 @ti.kernel
 def global_PEM():
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
-    for c in range(n_PEM[None]):
-        for p in ti.static(range(4)):
-            for q in ti.static(range(4)):
-                for j in ti.static(range(3)):
-                    idx = cnt[None] + c * 48 + p * 12 + q * 3 + j
-                    data_row[idx] = PEM[c, p] * 3 + j
-                    data_col[idx] = PEM[c, q] * 3 + j
-                    data_val[idx] = ETE4[p, q] * Q * Q
-        for j in ti.static(range(3)):
-            data_rhs[PEM[c, 0] * 3 + j] += (y_PEM(j)[c, 0] - r_PEM(j)[c, 0]) * Q * Q
-            data_rhs[PEM[c, 0] * 3 + j] += (y_PEM(j)[c, 1] - r_PEM(j)[c, 1]) * Q * Q
-            data_rhs[PEM[c, 0] * 3 + j] += (y_PEM(j)[c, 2] - r_PEM(j)[c, 2]) * Q * Q
-            data_rhs[PEM[c, 1] * 3 + j] -= (y_PEM(j)[c, 0] - r_PEM(j)[c, 0]) * Q * Q
-            data_rhs[PEM[c, 2] * 3 + j] -= (y_PEM(j)[c, 1] - r_PEM(j)[c, 1]) * Q * Q
-            data_rhs[PEM[c, 3] * 3 + j] -= (y_PEM(j)[c, 2] - r_PEM(j)[c, 2]) * Q * Q
+    for _ in range(1):
+        for c in range(n_PEM[None]):
+            for p in ti.static(range(4)):
+                for q in ti.static(range(4)):
+                    for j in ti.static(range(3)):
+                        idx = cnt[None] + c * 48 + p * 12 + q * 3 + j
+                        data_row[idx] = PEM[c, p] * 3 + j
+                        data_col[idx] = PEM[c, q] * 3 + j
+                        data_val[idx] = ETE4[p, q] * Q * Q
+            for j in ti.static(range(3)):
+                data_rhs[PEM[c, 0] * 3 + j] += (y_PEM(j)[c, 0] - r_PEM(j)[c, 0]) * Q * Q
+                data_rhs[PEM[c, 0] * 3 + j] += (y_PEM(j)[c, 1] - r_PEM(j)[c, 1]) * Q * Q
+                data_rhs[PEM[c, 0] * 3 + j] += (y_PEM(j)[c, 2] - r_PEM(j)[c, 2]) * Q * Q
+                data_rhs[PEM[c, 1] * 3 + j] -= (y_PEM(j)[c, 0] - r_PEM(j)[c, 0]) * Q * Q
+                data_rhs[PEM[c, 2] * 3 + j] -= (y_PEM(j)[c, 1] - r_PEM(j)[c, 1]) * Q * Q
+                data_rhs[PEM[c, 3] * 3 + j] -= (y_PEM(j)[c, 2] - r_PEM(j)[c, 2]) * Q * Q
     cnt[None] += n_PEM[None] * 48
 
 
