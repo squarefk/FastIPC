@@ -3,7 +3,7 @@ from math_tools import *
 
 
 @ti.func
-def fixed_corotated_energy(sig, la, mu):
+def elasticity_energy(sig, la, mu):
     sigma = ti.Vector([sig[0, 0], sig[1, 1]])
     sigmam12Sum = (sigma - ti.Vector([1, 1])).norm_sqr()
     sigmaProdm1 = sigma[0] * sigma[1] - 1
@@ -11,7 +11,7 @@ def fixed_corotated_energy(sig, la, mu):
 
 
 @ti.func
-def fixed_corotated_gradient(sig, la, mu):
+def elasticity_gradient(sig, la, mu):
     sigma = ti.Vector([sig[0, 0], sig[1, 1]])
     sigmaProdm1lambda = la * (sigma[0] * sigma[1] - 1)
     sigmaProd_noI = ti.Vector([sigma[1], sigma[0]])
@@ -21,7 +21,7 @@ def fixed_corotated_gradient(sig, la, mu):
 
 
 @ti.func
-def fixed_corotated_hessian(sig, la, mu):
+def elasticity_hessian(sig, la, mu):
     sigma = ti.Vector([sig[0, 0], sig[1, 1]])
     sigmaProd = sigma[0] * sigma[1]
     sigmaProd_noI = ti.Vector([sigma[1], sigma[0]])
@@ -33,7 +33,7 @@ def fixed_corotated_hessian(sig, la, mu):
 
 
 @ti.func
-def fixed_corotated_first_piola_kirchoff_stress(F, la, mu):
+def elasticity_first_piola_kirchoff_stress(F, la, mu):
     J = F.determinant()
     JFinvT = J * F.inverse().transpose()
     U, sig, V = ti.svd(F)
@@ -42,7 +42,7 @@ def fixed_corotated_first_piola_kirchoff_stress(F, la, mu):
 
 
 @ti.func
-def fixed_corotated_first_piola_kirchoff_stress_derivative(F, la, mu):
+def elasticity_first_piola_kirchoff_stress_derivative(F, la, mu):
     U, sig, V = ti.svd(F)
     sigma = ti.Vector([sig[0, 0], sig[1, 1]])
     dE_div_dsigma = fixed_corotated_gradient(sig, la, mu)
