@@ -81,10 +81,11 @@ ti.root.dense(ti.i, n_boundary_points).place(boundary_points)
 ti.root.dense(ti.ij, (n_boundary_edges, 2)).place(boundary_edges)
 ti.root.dense(ti.ij, (n_boundary_triangles, 3)).place(boundary_triangles)
 
+MAX_LINEAR = 5000000
 data_rhs = ti.var(real, shape=n_particles * dim)
-data_row = ti.var(ti.i32, shape=2000000)
-data_col = ti.var(ti.i32, shape=2000000)
-data_val = ti.var(real, shape=2000000)
+data_row = ti.var(ti.i32, shape=MAX_LINEAR)
+data_col = ti.var(ti.i32, shape=MAX_LINEAR)
+data_val = ti.var(real, shape=MAX_LINEAR)
 data_x = ti.var(real, shape=n_particles * dim)
 cnt = ti.var(dt=ti.i32, shape=())
 
@@ -430,6 +431,7 @@ def initial_guess():
         xn[i] = x[i]
         xTilde[i] = x[i] + dt * v[i]
         # xTilde(1)[i] -= dt * dt * 9.8
+    n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
 
 
 @ti.func
@@ -623,12 +625,17 @@ def global_PEM():
 
 
 def solve_system():
+    if cnt[None] >= MAX_LINEAR or n_PP[None] >= MAX_C or n_PE[None] >= MAX_C or n_PT[None] >= MAX_C or n_EE[None] >= MAX_C or n_EEM[None] >= MAX_C or n_PPM[None] >= MAX_C or n_PEM[None] >= MAX_C:
+        print("FATAL ERROR: Array Too Small!")
     print("Total entries: ", cnt[None])
     row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
     rhs = data_rhs.to_numpy()
     n = n_particles * dim
     A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
     data_x.from_numpy(scipy.sparse.linalg.spsolve(A, rhs))
+    tmp = A.dot(data_x.to_numpy()) - rhs
+    residual = np.linalg.norm(tmp, ord=np.inf)
+    print("Global solve residual = ", residual)
     for i in range(n_particles):
         for d in ti.static(range(dim)):
             x(d)[i] = data_x[i * dim + d]
@@ -1301,7 +1308,7 @@ if __name__ == "__main__":
             # print(f, "/", step, f" change of X: {xr:.8f}, prime residual: {pr:.8f}, dual residual: {dr:.8f}")
 
             dual_step()
-        # print(f, sha1(x.to_numpy()).hexdigest())
+            # print(f, '/', step, ': ', sha1(x.to_numpy()).hexdigest())
 
         # iters = range(len(prs))
         # fig = plt.figure()
