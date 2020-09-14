@@ -63,7 +63,7 @@ def read(testcase):
     elif testcase == 5:
         # two triangles
         mesh = meshio.read("input/sphere.obj")
-        mesh_particles = np.vstack((mesh.points + [0, 0, 0], mesh.points + [0.21, 0, 0]))
+        mesh_particles = np.vstack((mesh.points + [0, 0, 0], mesh.points + [0.3, 0, 0]))
         mesh_elements = np.vstack((mesh.cells[0].data, mesh.cells[0].data + len(mesh_particles) / 2))
         mesh_scale = 0.8
         mesh_offset = [0.4, 0.5]

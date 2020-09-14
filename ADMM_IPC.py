@@ -6,35 +6,56 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.sparse
 import scipy.sparse.linalg
-from fixed_corotated_3d import *
+from fixed_corotated import *
 from math_tools import *
 from ipc import *
 from reader import *
 
 ##############################################################################
 
-mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value = read(int(sys.argv[1]))
-triangles = set()
-for [p0, p1, p2, p3] in mesh_elements:
-    triangles.add((p0, p2, p1))
-    triangles.add((p0, p3, p2))
-    triangles.add((p0, p1, p3))
-    triangles.add((p1, p2, p3))
-boundary_points_ = set()
-boundary_edges_ = np.zeros(shape=(0, 2), dtype=np.int32)
-boundary_triangles_ = np.zeros(shape=(0, 3), dtype=np.int32)
-for (p0, p1, p2) in triangles:
-    if (p0, p2, p1) not in triangles:
-        if (p2, p1, p0) not in triangles:
-            if (p1, p0, p2) not in triangles:
-                boundary_points_.update([p0, p1, p2])
-                if p0 < p1:
-                    boundary_edges_ = np.vstack((boundary_edges_, [p0, p1]))
-                if p1 < p2:
-                    boundary_edges_ = np.vstack((boundary_edges_, [p1, p2]))
-                if p2 < p0:
-                    boundary_edges_ = np.vstack((boundary_edges_, [p2, p0]))
-                boundary_triangles_ = np.vstack((boundary_triangles_, [p0, p1, p2]))
+mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, dim = read(int(sys.argv[1]))
+if dim == 2:
+    edges = set()
+    for [i, j, k] in mesh_elements:
+        edges.add((i, j))
+        edges.add((j, k))
+        edges.add((k, i))
+    boundary_points_ = set()
+    boundary_edges_ = np.zeros(shape=(0, 2), dtype=np.int32)
+    boundary_triangles_ = np.zeros(shape=(0, 3), dtype=np.int32)
+    for [i, j, k] in mesh_elements:
+        if (j, i) not in edges:
+            boundary_points_.update([j, i])
+            boundary_edges_ = np.vstack((boundary_edges_, [j, i]))
+        if (k, j) not in edges:
+            boundary_points_.update([k, j])
+            boundary_edges_ = np.vstack((boundary_edges_, [k, j]))
+        if (i, k) not in edges:
+            boundary_points_.update([i, k])
+            boundary_edges_ = np.vstack((boundary_edges_, [i, k]))
+    boundary_triangles_ = np.vstack((boundary_triangles_, [-1, -1, -1]))
+else:
+    triangles = set()
+    for [p0, p1, p2, p3] in mesh_elements:
+        triangles.add((p0, p2, p1))
+        triangles.add((p0, p3, p2))
+        triangles.add((p0, p1, p3))
+        triangles.add((p1, p2, p3))
+    boundary_points_ = set()
+    boundary_edges_ = np.zeros(shape=(0, 2), dtype=np.int32)
+    boundary_triangles_ = np.zeros(shape=(0, 3), dtype=np.int32)
+    for (p0, p1, p2) in triangles:
+        if (p0, p2, p1) not in triangles:
+            if (p2, p1, p0) not in triangles:
+                if (p1, p0, p2) not in triangles:
+                    boundary_points_.update([p0, p1, p2])
+                    if p0 < p1:
+                        boundary_edges_ = np.vstack((boundary_edges_, [p0, p1]))
+                    if p1 < p2:
+                        boundary_edges_ = np.vstack((boundary_edges_, [p1, p2]))
+                    if p2 < p0:
+                        boundary_edges_ = np.vstack((boundary_edges_, [p2, p0]))
+                    boundary_triangles_ = np.vstack((boundary_triangles_, [p0, p1, p2]))
 
 
 ##############################################################################
@@ -53,7 +74,6 @@ scalar = lambda: ti.var(dt=real)
 vec = lambda: ti.Vector(dim, dt=real)
 mat = lambda: ti.Matrix(dim, dim, dt=real)
 
-dim = 3
 dt = 0.01
 E = 1e4
 nu = 0.4
@@ -204,7 +224,29 @@ def find_constraints():
         old_r_PEM[c, 0], old_r_PEM[c, 1], old_r_PEM[c, 2] = r_PEM[c, 0], r_PEM[c, 1], r_PEM[c, 2]
 
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
-    for _ in range(1):
+
+    if ti.static(dim == 2):
+        for _ in range(1):
+            for i in range(n_boundary_points):
+                p = boundary_points[i]
+                for j in range(n_boundary_edges):
+                    e0 = boundary_edges[j, 0]
+                    e1 = boundary_edges[j, 1]
+                    if p != e0 and p != e1 and point_edge_ccd_broadphase(x[p], x[e0], x[e1], dHat):
+                        case = PE_type(x[p], x[e0], x[e1])
+                        if case == 0:
+                            if PP_2D_E(x[p], x[e0]) < dHat2:
+                                n = ti.atomic_add(n_PP[None], 1)
+                                PP[n, 0], PP[n, 1] = p, e0
+                        elif case == 1:
+                            if PP_2D_E(x[p], x[e1]) < dHat2:
+                                n = ti.atomic_add(n_PP[None], 1)
+                                PP[n, 0], PP[n, 1] = p, e1
+                        elif case == 2:
+                            if PE_2D_E(x[p], x[e0], x[e1]) < dHat2:
+                                n = ti.atomic_add(n_PE[None], 1)
+                                PE[n, 0], PE[n, 1], PE[n, 2] = p, e0, e1
+    else:
         for i in range(n_boundary_points):
             p = boundary_points[i]
             for j in range(n_boundary_triangles):
@@ -241,7 +283,6 @@ def find_constraints():
                         if PT_3D_E(x[p], x[t0], x[t1], x[t2]) < dHat2:
                             n = ti.atomic_add(n_PT[None], 1)
                             PT[n, 0], PT[n, 1], PT[n, 2], PT[n, 3] = p, t0, t1, t2
-    for _ in range(1):
         for i in range(n_boundary_edges):
             a0 = boundary_edges[i, 0]
             a1 = boundary_edges[i, 1]
@@ -418,7 +459,7 @@ def compute_restT_and_m():
                 m[vertices[i, d]] += mass
     for i in range(n_particles):
         x0[i] = x[i]
-        v(0)[i] = 2 if i < n_particles / 2 else -2
+        v(0)[i] = 0.19 if i < n_particles / 2 else -0.19
 
 
 @ti.kernel
@@ -439,15 +480,24 @@ def initial_guess():
 @ti.func
 def X2F(p: ti.template(), q: ti.template(), i: ti.template(), j: ti.template(), A):
     val = 0.0
-    if i == q:
-        if p == 1:
-            val = A[0, j]
-        elif p == 2:
-            val = A[1, j]
-        elif p == 3:
-            val = A[2, j]
-        elif p == 0:
-            val = -A[0, j] - A[1, j] - A[2, j]
+    if ti.static(dim == 2):
+        if i == q:
+            if p == 1:
+                val = A[0, j]
+            elif p == 2:
+                val = A[1, j]
+            elif p == 0:
+                val = -A[0, j] - A[1, j]
+    else:
+        if i == q:
+            if p == 1:
+                val = A[0, j]
+            elif p == 2:
+                val = A[1, j]
+            elif p == 3:
+                val = A[2, j]
+            elif p == 0:
+                val = -A[0, j] - A[1, j] - A[2, j]
     return val
 
 
@@ -481,22 +531,6 @@ def global_step():
                         q = i
                         data_rhs[vertices[e, p] * dim + q] += X2F(p, q, i, j, A) * F[i, j] * W[e] * W[e]
     cnt[None] += n_elements * dim * dim * (dim + 1) * (dim + 1)
-    # ETE = ti.Matrix([[2, -1, -1], [-1, 1, 0], [-1, 0, 1]])
-    # for _ in range(1):
-    #     for c in range(cc[None]):
-    #         for p in ti.static(range(3)):
-    #             for q in ti.static(range(3)):
-    #                 for j in ti.static(range(2)):
-    #                     idx = cnt[None] + c * 18 + p * 6 + q * 2 + j
-    #                     data_mat[0, idx] = constraints[c, p] * 2 + j
-    #                     data_mat[1, idx] = constraints[c, q] * 2 + j
-    #                     data_mat[2, idx] = ETE[p, q] * Q[c] * Q[c]
-    #         for j in ti.static(range(2)):
-    #             data_rhs[constraints[c, 0] * 2 + j] += (y(j)[c, 0] - r(j)[c, 0]) * Q[c] * Q[c]
-    #             data_rhs[constraints[c, 0] * 2 + j] += (y(j)[c, 1] - r(j)[c, 1]) * Q[c] * Q[c]
-    #             data_rhs[constraints[c, 1] * 2 + j] -= (y(j)[c, 0] - r(j)[c, 0]) * Q[c] * Q[c]
-    #             data_rhs[constraints[c, 2] * 2 + j] -= (y(j)[c, 1] - r(j)[c, 1]) * Q[c] * Q[c]
-    # cnt[None] += cc[None] * 18
 @ti.kernel
 def global_PP():
     ETE2 = ti.Matrix([[1, -1], [-1, 1]])
@@ -504,15 +538,15 @@ def global_PP():
         for c in range(n_PP[None]):
             for p in ti.static(range(2)):
                 for q in ti.static(range(2)):
-                    for j in ti.static(range(3)):
-                        idx = cnt[None] + c * 12 + p * 6 + q * 3 + j
-                        data_row[idx] = PP[c, p] * 3 + j
-                        data_col[idx] = PP[c, q] * 3 + j
+                    for j in ti.static(range(dim)):
+                        idx = cnt[None] + c * 4 * dim + p * 2 * dim + q * dim + j
+                        data_row[idx] = PP[c, p] * dim + j
+                        data_col[idx] = PP[c, q] * dim + j
                         data_val[idx] = ETE2[p, q] * Q * Q
-            for j in ti.static(range(3)):
-                data_rhs[PP[c, 0] * 3 + j] += (y_PP(j)[c, 0] - r_PP(j)[c, 0]) * Q * Q
-                data_rhs[PP[c, 1] * 3 + j] -= (y_PP(j)[c, 0] - r_PP(j)[c, 0]) * Q * Q
-    cnt[None] += n_PP[None] * 12
+            for j in ti.static(range(dim)):
+                data_rhs[PP[c, 0] * dim + j] += (y_PP(j)[c, 0] - r_PP(j)[c, 0]) * Q * Q
+                data_rhs[PP[c, 1] * dim + j] -= (y_PP(j)[c, 0] - r_PP(j)[c, 0]) * Q * Q
+    cnt[None] += n_PP[None] * 4 * dim
 @ti.kernel
 def global_PE():
     ETE3 = ti.Matrix([[2, -1, -1], [-1, 1, 0], [-1, 0, 1]])
@@ -520,17 +554,17 @@ def global_PE():
         for c in range(n_PE[None]):
             for p in ti.static(range(3)):
                 for q in ti.static(range(3)):
-                    for j in ti.static(range(3)):
-                        idx = cnt[None] + c * 27 + p * 9 + q * 3 + j
-                        data_row[idx] = PE[c, p] * 3 + j
-                        data_col[idx] = PE[c, q] * 3 + j
+                    for j in ti.static(range(dim)):
+                        idx = cnt[None] + c * 9 * dim + p * 3 * dim + q * dim + j
+                        data_row[idx] = PE[c, p] * dim + j
+                        data_col[idx] = PE[c, q] * dim + j
                         data_val[idx] = ETE3[p, q] * Q * Q
-            for j in ti.static(range(3)):
-                data_rhs[PE[c, 0] * 3 + j] += (y_PE(j)[c, 0] - r_PE(j)[c, 0]) * Q * Q
-                data_rhs[PE[c, 0] * 3 + j] += (y_PE(j)[c, 1] - r_PE(j)[c, 1]) * Q * Q
-                data_rhs[PE[c, 1] * 3 + j] -= (y_PE(j)[c, 0] - r_PE(j)[c, 0]) * Q * Q
-                data_rhs[PE[c, 2] * 3 + j] -= (y_PE(j)[c, 1] - r_PE(j)[c, 1]) * Q * Q
-    cnt[None] += n_PE[None] * 27
+            for j in ti.static(range(dim)):
+                data_rhs[PE[c, 0] * dim + j] += (y_PE(j)[c, 0] - r_PE(j)[c, 0]) * Q * Q
+                data_rhs[PE[c, 0] * dim + j] += (y_PE(j)[c, 1] - r_PE(j)[c, 1]) * Q * Q
+                data_rhs[PE[c, 1] * dim + j] -= (y_PE(j)[c, 0] - r_PE(j)[c, 0]) * Q * Q
+                data_rhs[PE[c, 2] * dim + j] -= (y_PE(j)[c, 1] - r_PE(j)[c, 1]) * Q * Q
+    cnt[None] += n_PE[None] * 9 * dim
 @ti.kernel
 def global_PT():
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
@@ -652,75 +686,144 @@ def solve_system():
 
 @ti.func
 def local_energy(sigma, sigma_Dx_plus_u, vol0, W):
-    sig = ti.Matrix([[sigma[0], 0.0, 0.0], [0.0, sigma[1], 0.0], [0.0, 0.0, sigma[2]]])
-    return elasticity_energy(sig, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u).norm_sqr() * W * W / 2
+    if ti.static(dim == 2):
+        sig = ti.Matrix([[sigma[0], 0.0], [0.0, sigma[1]]])
+        return elasticity_energy(sig, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u).norm_sqr() * W * W / 2
+    else:
+        sig = ti.Matrix([[sigma[0], 0.0, 0.0], [0.0, sigma[1], 0.0], [0.0, 0.0, sigma[2]]])
+        return elasticity_energy(sig, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u).norm_sqr() * W * W / 2
 @ti.func
 def local_gradient(sigma, sigma_Dx_plus_u, vol0, W):
-    sig = ti.Matrix([[sigma[0], 0.0, 0.0], [0.0, sigma[1], 0.0], [0.0, 0.0, sigma[2]]])
-    return elasticity_gradient(sig, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u) * W * W
+    if ti.static(dim == 2):
+        sig = ti.Matrix([[sigma[0], 0.0], [0.0, sigma[1]]])
+        return elasticity_gradient(sig, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u) * W * W
+    else:
+        sig = ti.Matrix([[sigma[0], 0.0, 0.0], [0.0, sigma[1], 0.0], [0.0, 0.0, sigma[2]]])
+        return elasticity_gradient(sig, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u) * W * W
 @ti.func
 def local_hessian(sigma, sigma_Dx_plus_u, vol0, W):
-    sig = ti.Matrix([[sigma[0], 0.0, 0.0], [0.0, sigma[1], 0.0], [0.0, 0.0, sigma[2]]])
-    return project_pd_3(elasticity_hessian(sig, la, mu)) * dt * dt * vol0 + ti.Matrix.identity(real, 3) * W * W
+    if ti.static(dim == 2):
+        sig = ti.Matrix([[sigma[0], 0.0], [0.0, sigma[1]]])
+        return make_pd(elasticity_hessian(sig, la, mu)) * dt * dt * vol0 + ti.Matrix.identity(real, 2) * W * W
+    else:
+        sig = ti.Matrix([[sigma[0], 0.0, 0.0], [0.0, sigma[1], 0.0], [0.0, 0.0, sigma[2]]])
+        return project_pd_3(elasticity_hessian(sig, la, mu)) * dt * dt * vol0 + ti.Matrix.identity(real, 3) * W * W
 
 
 @ti.func
 def PP_energy(pos, posTilde, Q):
-    p0 = ti.Vector([0.0, 0.0, 0.0])
-    p1 = ti.Vector([pos[0], pos[1], pos[2]])
-    dist2 = PP_3D_E(p0, p1)
-    if dist2 < 1e-9:
-        print("ERROR PP", dist2)
-    return barrier_E(dist2, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
+    if ti.static(dim == 2):
+        p0 = ti.Vector([0.0, 0.0])
+        p1 = ti.Vector([pos[0], pos[1]])
+        dist2 = PP_2D_E(p0, p1)
+        if dist2 < 1e-9:
+            print("ERROR PP", dist2)
+        return barrier_E(dist2, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
+    else:
+        p0 = ti.Vector([0.0, 0.0, 0.0])
+        p1 = ti.Vector([pos[0], pos[1], pos[2]])
+        dist2 = PP_3D_E(p0, p1)
+        if dist2 < 1e-9:
+            print("ERROR PP", dist2)
+        return barrier_E(dist2, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
 @ti.func
 def PP_gradient(pos, posTilde, Q):
-    p0 = ti.Vector([0.0, 0.0, 0.0])
-    p1 = ti.Vector([pos[0], pos[1], pos[2]])
-    dist2 = PP_3D_E(p0, p1)
-    dist2g = PP_3D_g(p0, p1)
-    bg = barrier_g(dist2, dHat2, kappa)
-    g = bg * dist2g
-    return ti.Vector([g[3], g[4], g[5]]) + (pos - posTilde) * Q * Q
+    if ti.static(dim == 2):
+        p0 = ti.Vector([0.0, 0.0])
+        p1 = ti.Vector([pos[0], pos[1]])
+        dist2 = PP_2D_E(p0, p1)
+        dist2g = PP_2D_g(p0, p1)
+        bg = barrier_g(dist2, dHat2, kappa)
+        g = bg * dist2g
+        return ti.Vector([g[2], g[3]]) + (pos - posTilde) * Q * Q
+    else:
+        p0 = ti.Vector([0.0, 0.0, 0.0])
+        p1 = ti.Vector([pos[0], pos[1], pos[2]])
+        dist2 = PP_3D_E(p0, p1)
+        dist2g = PP_3D_g(p0, p1)
+        bg = barrier_g(dist2, dHat2, kappa)
+        g = bg * dist2g
+        return ti.Vector([g[3], g[4], g[5]]) + (pos - posTilde) * Q * Q
 @ti.func
 def PP_hessian(pos, posTilde, Q):
-    p0 = ti.Vector([0.0, 0.0, 0.0])
-    p1 = ti.Vector([pos[0], pos[1], pos[2]])
-    dist2 = PP_3D_E(p0, p1)
-    dist2g = PP_3D_g(p0, p1)
-    bg = barrier_g(dist2, dHat2, kappa)
-    H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(p0, p1)
-    eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5]], [H[4, 3], H[4, 4], H[4, 5]], [H[5, 3], H[5, 4], H[5, 5]]])
-    return project_pd_3(eH) + ti.Matrix.identity(real, 3) * Q * Q
+    if ti.static(dim == 2):
+        p0 = ti.Vector([0.0, 0.0])
+        p1 = ti.Vector([pos[0], pos[1]])
+        dist2 = PP_2D_E(p0, p1)
+        dist2g = PP_2D_g(p0, p1)
+        bg = barrier_g(dist2, dHat2, kappa)
+        H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_2D_H(p0, p1)
+        eH = ti.Matrix([[H[2, 2], H[2, 3]], [H[3, 2], H[3, 3]]])
+        return make_pd(eH) + ti.Matrix.identity(real, 2) * Q * Q
+    else:
+        p0 = ti.Vector([0.0, 0.0, 0.0])
+        p1 = ti.Vector([pos[0], pos[1], pos[2]])
+        dist2 = PP_3D_E(p0, p1)
+        dist2g = PP_3D_g(p0, p1)
+        bg = barrier_g(dist2, dHat2, kappa)
+        H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(p0, p1)
+        eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5]], [H[4, 3], H[4, 4], H[4, 5]], [H[5, 3], H[5, 4], H[5, 5]]])
+        return project_pd_3(eH) + ti.Matrix.identity(real, 3) * Q * Q
 @ti.func
 def PE_energy(pos, posTilde, Q):
-    p = ti.Vector([0.0, 0.0, 0.0])
-    e0 = ti.Vector([pos[0], pos[1], pos[2]])
-    e1 = ti.Vector([pos[3], pos[4], pos[5]])
-    dist2 = PE_3D_E(p, e0, e1)
-    if dist2 < 1e-9:
-        print("ERROR PE", dist2)
-    return barrier_E(dist2, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
+    if ti.static(dim == 2):
+        p = ti.Vector([0.0, 0.0])
+        e0 = ti.Vector([pos[0], pos[1]])
+        e1 = ti.Vector([pos[2], pos[3]])
+        dist2 = PE_2D_E(p, e0, e1)
+        if dist2 < 1e-9:
+            print("ERROR PE", dist2)
+        return barrier_E(dist2, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
+    else:
+        p = ti.Vector([0.0, 0.0, 0.0])
+        e0 = ti.Vector([pos[0], pos[1], pos[2]])
+        e1 = ti.Vector([pos[3], pos[4], pos[5]])
+        dist2 = PE_3D_E(p, e0, e1)
+        if dist2 < 1e-9:
+            print("ERROR PE", dist2)
+        return barrier_E(dist2, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
 @ti.func
 def PE_gradient(pos, posTilde, Q):
-    p = ti.Vector([0.0, 0.0, 0.0])
-    e0 = ti.Vector([pos[0], pos[1], pos[2]])
-    e1 = ti.Vector([pos[3], pos[4], pos[5]])
-    dist2 = PE_3D_E(p, e0, e1)
-    dist2g = PE_3D_g(p, e0, e1)
-    bg = barrier_g(dist2, dHat2, kappa)
-    g = bg * dist2g
-    return ti.Vector([g[3], g[4], g[5], g[6], g[7], g[8]]) + (pos - posTilde) * Q * Q
+    if ti.static(dim == 2):
+        p = ti.Vector([0.0, 0.0])
+        e0 = ti.Vector([pos[0], pos[1]])
+        e1 = ti.Vector([pos[2], pos[3]])
+        dist2 = PE_2D_E(p, e0, e1)
+        dist2g = PE_2D_g(p, e0, e1)
+        bg = barrier_g(dist2, dHat2, kappa)
+        g = bg * dist2g
+        return ti.Vector([g[2], g[3], g[4], g[5]]) + (pos - posTilde) * Q * Q
+    else:
+        p = ti.Vector([0.0, 0.0, 0.0])
+        e0 = ti.Vector([pos[0], pos[1], pos[2]])
+        e1 = ti.Vector([pos[3], pos[4], pos[5]])
+        dist2 = PE_3D_E(p, e0, e1)
+        dist2g = PE_3D_g(p, e0, e1)
+        bg = barrier_g(dist2, dHat2, kappa)
+        g = bg * dist2g
+        return ti.Vector([g[3], g[4], g[5], g[6], g[7], g[8]]) + (pos - posTilde) * Q * Q
 @ti.func
 def PE_hessian(pos, posTilde, Q):
-    p = ti.Vector([0.0, 0.0, 0.0])
-    e0 = ti.Vector([pos[0], pos[1], pos[2]])
-    e1 = ti.Vector([pos[3], pos[4], pos[5]])
-    dist2 = PE_3D_E(p, e0, e1)
-    dist2g = PE_3D_g(p, e0, e1)
-    bg = barrier_g(dist2, dHat2, kappa)
-    H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(p, e0, e1)
-    eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5], H[3, 6], H[3, 7], H[3, 8]], [H[4, 3], H[4, 4], H[4, 5], H[4, 6], H[4, 7], H[4, 8]], [H[5, 3], H[5, 4], H[5, 5], H[5, 6], H[5, 7], H[5, 8]], [H[6, 3], H[6, 4], H[6, 5], H[6, 6], H[6, 7], H[6, 8]], [H[7, 3], H[7, 4], H[7, 5], H[7, 6], H[7, 7], H[7, 8]], [H[8, 3], H[8, 4], H[8, 5], H[8, 6], H[8, 7], H[8, 8]]])
-    return project_pd_6(eH) + ti.Matrix.identity(real, 6) * Q * Q
+    if ti.static(dim == 2):
+        p = ti.Vector([0.0, 0.0])
+        e0 = ti.Vector([pos[0], pos[1]])
+        e1 = ti.Vector([pos[2], pos[3]])
+        dist2 = PE_2D_E(p, e0, e1)
+        dist2g = PE_2D_g(p, e0, e1)
+        bg = barrier_g(dist2, dHat2, kappa)
+        H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_2D_H(p, e0, e1)
+        eH = ti.Matrix([[H[2, 2], H[2, 3], H[2, 4], H[2, 5]], [H[3, 2], H[3, 3], H[3, 4], H[3, 5]], [H[4, 2], H[4, 3], H[4, 4], H[4, 5]], [H[5, 2], H[5, 3], H[5, 4], H[5, 5]]])
+        return project_pd_4(eH) + ti.Matrix.identity(real, 4) * Q * Q
+    else:
+        p = ti.Vector([0.0, 0.0, 0.0])
+        e0 = ti.Vector([pos[0], pos[1], pos[2]])
+        e1 = ti.Vector([pos[3], pos[4], pos[5]])
+        dist2 = PE_3D_E(p, e0, e1)
+        dist2g = PE_3D_g(p, e0, e1)
+        bg = barrier_g(dist2, dHat2, kappa)
+        H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(p, e0, e1)
+        eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5], H[3, 6], H[3, 7], H[3, 8]], [H[4, 3], H[4, 4], H[4, 5], H[4, 6], H[4, 7], H[4, 8]], [H[5, 3], H[5, 4], H[5, 5], H[5, 6], H[5, 7], H[5, 8]], [H[6, 3], H[6, 4], H[6, 5], H[6, 6], H[6, 7], H[6, 8]], [H[7, 3], H[7, 4], H[7, 5], H[7, 6], H[7, 7], H[7, 8]], [H[8, 3], H[8, 4], H[8, 5], H[8, 6], H[8, 7], H[8, 8]]])
+        return project_pd_6(eH) + ti.Matrix.identity(real, 6) * Q * Q
 @ti.func
 def PT_energy(pos, posTilde, Q):
     p = ti.Vector([0.0, 0.0, 0.0])
@@ -943,7 +1046,9 @@ def local_elasticity():
         currentT = compute_T(e)
         Dx_plus_u_mtr = currentT @ restT[e].inverse() + u[e]
         U, sig, V = ti.svd(Dx_plus_u_mtr, real)
-        sigma = ti.Vector([sig[0, 0], sig[1, 1], sig[2, 2]])
+        sigma = ti.Matrix.zero(real, dim)
+        for i in ti.static(range(dim)):
+            sigma[i] = sig[i, i]
         sigma_Dx_plus_u = sigma
         vol0 = restT[e].determinant() / dim / (dim - 1)
         for iter in range(20):
@@ -959,12 +1064,15 @@ def local_elasticity():
                 alpha *= 0.5
                 sigma = sigma0 + alpha * p
                 E = local_energy(sigma, sigma_Dx_plus_u, vol0, W[e])
-        sig = ti.Matrix([[sigma[0], 0.0, 0.0], [0.0, sigma[1], 0.0], [0.0, 0.0, sigma[2]]])
+        for i in ti.static(range(dim)):
+            sig[i, i] = sigma[i]
         z[e] = U @ sig @ V.transpose()
 @ti.kernel
 def local_PP():
     for c in range(n_PP[None]):
-        pos = ti.Vector([x(0)[PP[c, 0]] - x(0)[PP[c, 1]] + r_PP(0)[c, 0], x(1)[PP[c, 0]] - x(1)[PP[c, 1]] + r_PP(1)[c, 0], x(2)[PP[c, 0]] - x(2)[PP[c, 1]] + r_PP(2)[c, 0]])
+        pos = ti.Matrix.zero(real, dim)
+        for i in ti.static(range(dim)):
+            pos[i] = x(i)[PP[c, 0]] - x(i)[PP[c, 1]] + r_PP(i)[c, 0]
         posTilde = pos
         for iter in range(20):
             g = PP_gradient(pos, posTilde, Q)
@@ -981,17 +1089,20 @@ def local_PP():
                 alpha *= 0.5
                 pos = pos0 + alpha * p
                 E = PP_energy(pos, posTilde, Q)
-        y_PP[c, 0] = ti.Vector([pos[0], pos[1], pos[2]])
+        for i in ti.static(range(dim)):
+            y_PP(i)[c, 0] = pos[i]
 @ti.kernel
 def local_PE():
     for c in range(n_PE[None]):
-        pos = ti.Vector([x(0)[PE[c, 0]] - x(0)[PE[c, 1]] + r_PE(0)[c, 0], x(1)[PE[c, 0]] - x(1)[PE[c, 1]] + r_PE(1)[c, 0], x(2)[PE[c, 0]] - x(2)[PE[c, 1]] + r_PE(2)[c, 0],
-                         x(0)[PE[c, 0]] - x(0)[PE[c, 2]] + r_PE(0)[c, 1], x(1)[PE[c, 0]] - x(1)[PE[c, 2]] + r_PE(1)[c, 1], x(2)[PE[c, 0]] - x(2)[PE[c, 2]] + r_PE(2)[c, 1]])
+        pos = ti.Matrix.zero(real, dim * 2)
+        for i in ti.static(range(dim)):
+            pos[i] = x(i)[PE[c, 0]] - x(i)[PE[c, 1]] + r_PE(i)[c, 0]
+            pos[i + dim] = x(i)[PE[c, 0]] - x(i)[PE[c, 2]] + r_PE(i)[c, 1]
         posTilde = pos
         for iter in range(20):
             g = PE_gradient(pos, posTilde, Q)
             P = PE_hessian(pos, posTilde, Q)
-            p = -inverse_6(P) @ g
+            p = -inverse_4(P) @ g
             alpha = 1.0
             pos0 = pos
             E0 = PE_energy(pos0, posTilde, Q)
@@ -1003,7 +1114,9 @@ def local_PE():
                 alpha *= 0.5
                 pos = pos0 + alpha * p
                 E = PE_energy(pos, posTilde, Q)
-        y_PE[c, 0], y_PE[c, 1] = ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]])
+        for i in ti.static(range(dim)):
+            y_PE(i)[c, 0] = pos[i]
+            y_PE(i)[c, 1] = pos[i + dim]
 @ti.kernel
 def local_PT():
     for c in range(n_PT[None]):
@@ -1221,7 +1334,7 @@ def compute_v():
 
 
 if dim == 2:
-    gui = ti.GUI("IPC", (1024, 1024), background_color=0x112F41)
+    gui = ti.GUI("IPC", (768, 768), background_color=0x112F41)
 else:
     scene = t3.Scene()
     model = t3.Model(f_n=n_boundary_triangles, vi_n=n_particles)
@@ -1233,7 +1346,7 @@ else:
     gui = ti.GUI('IPC', camera.res)
 def write_image(f):
     find_constraints()
-    particle_pos = (x.to_numpy() + mesh_offset) * mesh_scale
+    particle_pos = x.to_numpy() * mesh_scale + mesh_offset
     vertices_ = vertices.to_numpy()
     if dim == 2:
         for i in range(n_elements):
@@ -1243,10 +1356,6 @@ def write_image(f):
                          (particle_pos[b][0], particle_pos[b][1]),
                          radius=1,
                          color=0x4FB99F)
-        for i in dirichlet:
-            gui.circle(particle_pos[i], radius=3, color=0x44FFFF)
-        for i in range(n_PE[None]):
-            gui.circle(particle_pos[PE[i, 0]], radius=3, color=0xFF4444)
         gui.show(directory + f'images/{f:06d}.png')
     else:
         model.vi.from_numpy(particle_pos.astype(np.float32))
@@ -1264,7 +1373,7 @@ def write_image(f):
 
 
 if __name__ == "__main__":
-    x.from_numpy(mesh_particles.astype(np.float64))
+    x.from_numpy(mesh_particles.astype(np.float64)[:, :2])
     v.fill(0)
     vertices.from_numpy(mesh_elements.astype(np.int32))
     boundary_points.from_numpy(np.array(list(boundary_points_)).astype(np.int32))
@@ -1292,22 +1401,24 @@ if __name__ == "__main__":
             global_step()
             global_PP()
             global_PE()
-            global_PT()
-            global_EE()
-            global_EEM()
-            global_PPM()
-            global_PEM()
+            if dim == 3:
+                global_PT()
+                global_EE()
+                global_EEM()
+                global_PPM()
+                global_PEM()
 
             solve_system()
 
             local_elasticity()
             local_PP()
             local_PE()
-            local_PT()
-            local_EE()
-            local_EEM()
-            local_PPM()
-            local_PEM()
+            if dim == 3:
+                local_PT()
+                local_EE()
+                local_EEM()
+                local_PPM()
+                local_PEM()
 
             # pr = prime_residual()
             # prs.append(math.log(max(pr, 1e-20)))
@@ -1317,7 +1428,7 @@ if __name__ == "__main__":
             # print(f, "/", step, f" change of X: {xr:.8f}, prime residual: {pr:.8f}, dual residual: {dr:.8f}")
 
             dual_step()
-            # print(f, '/', step, ': ', sha1(x.to_numpy()).hexdigest())
+            print(f, '/', step, ': ', sha1(x.to_numpy()).hexdigest())
 
         # iters = range(len(prs))
         # fig = plt.figure()
