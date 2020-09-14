@@ -12,6 +12,7 @@ import taichi as ti
 # M_{E, g, H, threshold}
 # PT_type
 # EE_type
+# PE_type
 ###########################################
 
 @ti.func
@@ -176,7 +177,7 @@ def PE_2D_H(p, e0, e1):
     H33 = t22
     H34 = t100
     H35 = (t33 + t15 * t15 * t31 * 2.0) - t76 * 4.0
-    return ti.Matrix([[H0, H1, H2, H3, H4, H5]
+    return ti.Matrix([[H0, H1, H2, H3, H4, H5],
                       [H6, H7, H8, H9, H10, H11],
                       [H12, H13, H14, H15, H16, H17],
                       [H18, H19, H20, H21, H22, H23],
@@ -1746,6 +1747,20 @@ def EE_type(a0, a1, b0, b1):
             case = 4
         else:
             case = 7
+    return case
+
+
+@ti.func
+def PE_type(p, e0, e1):
+    e = e1 - e0
+    ratio = e.dot(p - e0) / e.norm_sqr()
+    case = 0
+    if ratio < 0:
+        case = 0
+    elif ratio > 1:
+        case = 1
+    else:
+        case = 2
     return case
 
 
