@@ -7,6 +7,11 @@
 #include <immintrin.h>
 #include <functional>
 #include <cmath>
+#include <algorithm>
+#include <fstream>
+#include <string>
+#include <sstream>
+#include <iostream>
 
 namespace JGSL {
 
