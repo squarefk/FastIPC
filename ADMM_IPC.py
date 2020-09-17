@@ -186,7 +186,24 @@ kappa = 1e4
 
 
 @ti.kernel
-def find_constraints():
+def compute_warm_start_filter() -> real:
+    alpha = 1.0
+    for i in range(n_boundary_points):
+        p = boundary_points[i]
+        for j in range(n_boundary_edges):
+            e0 = boundary_edges[j, 0]
+            e1 = boundary_edges[j, 1]
+            if p != e0 and p != e1:
+                dp = xTilde[p] - x[p]
+                de0 = xTilde[e0] - x[e0]
+                de1 = xTilde[e1] - x[e1]
+                if moving_point_edge_ccd_broadphase(x[p], x[e0], x[e1], dp, de0, de1, dHat):
+                    alpha = ti.min(alpha, moving_point_edge_ccd(x[p], x[e0], x[e1], dp, de0, de1, 0.2))
+    return alpha
+
+
+@ti.kernel
+def find_constraints(alpha: real):
     old_n_PP[None] = n_PP[None]
     for c in range(old_n_PP[None]):
         old_PP[c, 0], old_PP[c, 1] = PP[c, 0], PP[c, 1]
@@ -368,11 +385,14 @@ def find_constraints():
     print("Find constraints: ", n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None])
     # xTilde initiated y, r
     for r in range(n_PP[None]):
-        p0, p1 = xTilde[PP[r, 0]], xTilde[PP[r, 1]]
+        p0 = xTilde[PP[r, 0]] * alpha + x[PP[r, 0]] * (1 - alpha)
+        p1 = xTilde[PP[r, 1]] * alpha + x[PP[r, 1]] * (1 - alpha)
         y_PP[r, 0] = p0 - p1
         r_PP[r, 0] = ti.Matrix.zero(real, dim)
     for r in range(n_PE[None]):
-        p, e0, e1 = xTilde[PE[r, 0]], xTilde[PE[r, 1]], xTilde[PE[r, 2]]
+        p = xTilde[PE[r, 0]] * alpha + x[PE[r, 0]] * (1 - alpha)
+        e0 = xTilde[PE[r, 1]] * alpha + x[PE[r, 1]] * (1 - alpha)
+        e1 = xTilde[PE[r, 2]] * alpha + x[PE[r, 2]] * (1 - alpha)
         y_PE[r, 0], y_PE[r, 1] = p - e0, p - e1
         r_PE[r, 0], r_PE[r, 1] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
     for r in range(n_PT[None]):
@@ -459,7 +479,7 @@ def compute_restT_and_m():
                 m[vertices[i, d]] += mass
     for i in range(n_particles):
         x0[i] = x[i]
-        v(0)[i] = 0.19 if i < n_particles / 2 else -0.19
+        # v(0)[i] = 1 if i < n_particles / 2 else -1
 
 
 @ti.kernel
@@ -473,7 +493,7 @@ def initial_guess():
     for i in range(n_particles):
         xn[i] = x[i]
         xTilde[i] = x[i] + dt * v[i]
-        # xTilde(1)[i] -= dt * dt * 9.8
+        xTilde(1)[i] -= dt * dt * 9.8
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
 
 
@@ -667,21 +687,61 @@ def global_PEM():
     cnt[None] += n_PEM[None] * 48
 
 
+@ti.kernel
+def before_solve():
+    for i in range(n_particles):
+        xx[i] = x[i]
+
+
+@ti.kernel
+def after_solve() -> real:
+    for i in range(n_particles):
+        for d in ti.static(range(dim)):
+            x(d)[i] = data_x[i * dim + d]
+    alpha = 1.0
+    for i in range(n_boundary_points):
+        p = boundary_points[i]
+        for j in range(n_boundary_edges):
+            e0 = boundary_edges[j, 0]
+            e1 = boundary_edges[j, 1]
+            if p != e0 and p != e1:
+                dp = x[p] - xx[p]
+                de0 = x[e0] - xx[e0]
+                de1 = x[e1] - xx[e1]
+                if moving_point_edge_ccd_broadphase(xx[p], xx[e0], xx[e1], dp, de0, de1, dHat):
+                    alpha = ti.min(alpha, moving_point_edge_ccd(xx[p], xx[e0], xx[e1], dp, de0, de1, 0.1))
+    for i in range(n_particles):
+        x[i] = x[i] * alpha + xx[i] * (1 - alpha)
+    return alpha
+
+
 def solve_system():
+    before_solve()
     if cnt[None] >= MAX_LINEAR or n_PP[None] >= MAX_C or n_PE[None] >= MAX_C or n_PT[None] >= MAX_C or n_EE[None] >= MAX_C or n_EEM[None] >= MAX_C or n_PPM[None] >= MAX_C or n_PEM[None] >= MAX_C:
         print("FATAL ERROR: Array Too Small!")
     print("Total entries: ", cnt[None])
     row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
     rhs = data_rhs.to_numpy()
+
+    for i in range(cnt[None]):
+        if dirichlet_fixed[col[i]]:
+            rhs[row[i]] -= dirichlet_value[col[i]] * val[i]
+        if dirichlet_fixed[row[i]] or dirichlet_fixed[col[i]]:
+            val[i] = 0
+    indices = np.where(dirichlet_fixed)
+    for i in indices[0]:
+        row = np.append(row, i)
+        col = np.append(col, i)
+        val = np.append(val, 1.)
+        rhs[i] = dirichlet_value[i]
+
     n = n_particles * dim
     A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
     data_x.from_numpy(scipy.sparse.linalg.spsolve(A, rhs))
     tmp = A.dot(data_x.to_numpy()) - rhs
     residual = np.linalg.norm(tmp, ord=np.inf)
     print("Global solve residual = ", residual)
-    for i in range(n_particles):
-        for d in ti.static(range(dim)):
-            x(d)[i] = data_x[i * dim + d]
+    return after_solve()
 
 
 @ti.func
@@ -1345,7 +1405,7 @@ else:
     scene.add_light(light)
     gui = ti.GUI('IPC', camera.res)
 def write_image(f):
-    find_constraints()
+    # find_constraints()
     particle_pos = x.to_numpy() * mesh_scale + mesh_offset
     vertices_ = vertices.to_numpy()
     if dim == 2:
@@ -1390,7 +1450,8 @@ if __name__ == "__main__":
         prs = []
         drs = []
         for step in range(20):
-            find_constraints()
+            alpha = compute_warm_start_filter()
+            find_constraints(alpha)
 
             data_row.fill(0)
             data_col.fill(0)
@@ -1408,7 +1469,8 @@ if __name__ == "__main__":
                 global_PPM()
                 global_PEM()
 
-            solve_system()
+            if solve_system() < 1e-6:
+                break
 
             local_elasticity()
             local_PP()
