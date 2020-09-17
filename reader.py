@@ -61,12 +61,45 @@ def read(testcase):
         dirichlet_value = np.zeros(len(mesh_particles) * 2, dtype=np.float32)
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
     elif testcase == 5:
-        # two triangles
+        # two spheres
         mesh = meshio.read("input/sphere.obj")
-        mesh_particles = np.vstack((mesh.points + [0, 0, 0], mesh.points + [0.3, 0, 0]))
+        mesh_particles = np.vstack((mesh.points + [0, 0, 0], mesh.points + [0.5, 0, 0]))
         mesh_elements = np.vstack((mesh.cells[0].data, mesh.cells[0].data + len(mesh_particles) / 2))
         mesh_scale = 0.8
         mesh_offset = [0.4, 0.5]
         dirichlet_fixed = np.zeros(len(mesh_particles) * 2, dtype=bool)
-        dirichlet_value = np.zeros(len(mesh_particles) * 2, dtype=np.float32)
+        for i in range(2 * 2):
+            dirichlet_fixed[i] = True
+        dirichlet_value = mesh_particles[:, :2].reshape((len(mesh_particles) * 2))
+        print(mesh_particles)
+        print(dirichlet_value)
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
+    elif testcase == 6:
+        # two spheres
+        mesh = meshio.read("input/Sharkey.obj")
+        mesh_particles = mesh.points
+        mesh_elements = mesh.cells[0].data
+        mesh_scale = 0.6
+        mesh_offset = [0.35, 0.3]
+        dirichlet_fixed = np.zeros(len(mesh_particles) * 2, dtype=bool)
+        for i in range(12 * 2):
+            dirichlet_fixed[i] = True
+        dirichlet_value = mesh_particles[:, :2].reshape((len(mesh_particles) * 2))
+        print(mesh_particles)
+        print(dirichlet_value)
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
+    elif testcase == 7:
+        # two spheres
+        mesh = meshio.read("input/Sharkey_floor.obj")
+        mesh_particles = mesh.points
+        mesh_elements = mesh.cells[0].data
+        mesh_scale = 0.6
+        mesh_offset = [0.32, 0.3]
+        dirichlet_fixed = np.zeros(len(mesh_particles) * 2, dtype=bool)
+        for i in [954, 955]:
+            dirichlet_fixed[i * 2] = True
+            dirichlet_fixed[i * 2 + 1] = True
+        dirichlet_value = mesh_particles[:, :2].reshape((len(mesh_particles) * 2))
+        print(mesh_particles)
+        print(dirichlet_value)
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
