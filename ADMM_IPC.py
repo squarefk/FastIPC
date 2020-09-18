@@ -119,66 +119,64 @@ cnt = ti.var(dt=ti.i32, shape=())
 # Q, old_Q = scalar(), scalar()
 # ti.root.dense(ti.i, n_constraint).place(Q, old_Q)
 
-Q = 1.0
-
 MAX_C = 100000
 PP = ti.var(ti.i32, shape=(MAX_C, 2))
 n_PP = ti.var(dt=ti.i32, shape=())
-y_PP, r_PP = vec(), vec()
-ti.root.dense(ti.ij, (MAX_C, 1)).place(y_PP, r_PP)
+y_PP, r_PP, Q_PP = vec(), vec(), scalar()
+ti.root.dense(ti.ij, (MAX_C, 1)).place(y_PP, r_PP, Q_PP)
 PE = ti.var(ti.i32, shape=(MAX_C, 3))
 n_PE = ti.var(dt=ti.i32, shape=())
-y_PE, r_PE = vec(), vec()
-ti.root.dense(ti.ij, (MAX_C, 2)).place(y_PE, r_PE)
+y_PE, r_PE, Q_PE = vec(), vec(), scalar()
+ti.root.dense(ti.ij, (MAX_C, 2)).place(y_PE, r_PE, Q_PE)
 PT = ti.var(ti.i32, shape=(MAX_C, 4))
 n_PT = ti.var(dt=ti.i32, shape=())
-y_PT, r_PT = vec(), vec()
-ti.root.dense(ti.ij, (MAX_C, 3)).place(y_PT, r_PT)
+y_PT, r_PT, Q_PT = vec(), vec(), scalar()
+ti.root.dense(ti.ij, (MAX_C, 3)).place(y_PT, r_PT, Q_PT)
 EE = ti.var(ti.i32, shape=(MAX_C, 4))
 n_EE = ti.var(dt=ti.i32, shape=())
-y_EE, r_EE = vec(), vec()
-ti.root.dense(ti.ij, (MAX_C, 3)).place(y_EE, r_EE)
+y_EE, r_EE, Q_EE = vec(), vec(), scalar()
+ti.root.dense(ti.ij, (MAX_C, 3)).place(y_EE, r_EE, Q_EE)
 EEM = ti.var(ti.i32, shape=(MAX_C, 4))
 n_EEM = ti.var(dt=ti.i32, shape=())
-y_EEM, r_EEM = vec(), vec()
-ti.root.dense(ti.ij, (MAX_C, 3)).place(y_EEM, r_EEM)
+y_EEM, r_EEM, Q_EEM = vec(), vec(), scalar()
+ti.root.dense(ti.ij, (MAX_C, 3)).place(y_EEM, r_EEM, Q_EEM)
 PPM = ti.var(ti.i32, shape=(MAX_C, 4))
 n_PPM = ti.var(dt=ti.i32, shape=())
-y_PPM, r_PPM = vec(), vec()
-ti.root.dense(ti.ij, (MAX_C, 3)).place(y_PPM, r_PPM)
+y_PPM, r_PPM, Q_PPM = vec(), vec(), scalar()
+ti.root.dense(ti.ij, (MAX_C, 3)).place(y_PPM, r_PPM, Q_PPM)
 PEM = ti.var(ti.i32, shape=(MAX_C, 4))
 n_PEM = ti.var(dt=ti.i32, shape=())
-y_PEM, r_PEM = vec(), vec()
-ti.root.dense(ti.ij, (MAX_C, 3)).place(y_PEM, r_PEM)
+y_PEM, r_PEM, Q_PEM = vec(), vec(), scalar()
+ti.root.dense(ti.ij, (MAX_C, 3)).place(y_PEM, r_PEM, Q_PEM)
 
 old_PP = ti.var(ti.i32, shape=(MAX_C, 2))
 old_n_PP = ti.var(dt=ti.i32, shape=())
-old_y_PP, old_r_PP = vec(), vec()
-ti.root.dense(ti.ij, (MAX_C, 1)).place(old_y_PP, old_r_PP)
+old_y_PP, old_r_PP, old_Q_PP = vec(), vec(), scalar()
+ti.root.dense(ti.ij, (MAX_C, 1)).place(old_y_PP, old_r_PP, old_Q_PP)
 old_PE = ti.var(ti.i32, shape=(MAX_C, 3))
 old_n_PE = ti.var(dt=ti.i32, shape=())
-old_y_PE, old_r_PE = vec(), vec()
-ti.root.dense(ti.ij, (MAX_C, 2)).place(old_y_PE, old_r_PE)
+old_y_PE, old_r_PE, old_Q_PE = vec(), vec(), scalar()
+ti.root.dense(ti.ij, (MAX_C, 2)).place(old_y_PE, old_r_PE, old_Q_PE)
 old_PT = ti.var(ti.i32, shape=(MAX_C, 4))
 old_n_PT = ti.var(dt=ti.i32, shape=())
-old_y_PT, old_r_PT = vec(), vec()
-ti.root.dense(ti.ij, (MAX_C, 3)).place(old_y_PT, old_r_PT)
+old_y_PT, old_r_PT, old_Q_PT = vec(), vec(), scalar()
+ti.root.dense(ti.ij, (MAX_C, 3)).place(old_y_PT, old_r_PT, old_Q_PT)
 old_EE = ti.var(ti.i32, shape=(MAX_C, 4))
 old_n_EE = ti.var(dt=ti.i32, shape=())
-old_y_EE, old_r_EE = vec(), vec()
-ti.root.dense(ti.ij, (MAX_C, 3)).place(old_y_EE, old_r_EE)
+old_y_EE, old_r_EE, old_Q_EE = vec(), vec(), scalar()
+ti.root.dense(ti.ij, (MAX_C, 3)).place(old_y_EE, old_r_EE, old_Q_EE)
 old_EEM = ti.var(ti.i32, shape=(MAX_C, 4))
 old_n_EEM = ti.var(dt=ti.i32, shape=())
-old_y_EEM, old_r_EEM = vec(), vec()
-ti.root.dense(ti.ij, (MAX_C, 3)).place(old_y_EEM, old_r_EEM)
+old_y_EEM, old_r_EEM, old_Q_EEM = vec(), vec(), scalar()
+ti.root.dense(ti.ij, (MAX_C, 3)).place(old_y_EEM, old_r_EEM, old_Q_EEM)
 old_PPM = ti.var(ti.i32, shape=(MAX_C, 4))
 old_n_PPM = ti.var(dt=ti.i32, shape=())
-old_y_PPM, old_r_PPM = vec(), vec()
-ti.root.dense(ti.ij, (MAX_C, 3)).place(old_y_PPM, old_r_PPM)
+old_y_PPM, old_r_PPM, old_Q_PPM = vec(), vec(), scalar()
+ti.root.dense(ti.ij, (MAX_C, 3)).place(old_y_PPM, old_r_PPM, old_Q_PPM)
 old_PEM = ti.var(ti.i32, shape=(MAX_C, 4))
 old_n_PEM = ti.var(dt=ti.i32, shape=())
-old_y_PEM, old_r_PEM = vec(), vec()
-ti.root.dense(ti.ij, (MAX_C, 3)).place(old_y_PEM, old_r_PEM)
+old_y_PEM, old_r_PEM, old_Q_PEM = vec(), vec(), scalar()
+ti.root.dense(ti.ij, (MAX_C, 3)).place(old_y_PEM, old_r_PEM, old_Q_PEM)
 
 dHat2 = 1e-5
 dHat = dHat2 ** 0.5
@@ -209,36 +207,43 @@ def find_constraints(alpha: real):
         old_PP[c, 0], old_PP[c, 1] = PP[c, 0], PP[c, 1]
         old_y_PP[c, 0] = y_PP[c, 0]
         old_r_PP[c, 0] = r_PP[c, 0]
+        old_Q_PP[c, 0] = Q_PP[c, 0]
     old_n_PE[None] = n_PE[None]
     for c in range(old_n_PE[None]):
         old_PE[c, 0], old_PE[c, 1], old_PE[c, 2] = PE[c, 0], PE[c, 1], PE[c, 2]
         old_y_PE[c, 0], old_y_PE[c, 1] = y_PE[c, 0], y_PE[c, 1]
         old_r_PE[c, 0], old_r_PE[c, 1] = r_PE[c, 0], r_PE[c, 1]
+        old_Q_PE[c, 0], old_Q_PE[c, 1] = Q_PE[c, 0], Q_PE[c, 1]
     old_n_PT[None] = n_PT[None]
     for c in range(old_n_PT[None]):
         old_PT[c, 0], old_PT[c, 1], old_PT[c, 2], old_PT[c, 3] = PT[c, 0], PT[c, 1], PT[c, 2], PT[c, 3]
         old_y_PT[c, 0], old_y_PT[c, 1], old_y_PT[c, 2] = y_PT[c, 0], y_PT[c, 1], y_PT[c, 2]
         old_r_PT[c, 0], old_r_PT[c, 1], old_r_PT[c, 2] = r_PT[c, 0], r_PT[c, 1], r_PT[c, 2]
+        old_Q_PT[c, 0], old_Q_PT[c, 1], old_Q_PT[c, 2] = Q_PT[c, 0], Q_PT[c, 1], Q_PT[c, 2]
     old_n_EE[None] = n_EE[None]
     for c in range(old_n_EE[None]):
         old_EE[c, 0], old_EE[c, 1], old_EE[c, 2], old_EE[c, 3] = EE[c, 0], EE[c, 1], EE[c, 2], EE[c, 3]
         old_y_EE[c, 0], old_y_EE[c, 1], old_y_EE[c, 2] = y_EE[c, 0], y_EE[c, 1], y_EE[c, 2]
         old_r_EE[c, 0], old_r_EE[c, 1], old_r_EE[c, 2] = r_EE[c, 0], r_EE[c, 1], r_EE[c, 2]
+        old_Q_EE[c, 0], old_Q_EE[c, 1], old_Q_EE[c, 2] = Q_EE[c, 0], Q_EE[c, 1], Q_EE[c, 2]
     old_n_EEM[None] = n_EEM[None]
     for c in range(old_n_EEM[None]):
         old_EEM[c, 0], old_EEM[c, 1], old_EEM[c, 2], old_EEM[c, 3] = EEM[c, 0], EEM[c, 1], EEM[c, 2], EEM[c, 3]
         old_y_EEM[c, 0], old_y_EEM[c, 1], old_y_EEM[c, 2] = y_EEM[c, 0], y_EEM[c, 1], y_EEM[c, 2]
         old_r_EEM[c, 0], old_r_EEM[c, 1], old_r_EEM[c, 2] = r_EEM[c, 0], r_EEM[c, 1], r_EEM[c, 2]
+        old_Q_EEM[c, 0], old_Q_EEM[c, 1], old_Q_EEM[c, 2] = Q_EEM[c, 0], Q_EEM[c, 1], Q_EEM[c, 2]
     old_n_PPM[None] = n_PPM[None]
     for c in range(old_n_PPM[None]):
         old_PPM[c, 0], old_PPM[c, 1], old_PPM[c, 2], old_PPM[c, 3] = PPM[c, 0], PPM[c, 1], PPM[c, 2], PPM[c, 3]
         old_y_PPM[c, 0], old_y_PPM[c, 1], old_y_PPM[c, 2] = y_PPM[c, 0], y_PPM[c, 1], y_PPM[c, 2]
         old_r_PPM[c, 0], old_r_PPM[c, 1], old_r_PPM[c, 2] = r_PPM[c, 0], r_PPM[c, 1], r_PPM[c, 2]
+        old_Q_PPM[c, 0], old_Q_PPM[c, 1], old_Q_PPM[c, 2] = Q_PPM[c, 0], Q_PPM[c, 1], Q_PPM[c, 2]
     old_n_PEM[None] = n_PEM[None]
     for c in range(old_n_PEM[None]):
         old_PEM[c, 0], old_PEM[c, 1], old_PEM[c, 2], old_PEM[c, 3] = PEM[c, 0], PEM[c, 1], PEM[c, 2], PEM[c, 3]
         old_y_PEM[c, 0], old_y_PEM[c, 1], old_y_PEM[c, 2] = y_PEM[c, 0], y_PEM[c, 1], y_PEM[c, 2]
         old_r_PEM[c, 0], old_r_PEM[c, 1], old_r_PEM[c, 2] = r_PEM[c, 0], r_PEM[c, 1], r_PEM[c, 2]
+        old_Q_PEM[c, 0], old_Q_PEM[c, 1], old_Q_PEM[c, 2] = Q_PEM[c, 0], Q_PEM[c, 1], Q_PEM[c, 2]
 
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
 
@@ -421,36 +426,43 @@ def find_constraints(alpha: real):
             if old_PP[c, 0] == PP[d, 0] and old_PP[c, 1] == PP[d, 1]:
                 y_PP[d, 0] = old_y_PP[c, 0]
                 r_PP[d, 0] = old_r_PP[c, 0]
+                Q_PP[d, 0] = old_Q_PP[c, 0]
     for c in range(old_n_PE[None]):
         for d in range(n_PE[None]):
             if old_PE[c, 0] == PE[d, 0] and old_PE[c, 1] == PE[d, 1] and old_PE[c, 2] == PE[d, 2]:
                 y_PE[d, 0], y_PE[d, 1] = old_y_PE[c, 0], old_y_PE[c, 1]
                 r_PE[d, 0], r_PE[d, 1] = old_r_PE[c, 0], old_r_PE[c, 1]
+                Q_PE[d, 0], Q_PE[d, 1] = old_Q_PE[c, 0], old_Q_PE[c, 1]
     for c in range(old_n_PT[None]):
         for d in range(n_PT[None]):
             if old_PT[c, 0] == PT[d, 0] and old_PT[c, 1] == PT[d, 1] and old_PT[c, 2] == PT[d, 2] and old_PT[c, 3] == PT[d, 3]:
                 y_PT[d, 0], y_PT[d, 1], y_PT[d, 2] = old_y_PT[c, 0], old_y_PT[c, 1], old_y_PT[c, 2]
                 r_PT[d, 0], r_PT[d, 1], r_PT[d, 2] = old_r_PT[c, 0], old_r_PT[c, 1], old_r_PT[c, 2]
+                Q_PT[d, 0], Q_PT[d, 1], Q_PT[d, 2] = old_Q_PT[c, 0], old_Q_PT[c, 1], old_Q_PT[c, 2]
     for c in range(old_n_EE[None]):
         for d in range(n_EE[None]):
             if old_EE[c, 0] == EE[d, 0] and old_EE[c, 1] == EE[d, 1] and old_EE[c, 2] == EE[d, 2] and old_EE[c, 3] == EE[d, 3]:
                 y_EE[d, 0], y_EE[d, 1], y_EE[d, 2] = old_y_EE[c, 0], old_y_EE[c, 1], old_y_EE[c, 2]
                 r_EE[d, 0], r_EE[d, 1], r_EE[d, 2] = old_r_EE[c, 0], old_r_EE[c, 1], old_r_EE[c, 2]
+                Q_EE[d, 0], Q_EE[d, 1], Q_EE[d, 2] = old_Q_EE[c, 0], old_Q_EE[c, 1], old_Q_EE[c, 2]
     for c in range(old_n_EEM[None]):
         for d in range(n_EEM[None]):
             if old_EEM[c, 0] == EEM[d, 0] and old_EEM[c, 1] == EEM[d, 1] and old_EEM[c, 2] == EEM[d, 2] and old_EEM[c, 3] == EEM[d, 3]:
                 y_EEM[d, 0], y_EEM[d, 1], y_EEM[d, 2] = old_y_EEM[c, 0], old_y_EEM[c, 1], old_y_EEM[c, 2]
                 r_EEM[d, 0], r_EEM[d, 1], r_EEM[d, 2] = old_r_EEM[c, 0], old_r_EEM[c, 1], old_r_EEM[c, 2]
+                Q_EEM[d, 0], Q_EEM[d, 1], Q_EEM[d, 2] = old_Q_EEM[c, 0], old_Q_EEM[c, 1], old_Q_EEM[c, 2]
     for c in range(old_n_PPM[None]):
         for d in range(n_PPM[None]):
             if old_PPM[c, 0] == PPM[d, 0] and old_PPM[c, 1] == PPM[d, 1] and old_PPM[c, 2] == PPM[d, 2] and old_PPM[c, 3] == PPM[d, 3]:
                 y_PPM[d, 0], y_PPM[d, 1], y_PPM[d, 2] = old_y_PPM[c, 0], old_y_PPM[c, 1], old_y_PPM[c, 2]
                 r_PPM[d, 0], r_PPM[d, 1], r_PPM[d, 2] = old_r_PPM[c, 0], old_r_PPM[c, 1], old_r_PPM[c, 2]
+                Q_PPM[d, 0], Q_PPM[d, 1], Q_PPM[d, 2] = old_Q_PPM[c, 0], old_Q_PPM[c, 1], old_Q_PPM[c, 2]
     for c in range(old_n_PEM[None]):
         for d in range(n_PEM[None]):
             if old_PEM[c, 0] == PEM[d, 0] and old_PEM[c, 1] == PEM[d, 1] and old_PEM[c, 2] == PEM[d, 2] and old_PEM[c, 3] == PEM[d, 3]:
                 y_PEM[d, 0], y_PEM[d, 1], y_PEM[d, 2] = old_y_PEM[c, 0], old_y_PEM[c, 1], old_y_PEM[c, 2]
                 r_PEM[d, 0], r_PEM[d, 1], r_PEM[d, 2] = old_r_PEM[c, 0], old_r_PEM[c, 1], old_r_PEM[c, 2]
+                Q_PEM[d, 0], Q_PEM[d, 1], Q_PEM[d, 2] = old_Q_PEM[c, 0], old_Q_PEM[c, 1], old_Q_PEM[c, 2]
 
 
 @ti.func
@@ -556,6 +568,7 @@ def global_PP():
     ETE2 = ti.Matrix([[1, -1], [-1, 1]])
     for _ in range(1):
         for c in range(n_PP[None]):
+            Q = Q_PP[c, 0]
             for p in ti.static(range(2)):
                 for q in ti.static(range(2)):
                     for j in ti.static(range(dim)):
@@ -572,6 +585,7 @@ def global_PE():
     ETE3 = ti.Matrix([[2, -1, -1], [-1, 1, 0], [-1, 0, 1]])
     for _ in range(1):
         for c in range(n_PE[None]):
+            Q = Q_PE[c, 0]
             for p in ti.static(range(3)):
                 for q in ti.static(range(3)):
                     for j in ti.static(range(dim)):
@@ -590,6 +604,7 @@ def global_PT():
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
     for _ in range(1):
         for c in range(n_PT[None]):
+            Q = Q_PT[c, 0]
             for p in ti.static(range(4)):
                 for q in ti.static(range(4)):
                     for j in ti.static(range(3)):
@@ -610,6 +625,7 @@ def global_EE():
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
     for _ in range(1):
         for c in range(n_EE[None]):
+            Q = Q_EE[c, 0]
             for p in ti.static(range(4)):
                 for q in ti.static(range(4)):
                     for j in ti.static(range(3)):
@@ -630,6 +646,7 @@ def global_EEM():
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
     for _ in range(1):
         for c in range(n_EEM[None]):
+            Q = Q_EEM[c, 0]
             for p in ti.static(range(4)):
                 for q in ti.static(range(4)):
                     for j in ti.static(range(3)):
@@ -650,6 +667,7 @@ def global_PPM():
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
     for _ in range(1):
         for c in range(n_PPM[None]):
+            Q = Q_PPM[c, 0]
             for p in ti.static(range(4)):
                 for q in ti.static(range(4)):
                     for j in ti.static(range(3)):
@@ -670,6 +688,7 @@ def global_PEM():
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
     for _ in range(1):
         for c in range(n_PEM[None]):
+            Q = Q_PEM[c, 0]
             for p in ti.static(range(4)):
                 for q in ti.static(range(4)):
                     for j in ti.static(range(3)):
@@ -1134,6 +1153,7 @@ def local_PP():
         for i in ti.static(range(dim)):
             pos[i] = x(i)[PP[c, 0]] - x(i)[PP[c, 1]] + r_PP(i)[c, 0]
         posTilde = pos
+        Q = Q_PP[c, 0]
         for iter in range(20):
             g = PP_gradient(pos, posTilde, Q)
             P = PP_hessian(pos, posTilde, Q)
@@ -1159,6 +1179,7 @@ def local_PE():
             pos[i] = x(i)[PE[c, 0]] - x(i)[PE[c, 1]] + r_PE(i)[c, 0]
             pos[i + dim] = x(i)[PE[c, 0]] - x(i)[PE[c, 2]] + r_PE(i)[c, 1]
         posTilde = pos
+        Q = Q_PE[c, 0]
         for iter in range(20):
             g = PE_gradient(pos, posTilde, Q)
             P = PE_hessian(pos, posTilde, Q)
@@ -1184,6 +1205,7 @@ def local_PT():
                          x(0)[PT[c, 0]] - x(0)[PT[c, 2]] + r_PT(0)[c, 1], x(1)[PT[c, 0]] - x(1)[PT[c, 2]] + r_PT(1)[c, 1], x(2)[PT[c, 0]] - x(2)[PT[c, 2]] + r_PT(2)[c, 1],
                          x(0)[PT[c, 0]] - x(0)[PT[c, 3]] + r_PT(0)[c, 2], x(1)[PT[c, 0]] - x(1)[PT[c, 3]] + r_PT(1)[c, 2], x(2)[PT[c, 0]] - x(2)[PT[c, 3]] + r_PT(2)[c, 2]])
         posTilde = pos
+        Q = Q_PT[c, 0]
         for iter in range(20):
             g = PT_gradient(pos, posTilde, Q)
             P = PT_hessian(pos, posTilde, Q)
@@ -1207,6 +1229,7 @@ def local_EE():
                          x(0)[EE[c, 0]] - x(0)[EE[c, 2]] + r_EE(0)[c, 1], x(1)[EE[c, 0]] - x(1)[EE[c, 2]] + r_EE(1)[c, 1], x(2)[EE[c, 0]] - x(2)[EE[c, 2]] + r_EE(2)[c, 1],
                          x(0)[EE[c, 0]] - x(0)[EE[c, 3]] + r_EE(0)[c, 2], x(1)[EE[c, 0]] - x(1)[EE[c, 3]] + r_EE(1)[c, 2], x(2)[EE[c, 0]] - x(2)[EE[c, 3]] + r_EE(2)[c, 2]])
         posTilde = pos
+        Q = Q_EE[c, 0]
         for iter in range(20):
             g = EE_gradient(pos, posTilde, Q)
             P = EE_hessian(pos, posTilde, Q)
@@ -1230,6 +1253,7 @@ def local_EEM():
                          x(0)[EEM[c, 0]] - x(0)[EEM[c, 2]] + r_EEM(0)[c, 1], x(1)[EEM[c, 0]] - x(1)[EEM[c, 2]] + r_EEM(1)[c, 1], x(2)[EEM[c, 0]] - x(2)[EEM[c, 2]] + r_EEM(2)[c, 1],
                          x(0)[EEM[c, 0]] - x(0)[EEM[c, 3]] + r_EEM(0)[c, 2], x(1)[EEM[c, 0]] - x(1)[EEM[c, 3]] + r_EEM(1)[c, 2], x(2)[EEM[c, 0]] - x(2)[EEM[c, 3]] + r_EEM(2)[c, 2]])
         posTilde = pos
+        Q = Q_EEM[c, 0]
         for iter in range(20):
             g = EEM_gradient(pos, posTilde, Q, c)
             P = EEM_hessian(pos, posTilde, Q, c)
@@ -1253,6 +1277,7 @@ def local_PPM():
                          x(0)[PPM[c, 0]] - x(0)[PPM[c, 2]] + r_PPM(0)[c, 1], x(1)[PPM[c, 0]] - x(1)[PPM[c, 2]] + r_PPM(1)[c, 1], x(2)[PPM[c, 0]] - x(2)[PPM[c, 2]] + r_PPM(2)[c, 1],
                          x(0)[PPM[c, 0]] - x(0)[PPM[c, 3]] + r_PPM(0)[c, 2], x(1)[PPM[c, 0]] - x(1)[PPM[c, 3]] + r_PPM(1)[c, 2], x(2)[PPM[c, 0]] - x(2)[PPM[c, 3]] + r_PPM(2)[c, 2]])
         posTilde = pos
+        Q = Q_PPM[c, 0]
         for iter in range(20):
             g = PPM_gradient(pos, posTilde, Q, c)
             P = PPM_hessian(pos, posTilde, Q, c)
@@ -1276,6 +1301,7 @@ def local_PEM():
                          x(0)[PEM[c, 0]] - x(0)[PEM[c, 2]] + r_PEM(0)[c, 1], x(1)[PEM[c, 0]] - x(1)[PEM[c, 2]] + r_PEM(1)[c, 1], x(2)[PEM[c, 0]] - x(2)[PEM[c, 2]] + r_PEM(2)[c, 1],
                          x(0)[PEM[c, 0]] - x(0)[PEM[c, 3]] + r_PEM(0)[c, 2], x(1)[PEM[c, 0]] - x(1)[PEM[c, 3]] + r_PEM(1)[c, 2], x(2)[PEM[c, 0]] - x(2)[PEM[c, 3]] + r_PEM(2)[c, 2]])
         posTilde = pos
+        Q = Q_PEM[c, 0]
         for iter in range(20):
             g = PEM_gradient(pos, posTilde, Q, c)
             P = PEM_hessian(pos, posTilde, Q, c)
