@@ -200,271 +200,6 @@ def compute_warm_start_filter() -> real:
     return alpha
 
 
-@ti.kernel
-def find_constraints(alpha: real):
-    old_n_PP[None] = n_PP[None]
-    for c in range(old_n_PP[None]):
-        old_PP[c, 0], old_PP[c, 1] = PP[c, 0], PP[c, 1]
-        old_y_PP[c, 0] = y_PP[c, 0]
-        old_r_PP[c, 0] = r_PP[c, 0]
-        old_Q_PP[c, 0] = Q_PP[c, 0]
-    old_n_PE[None] = n_PE[None]
-    for c in range(old_n_PE[None]):
-        old_PE[c, 0], old_PE[c, 1], old_PE[c, 2] = PE[c, 0], PE[c, 1], PE[c, 2]
-        old_y_PE[c, 0], old_y_PE[c, 1] = y_PE[c, 0], y_PE[c, 1]
-        old_r_PE[c, 0], old_r_PE[c, 1] = r_PE[c, 0], r_PE[c, 1]
-        old_Q_PE[c, 0], old_Q_PE[c, 1] = Q_PE[c, 0], Q_PE[c, 1]
-    old_n_PT[None] = n_PT[None]
-    for c in range(old_n_PT[None]):
-        old_PT[c, 0], old_PT[c, 1], old_PT[c, 2], old_PT[c, 3] = PT[c, 0], PT[c, 1], PT[c, 2], PT[c, 3]
-        old_y_PT[c, 0], old_y_PT[c, 1], old_y_PT[c, 2] = y_PT[c, 0], y_PT[c, 1], y_PT[c, 2]
-        old_r_PT[c, 0], old_r_PT[c, 1], old_r_PT[c, 2] = r_PT[c, 0], r_PT[c, 1], r_PT[c, 2]
-        old_Q_PT[c, 0], old_Q_PT[c, 1], old_Q_PT[c, 2] = Q_PT[c, 0], Q_PT[c, 1], Q_PT[c, 2]
-    old_n_EE[None] = n_EE[None]
-    for c in range(old_n_EE[None]):
-        old_EE[c, 0], old_EE[c, 1], old_EE[c, 2], old_EE[c, 3] = EE[c, 0], EE[c, 1], EE[c, 2], EE[c, 3]
-        old_y_EE[c, 0], old_y_EE[c, 1], old_y_EE[c, 2] = y_EE[c, 0], y_EE[c, 1], y_EE[c, 2]
-        old_r_EE[c, 0], old_r_EE[c, 1], old_r_EE[c, 2] = r_EE[c, 0], r_EE[c, 1], r_EE[c, 2]
-        old_Q_EE[c, 0], old_Q_EE[c, 1], old_Q_EE[c, 2] = Q_EE[c, 0], Q_EE[c, 1], Q_EE[c, 2]
-    old_n_EEM[None] = n_EEM[None]
-    for c in range(old_n_EEM[None]):
-        old_EEM[c, 0], old_EEM[c, 1], old_EEM[c, 2], old_EEM[c, 3] = EEM[c, 0], EEM[c, 1], EEM[c, 2], EEM[c, 3]
-        old_y_EEM[c, 0], old_y_EEM[c, 1], old_y_EEM[c, 2] = y_EEM[c, 0], y_EEM[c, 1], y_EEM[c, 2]
-        old_r_EEM[c, 0], old_r_EEM[c, 1], old_r_EEM[c, 2] = r_EEM[c, 0], r_EEM[c, 1], r_EEM[c, 2]
-        old_Q_EEM[c, 0], old_Q_EEM[c, 1], old_Q_EEM[c, 2] = Q_EEM[c, 0], Q_EEM[c, 1], Q_EEM[c, 2]
-    old_n_PPM[None] = n_PPM[None]
-    for c in range(old_n_PPM[None]):
-        old_PPM[c, 0], old_PPM[c, 1], old_PPM[c, 2], old_PPM[c, 3] = PPM[c, 0], PPM[c, 1], PPM[c, 2], PPM[c, 3]
-        old_y_PPM[c, 0], old_y_PPM[c, 1], old_y_PPM[c, 2] = y_PPM[c, 0], y_PPM[c, 1], y_PPM[c, 2]
-        old_r_PPM[c, 0], old_r_PPM[c, 1], old_r_PPM[c, 2] = r_PPM[c, 0], r_PPM[c, 1], r_PPM[c, 2]
-        old_Q_PPM[c, 0], old_Q_PPM[c, 1], old_Q_PPM[c, 2] = Q_PPM[c, 0], Q_PPM[c, 1], Q_PPM[c, 2]
-    old_n_PEM[None] = n_PEM[None]
-    for c in range(old_n_PEM[None]):
-        old_PEM[c, 0], old_PEM[c, 1], old_PEM[c, 2], old_PEM[c, 3] = PEM[c, 0], PEM[c, 1], PEM[c, 2], PEM[c, 3]
-        old_y_PEM[c, 0], old_y_PEM[c, 1], old_y_PEM[c, 2] = y_PEM[c, 0], y_PEM[c, 1], y_PEM[c, 2]
-        old_r_PEM[c, 0], old_r_PEM[c, 1], old_r_PEM[c, 2] = r_PEM[c, 0], r_PEM[c, 1], r_PEM[c, 2]
-        old_Q_PEM[c, 0], old_Q_PEM[c, 1], old_Q_PEM[c, 2] = Q_PEM[c, 0], Q_PEM[c, 1], Q_PEM[c, 2]
-
-    n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
-
-    if ti.static(dim == 2):
-        for _ in range(1):
-            for i in range(n_boundary_points):
-                p = boundary_points[i]
-                for j in range(n_boundary_edges):
-                    e0 = boundary_edges[j, 0]
-                    e1 = boundary_edges[j, 1]
-                    if p != e0 and p != e1 and point_edge_ccd_broadphase(x[p], x[e0], x[e1], dHat):
-                        case = PE_type(x[p], x[e0], x[e1])
-                        if case == 0:
-                            if PP_2D_E(x[p], x[e0]) < dHat2:
-                                n = ti.atomic_add(n_PP[None], 1)
-                                PP[n, 0], PP[n, 1] = p, e0
-                        elif case == 1:
-                            if PP_2D_E(x[p], x[e1]) < dHat2:
-                                n = ti.atomic_add(n_PP[None], 1)
-                                PP[n, 0], PP[n, 1] = p, e1
-                        elif case == 2:
-                            if PE_2D_E(x[p], x[e0], x[e1]) < dHat2:
-                                n = ti.atomic_add(n_PE[None], 1)
-                                PE[n, 0], PE[n, 1], PE[n, 2] = p, e0, e1
-    else:
-        for i in range(n_boundary_points):
-            p = boundary_points[i]
-            for j in range(n_boundary_triangles):
-                t0 = boundary_triangles[j, 0]
-                t1 = boundary_triangles[j, 1]
-                t2 = boundary_triangles[j, 2]
-                if p != t0 and p != t1 and p != t2 and point_triangle_ccd_broadphase(x[p], x[t0], x[t1], x[t2], dHat):
-                    case = PT_type(x[p], x[t0], x[t1], x[t2])
-                    if case == 0:
-                        if PP_3D_E(x[p], x[t0]) < dHat2:
-                            n = ti.atomic_add(n_PP[None], 1)
-                            PP[n, 0], PP[n, 1] = p, t0
-                    elif case == 1:
-                        if PP_3D_E(x[p], x[t1]) < dHat2:
-                            n = ti.atomic_add(n_PP[None], 1)
-                            PP[n, 0], PP[n, 1] = p, t1
-                    elif case == 2:
-                        if PP_3D_E(x[p], x[t2]) < dHat2:
-                            n = ti.atomic_add(n_PP[None], 1)
-                            PP[n, 0], PP[n, 1] = p, t2
-                    elif case == 3:
-                        if PE_3D_E(x[p], x[t0], x[t1]) < dHat2:
-                            n = ti.atomic_add(n_PE[None], 1)
-                            PE[n, 0], PE[n, 1], PE[n, 2] = p, t0, t1
-                    elif case == 4:
-                        if PE_3D_E(x[p], x[t1], x[t2]) < dHat2:
-                            n = ti.atomic_add(n_PE[None], 1)
-                            PE[n, 0], PE[n, 1], PE[n, 2] = p, t1, t2
-                    elif case == 5:
-                        if PE_3D_E(x[p], x[t2], x[t0]) < dHat2:
-                            n = ti.atomic_add(n_PE[None], 1)
-                            PE[n, 0], PE[n, 1], PE[n, 2] = p, t2, t0
-                    elif case == 6:
-                        if PT_3D_E(x[p], x[t0], x[t1], x[t2]) < dHat2:
-                            n = ti.atomic_add(n_PT[None], 1)
-                            PT[n, 0], PT[n, 1], PT[n, 2], PT[n, 3] = p, t0, t1, t2
-        for i in range(n_boundary_edges):
-            a0 = boundary_edges[i, 0]
-            a1 = boundary_edges[i, 1]
-            for j in range(n_boundary_edges):
-                b0 = boundary_edges[j, 0]
-                b1 = boundary_edges[j, 1]
-                if i < j and a0 != b0 and a0 != b1 and a1 != b0 and a1 != b1 and edge_edge_ccd_broadphase(x[a0], x[a1], x[b0], x[b1], dHat):
-                    EECN2 = EECN2_E(x[a0], x[a1], x[b0], x[b1])
-                    eps_x = M_threshold(x0[a0], x0[a1], x0[b0], x0[b1])
-                    case = EE_type(x[a0], x[a1], x[b0], x[b1])
-                    if case == 0:
-                        if PP_3D_E(x[a0], x[b0]) < dHat2:
-                            if EECN2 < eps_x:
-                                n = ti.atomic_add(n_PPM[None], 1)
-                                PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a0, a1, b0, b1
-                            else:
-                                n = ti.atomic_add(n_PP[None], 1)
-                                PP[n, 0], PP[n, 1] = a0, b0
-                    elif case == 1:
-                        if PP_3D_E(x[a0], x[b1]) < dHat2:
-                            if EECN2 < eps_x:
-                                n = ti.atomic_add(n_PPM[None], 1)
-                                PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a0, a1, b1, b0
-                            else:
-                                n = ti.atomic_add(n_PP[None], 1)
-                                PP[n, 0], PP[n, 1] = a0, b1
-                    elif case == 2:
-                        if PE_3D_E(x[a0], x[b0], x[b1]) < dHat2:
-                            if EECN2 < eps_x:
-                                n = ti.atomic_add(n_PEM[None], 1)
-                                PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = a0, a1, b0, b1
-                            else:
-                                n = ti.atomic_add(n_PE[None], 1)
-                                PE[n, 0], PE[n, 1], PE[n, 2] = a0, b0, b1
-                    elif case == 3:
-                        if PP_3D_E(x[a1], x[b0]) < dHat2:
-                            if EECN2 < eps_x:
-                                n = ti.atomic_add(n_PPM[None], 1)
-                                PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a1, a0, b0, b1
-                            else:
-                                n = ti.atomic_add(n_PP[None], 1)
-                                PP[n, 0], PP[n, 1] = a1, b0
-                    elif case == 4:
-                        if PP_3D_E(x[a1], x[b1]) < dHat2:
-                            if EECN2 < eps_x:
-                                n = ti.atomic_add(n_PPM[None], 1)
-                                PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a1, a0, b1, b0
-                            else:
-                                n = ti.atomic_add(n_PP[None], 1)
-                                PP[n, 0], PP[n, 1] = a1, b1
-                    elif case == 5:
-                        if PE_3D_E(x[a1], x[b0], x[b1]) < dHat2:
-                            if EECN2 < eps_x:
-                                n = ti.atomic_add(n_PEM[None], 1)
-                                PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = a1, a0, b0, b1
-                            else:
-                                n = ti.atomic_add(n_PE[None], 1)
-                                PE[n, 0], PE[n, 1], PE[n, 2] = a1, b0, b1
-                    elif case == 6:
-                        if PE_3D_E(x[b0], x[a0], x[a1]) < dHat2:
-                            if EECN2 < eps_x:
-                                n = ti.atomic_add(n_PEM[None], 1)
-                                PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = b0, b1, a0, a1
-                            else:
-                                n = ti.atomic_add(n_PE[None], 1)
-                                PE[n, 0], PE[n, 1], PE[n, 2] = b0, a0, a1
-                    elif case == 7:
-                        if PE_3D_E(x[b1], x[a0], x[a1]) < dHat2:
-                            if EECN2 < eps_x:
-                                n = ti.atomic_add(n_PEM[None], 1)
-                                PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = b1, b0, a0, a1
-                            else:
-                                n = ti.atomic_add(n_PE[None], 1)
-                                PE[n, 0], PE[n, 1], PE[n, 2] = b1, a0, a1
-                    elif case == 8:
-                        if EE_3D_E(x[a0], x[a1], x[b0], x[b1]) < dHat2:
-                            if EECN2 < eps_x:
-                                n = ti.atomic_add(n_EEM[None], 1)
-                                EEM[n, 0], EEM[n, 1], EEM[n, 2], EEM[n, 3] = a0, a1, b0, b1
-                            else:
-                                n = ti.atomic_add(n_EE[None], 1)
-                                EE[n, 0], EE[n, 1], EE[n, 2], EE[n, 3] = a0, a1, b0, b1
-    print("Find constraints: ", n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None])
-    # xTilde initiated y, r
-    for r in range(n_PP[None]):
-        p0 = xTilde[PP[r, 0]] * alpha + x[PP[r, 0]] * (1 - alpha)
-        p1 = xTilde[PP[r, 1]] * alpha + x[PP[r, 1]] * (1 - alpha)
-        y_PP[r, 0] = p0 - p1
-        r_PP[r, 0] = ti.Matrix.zero(real, dim)
-    for r in range(n_PE[None]):
-        p = xTilde[PE[r, 0]] * alpha + x[PE[r, 0]] * (1 - alpha)
-        e0 = xTilde[PE[r, 1]] * alpha + x[PE[r, 1]] * (1 - alpha)
-        e1 = xTilde[PE[r, 2]] * alpha + x[PE[r, 2]] * (1 - alpha)
-        y_PE[r, 0], y_PE[r, 1] = p - e0, p - e1
-        r_PE[r, 0], r_PE[r, 1] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-    for r in range(n_PT[None]):
-        p, t0, t1, t2 = xTilde[PT[r, 0]], xTilde[PT[r, 1]], xTilde[PT[r, 2]], xTilde[PT[r, 3]]
-        y_PT[r, 0], y_PT[r, 1], y_PT[r, 2] = p - t0, p - t1, p - t2
-        r_PT[r, 0], r_PT[r, 1], r_PT[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-    for r in range(n_EE[None]):
-        a0, a1, b0, b1 = xTilde[EE[r, 0]], xTilde[EE[r, 1]], xTilde[EE[r, 2]], xTilde[EE[r, 3]]
-        y_EE[r, 0], y_EE[r, 1], y_EE[r, 2] = a0 - a1, a0 - b0, a0 - b1
-        r_EE[r, 0], r_EE[r, 1], r_EE[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-    for r in range(n_EEM[None]):
-        a0, a1, b0, b1 = xTilde[EEM[r, 0]], xTilde[EEM[r, 1]], xTilde[EEM[r, 2]], xTilde[EEM[r, 3]]
-        y_EEM[r, 0], y_EEM[r, 1], y_EEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
-        r_EEM[r, 0], r_EEM[r, 1], r_EEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-    for r in range(n_PPM[None]):
-        a0, a1, b0, b1 = xTilde[PPM[r, 0]], xTilde[PPM[r, 1]], xTilde[PPM[r, 2]], xTilde[PPM[r, 3]]
-        y_PPM[r, 0], y_PPM[r, 1], y_PPM[r, 2] = a0 - a1, a0 - b0, a0 - b1
-        r_PPM[r, 0], r_PPM[r, 1], r_PPM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-    for r in range(n_PEM[None]):
-        a0, a1, b0, b1 = xTilde[PEM[r, 0]], xTilde[PEM[r, 1]], xTilde[PEM[r, 2]], xTilde[PEM[r, 3]]
-        y_PEM[r, 0], y_PEM[r, 1], y_PEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
-        r_PEM[r, 0], r_PEM[r, 1], r_PEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-    # reuse y, r
-    for c in range(old_n_PP[None]):
-        for d in range(n_PP[None]):
-            if old_PP[c, 0] == PP[d, 0] and old_PP[c, 1] == PP[d, 1]:
-                y_PP[d, 0] = old_y_PP[c, 0]
-                r_PP[d, 0] = old_r_PP[c, 0]
-                Q_PP[d, 0] = old_Q_PP[c, 0]
-    for c in range(old_n_PE[None]):
-        for d in range(n_PE[None]):
-            if old_PE[c, 0] == PE[d, 0] and old_PE[c, 1] == PE[d, 1] and old_PE[c, 2] == PE[d, 2]:
-                y_PE[d, 0], y_PE[d, 1] = old_y_PE[c, 0], old_y_PE[c, 1]
-                r_PE[d, 0], r_PE[d, 1] = old_r_PE[c, 0], old_r_PE[c, 1]
-                Q_PE[d, 0], Q_PE[d, 1] = old_Q_PE[c, 0], old_Q_PE[c, 1]
-    for c in range(old_n_PT[None]):
-        for d in range(n_PT[None]):
-            if old_PT[c, 0] == PT[d, 0] and old_PT[c, 1] == PT[d, 1] and old_PT[c, 2] == PT[d, 2] and old_PT[c, 3] == PT[d, 3]:
-                y_PT[d, 0], y_PT[d, 1], y_PT[d, 2] = old_y_PT[c, 0], old_y_PT[c, 1], old_y_PT[c, 2]
-                r_PT[d, 0], r_PT[d, 1], r_PT[d, 2] = old_r_PT[c, 0], old_r_PT[c, 1], old_r_PT[c, 2]
-                Q_PT[d, 0], Q_PT[d, 1], Q_PT[d, 2] = old_Q_PT[c, 0], old_Q_PT[c, 1], old_Q_PT[c, 2]
-    for c in range(old_n_EE[None]):
-        for d in range(n_EE[None]):
-            if old_EE[c, 0] == EE[d, 0] and old_EE[c, 1] == EE[d, 1] and old_EE[c, 2] == EE[d, 2] and old_EE[c, 3] == EE[d, 3]:
-                y_EE[d, 0], y_EE[d, 1], y_EE[d, 2] = old_y_EE[c, 0], old_y_EE[c, 1], old_y_EE[c, 2]
-                r_EE[d, 0], r_EE[d, 1], r_EE[d, 2] = old_r_EE[c, 0], old_r_EE[c, 1], old_r_EE[c, 2]
-                Q_EE[d, 0], Q_EE[d, 1], Q_EE[d, 2] = old_Q_EE[c, 0], old_Q_EE[c, 1], old_Q_EE[c, 2]
-    for c in range(old_n_EEM[None]):
-        for d in range(n_EEM[None]):
-            if old_EEM[c, 0] == EEM[d, 0] and old_EEM[c, 1] == EEM[d, 1] and old_EEM[c, 2] == EEM[d, 2] and old_EEM[c, 3] == EEM[d, 3]:
-                y_EEM[d, 0], y_EEM[d, 1], y_EEM[d, 2] = old_y_EEM[c, 0], old_y_EEM[c, 1], old_y_EEM[c, 2]
-                r_EEM[d, 0], r_EEM[d, 1], r_EEM[d, 2] = old_r_EEM[c, 0], old_r_EEM[c, 1], old_r_EEM[c, 2]
-                Q_EEM[d, 0], Q_EEM[d, 1], Q_EEM[d, 2] = old_Q_EEM[c, 0], old_Q_EEM[c, 1], old_Q_EEM[c, 2]
-    for c in range(old_n_PPM[None]):
-        for d in range(n_PPM[None]):
-            if old_PPM[c, 0] == PPM[d, 0] and old_PPM[c, 1] == PPM[d, 1] and old_PPM[c, 2] == PPM[d, 2] and old_PPM[c, 3] == PPM[d, 3]:
-                y_PPM[d, 0], y_PPM[d, 1], y_PPM[d, 2] = old_y_PPM[c, 0], old_y_PPM[c, 1], old_y_PPM[c, 2]
-                r_PPM[d, 0], r_PPM[d, 1], r_PPM[d, 2] = old_r_PPM[c, 0], old_r_PPM[c, 1], old_r_PPM[c, 2]
-                Q_PPM[d, 0], Q_PPM[d, 1], Q_PPM[d, 2] = old_Q_PPM[c, 0], old_Q_PPM[c, 1], old_Q_PPM[c, 2]
-    for c in range(old_n_PEM[None]):
-        for d in range(n_PEM[None]):
-            if old_PEM[c, 0] == PEM[d, 0] and old_PEM[c, 1] == PEM[d, 1] and old_PEM[c, 2] == PEM[d, 2] and old_PEM[c, 3] == PEM[d, 3]:
-                y_PEM[d, 0], y_PEM[d, 1], y_PEM[d, 2] = old_y_PEM[c, 0], old_y_PEM[c, 1], old_y_PEM[c, 2]
-                r_PEM[d, 0], r_PEM[d, 1], r_PEM[d, 2] = old_r_PEM[c, 0], old_r_PEM[c, 1], old_r_PEM[c, 2]
-                Q_PEM[d, 0], Q_PEM[d, 1], Q_PEM[d, 2] = old_Q_PEM[c, 0], old_Q_PEM[c, 1], old_Q_PEM[c, 2]
-
-
 @ti.func
 def compute_T(i):
     if ti.static(dim == 2):
@@ -1411,6 +1146,271 @@ def dual_step():
         r_PEM[c, 0] += x[PEM[c, 0]] - x[PEM[c, 1]] - y_PEM[c, 0]
         r_PEM[c, 1] += x[PEM[c, 0]] - x[PEM[c, 2]] - y_PEM[c, 1]
         r_PEM[c, 2] += x[PEM[c, 0]] - x[PEM[c, 3]] - y_PEM[c, 2]
+
+
+@ti.kernel
+def find_constraints(alpha: real):
+    old_n_PP[None] = n_PP[None]
+    for c in range(old_n_PP[None]):
+        old_PP[c, 0], old_PP[c, 1] = PP[c, 0], PP[c, 1]
+        old_y_PP[c, 0] = y_PP[c, 0]
+        old_r_PP[c, 0] = r_PP[c, 0]
+        old_Q_PP[c, 0] = Q_PP[c, 0]
+    old_n_PE[None] = n_PE[None]
+    for c in range(old_n_PE[None]):
+        old_PE[c, 0], old_PE[c, 1], old_PE[c, 2] = PE[c, 0], PE[c, 1], PE[c, 2]
+        old_y_PE[c, 0], old_y_PE[c, 1] = y_PE[c, 0], y_PE[c, 1]
+        old_r_PE[c, 0], old_r_PE[c, 1] = r_PE[c, 0], r_PE[c, 1]
+        old_Q_PE[c, 0], old_Q_PE[c, 1] = Q_PE[c, 0], Q_PE[c, 1]
+    old_n_PT[None] = n_PT[None]
+    for c in range(old_n_PT[None]):
+        old_PT[c, 0], old_PT[c, 1], old_PT[c, 2], old_PT[c, 3] = PT[c, 0], PT[c, 1], PT[c, 2], PT[c, 3]
+        old_y_PT[c, 0], old_y_PT[c, 1], old_y_PT[c, 2] = y_PT[c, 0], y_PT[c, 1], y_PT[c, 2]
+        old_r_PT[c, 0], old_r_PT[c, 1], old_r_PT[c, 2] = r_PT[c, 0], r_PT[c, 1], r_PT[c, 2]
+        old_Q_PT[c, 0], old_Q_PT[c, 1], old_Q_PT[c, 2] = Q_PT[c, 0], Q_PT[c, 1], Q_PT[c, 2]
+    old_n_EE[None] = n_EE[None]
+    for c in range(old_n_EE[None]):
+        old_EE[c, 0], old_EE[c, 1], old_EE[c, 2], old_EE[c, 3] = EE[c, 0], EE[c, 1], EE[c, 2], EE[c, 3]
+        old_y_EE[c, 0], old_y_EE[c, 1], old_y_EE[c, 2] = y_EE[c, 0], y_EE[c, 1], y_EE[c, 2]
+        old_r_EE[c, 0], old_r_EE[c, 1], old_r_EE[c, 2] = r_EE[c, 0], r_EE[c, 1], r_EE[c, 2]
+        old_Q_EE[c, 0], old_Q_EE[c, 1], old_Q_EE[c, 2] = Q_EE[c, 0], Q_EE[c, 1], Q_EE[c, 2]
+    old_n_EEM[None] = n_EEM[None]
+    for c in range(old_n_EEM[None]):
+        old_EEM[c, 0], old_EEM[c, 1], old_EEM[c, 2], old_EEM[c, 3] = EEM[c, 0], EEM[c, 1], EEM[c, 2], EEM[c, 3]
+        old_y_EEM[c, 0], old_y_EEM[c, 1], old_y_EEM[c, 2] = y_EEM[c, 0], y_EEM[c, 1], y_EEM[c, 2]
+        old_r_EEM[c, 0], old_r_EEM[c, 1], old_r_EEM[c, 2] = r_EEM[c, 0], r_EEM[c, 1], r_EEM[c, 2]
+        old_Q_EEM[c, 0], old_Q_EEM[c, 1], old_Q_EEM[c, 2] = Q_EEM[c, 0], Q_EEM[c, 1], Q_EEM[c, 2]
+    old_n_PPM[None] = n_PPM[None]
+    for c in range(old_n_PPM[None]):
+        old_PPM[c, 0], old_PPM[c, 1], old_PPM[c, 2], old_PPM[c, 3] = PPM[c, 0], PPM[c, 1], PPM[c, 2], PPM[c, 3]
+        old_y_PPM[c, 0], old_y_PPM[c, 1], old_y_PPM[c, 2] = y_PPM[c, 0], y_PPM[c, 1], y_PPM[c, 2]
+        old_r_PPM[c, 0], old_r_PPM[c, 1], old_r_PPM[c, 2] = r_PPM[c, 0], r_PPM[c, 1], r_PPM[c, 2]
+        old_Q_PPM[c, 0], old_Q_PPM[c, 1], old_Q_PPM[c, 2] = Q_PPM[c, 0], Q_PPM[c, 1], Q_PPM[c, 2]
+    old_n_PEM[None] = n_PEM[None]
+    for c in range(old_n_PEM[None]):
+        old_PEM[c, 0], old_PEM[c, 1], old_PEM[c, 2], old_PEM[c, 3] = PEM[c, 0], PEM[c, 1], PEM[c, 2], PEM[c, 3]
+        old_y_PEM[c, 0], old_y_PEM[c, 1], old_y_PEM[c, 2] = y_PEM[c, 0], y_PEM[c, 1], y_PEM[c, 2]
+        old_r_PEM[c, 0], old_r_PEM[c, 1], old_r_PEM[c, 2] = r_PEM[c, 0], r_PEM[c, 1], r_PEM[c, 2]
+        old_Q_PEM[c, 0], old_Q_PEM[c, 1], old_Q_PEM[c, 2] = Q_PEM[c, 0], Q_PEM[c, 1], Q_PEM[c, 2]
+
+    n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
+
+    if ti.static(dim == 2):
+        for _ in range(1):
+            for i in range(n_boundary_points):
+                p = boundary_points[i]
+                for j in range(n_boundary_edges):
+                    e0 = boundary_edges[j, 0]
+                    e1 = boundary_edges[j, 1]
+                    if p != e0 and p != e1 and point_edge_ccd_broadphase(x[p], x[e0], x[e1], dHat):
+                        case = PE_type(x[p], x[e0], x[e1])
+                        if case == 0:
+                            if PP_2D_E(x[p], x[e0]) < dHat2:
+                                n = ti.atomic_add(n_PP[None], 1)
+                                PP[n, 0], PP[n, 1] = p, e0
+                        elif case == 1:
+                            if PP_2D_E(x[p], x[e1]) < dHat2:
+                                n = ti.atomic_add(n_PP[None], 1)
+                                PP[n, 0], PP[n, 1] = p, e1
+                        elif case == 2:
+                            if PE_2D_E(x[p], x[e0], x[e1]) < dHat2:
+                                n = ti.atomic_add(n_PE[None], 1)
+                                PE[n, 0], PE[n, 1], PE[n, 2] = p, e0, e1
+    else:
+        for i in range(n_boundary_points):
+            p = boundary_points[i]
+            for j in range(n_boundary_triangles):
+                t0 = boundary_triangles[j, 0]
+                t1 = boundary_triangles[j, 1]
+                t2 = boundary_triangles[j, 2]
+                if p != t0 and p != t1 and p != t2 and point_triangle_ccd_broadphase(x[p], x[t0], x[t1], x[t2], dHat):
+                    case = PT_type(x[p], x[t0], x[t1], x[t2])
+                    if case == 0:
+                        if PP_3D_E(x[p], x[t0]) < dHat2:
+                            n = ti.atomic_add(n_PP[None], 1)
+                            PP[n, 0], PP[n, 1] = p, t0
+                    elif case == 1:
+                        if PP_3D_E(x[p], x[t1]) < dHat2:
+                            n = ti.atomic_add(n_PP[None], 1)
+                            PP[n, 0], PP[n, 1] = p, t1
+                    elif case == 2:
+                        if PP_3D_E(x[p], x[t2]) < dHat2:
+                            n = ti.atomic_add(n_PP[None], 1)
+                            PP[n, 0], PP[n, 1] = p, t2
+                    elif case == 3:
+                        if PE_3D_E(x[p], x[t0], x[t1]) < dHat2:
+                            n = ti.atomic_add(n_PE[None], 1)
+                            PE[n, 0], PE[n, 1], PE[n, 2] = p, t0, t1
+                    elif case == 4:
+                        if PE_3D_E(x[p], x[t1], x[t2]) < dHat2:
+                            n = ti.atomic_add(n_PE[None], 1)
+                            PE[n, 0], PE[n, 1], PE[n, 2] = p, t1, t2
+                    elif case == 5:
+                        if PE_3D_E(x[p], x[t2], x[t0]) < dHat2:
+                            n = ti.atomic_add(n_PE[None], 1)
+                            PE[n, 0], PE[n, 1], PE[n, 2] = p, t2, t0
+                    elif case == 6:
+                        if PT_3D_E(x[p], x[t0], x[t1], x[t2]) < dHat2:
+                            n = ti.atomic_add(n_PT[None], 1)
+                            PT[n, 0], PT[n, 1], PT[n, 2], PT[n, 3] = p, t0, t1, t2
+        for i in range(n_boundary_edges):
+            a0 = boundary_edges[i, 0]
+            a1 = boundary_edges[i, 1]
+            for j in range(n_boundary_edges):
+                b0 = boundary_edges[j, 0]
+                b1 = boundary_edges[j, 1]
+                if i < j and a0 != b0 and a0 != b1 and a1 != b0 and a1 != b1 and edge_edge_ccd_broadphase(x[a0], x[a1], x[b0], x[b1], dHat):
+                    EECN2 = EECN2_E(x[a0], x[a1], x[b0], x[b1])
+                    eps_x = M_threshold(x0[a0], x0[a1], x0[b0], x0[b1])
+                    case = EE_type(x[a0], x[a1], x[b0], x[b1])
+                    if case == 0:
+                        if PP_3D_E(x[a0], x[b0]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PPM[None], 1)
+                                PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a0, a1, b0, b1
+                            else:
+                                n = ti.atomic_add(n_PP[None], 1)
+                                PP[n, 0], PP[n, 1] = a0, b0
+                    elif case == 1:
+                        if PP_3D_E(x[a0], x[b1]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PPM[None], 1)
+                                PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a0, a1, b1, b0
+                            else:
+                                n = ti.atomic_add(n_PP[None], 1)
+                                PP[n, 0], PP[n, 1] = a0, b1
+                    elif case == 2:
+                        if PE_3D_E(x[a0], x[b0], x[b1]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PEM[None], 1)
+                                PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = a0, a1, b0, b1
+                            else:
+                                n = ti.atomic_add(n_PE[None], 1)
+                                PE[n, 0], PE[n, 1], PE[n, 2] = a0, b0, b1
+                    elif case == 3:
+                        if PP_3D_E(x[a1], x[b0]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PPM[None], 1)
+                                PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a1, a0, b0, b1
+                            else:
+                                n = ti.atomic_add(n_PP[None], 1)
+                                PP[n, 0], PP[n, 1] = a1, b0
+                    elif case == 4:
+                        if PP_3D_E(x[a1], x[b1]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PPM[None], 1)
+                                PPM[n, 0], PPM[n, 1], PPM[n, 2], PPM[n, 3] = a1, a0, b1, b0
+                            else:
+                                n = ti.atomic_add(n_PP[None], 1)
+                                PP[n, 0], PP[n, 1] = a1, b1
+                    elif case == 5:
+                        if PE_3D_E(x[a1], x[b0], x[b1]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PEM[None], 1)
+                                PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = a1, a0, b0, b1
+                            else:
+                                n = ti.atomic_add(n_PE[None], 1)
+                                PE[n, 0], PE[n, 1], PE[n, 2] = a1, b0, b1
+                    elif case == 6:
+                        if PE_3D_E(x[b0], x[a0], x[a1]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PEM[None], 1)
+                                PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = b0, b1, a0, a1
+                            else:
+                                n = ti.atomic_add(n_PE[None], 1)
+                                PE[n, 0], PE[n, 1], PE[n, 2] = b0, a0, a1
+                    elif case == 7:
+                        if PE_3D_E(x[b1], x[a0], x[a1]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_PEM[None], 1)
+                                PEM[n, 0], PEM[n, 1], PEM[n, 2], PEM[n, 3] = b1, b0, a0, a1
+                            else:
+                                n = ti.atomic_add(n_PE[None], 1)
+                                PE[n, 0], PE[n, 1], PE[n, 2] = b1, a0, a1
+                    elif case == 8:
+                        if EE_3D_E(x[a0], x[a1], x[b0], x[b1]) < dHat2:
+                            if EECN2 < eps_x:
+                                n = ti.atomic_add(n_EEM[None], 1)
+                                EEM[n, 0], EEM[n, 1], EEM[n, 2], EEM[n, 3] = a0, a1, b0, b1
+                            else:
+                                n = ti.atomic_add(n_EE[None], 1)
+                                EE[n, 0], EE[n, 1], EE[n, 2], EE[n, 3] = a0, a1, b0, b1
+    print("Find constraints: ", n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None])
+    # xTilde initiated y, r
+    for r in range(n_PP[None]):
+        p0 = xTilde[PP[r, 0]] * alpha + x[PP[r, 0]] * (1 - alpha)
+        p1 = xTilde[PP[r, 1]] * alpha + x[PP[r, 1]] * (1 - alpha)
+        y_PP[r, 0] = p0 - p1
+        r_PP[r, 0] = ti.Matrix.zero(real, dim)
+    for r in range(n_PE[None]):
+        p = xTilde[PE[r, 0]] * alpha + x[PE[r, 0]] * (1 - alpha)
+        e0 = xTilde[PE[r, 1]] * alpha + x[PE[r, 1]] * (1 - alpha)
+        e1 = xTilde[PE[r, 2]] * alpha + x[PE[r, 2]] * (1 - alpha)
+        y_PE[r, 0], y_PE[r, 1] = p - e0, p - e1
+        r_PE[r, 0], r_PE[r, 1] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    for r in range(n_PT[None]):
+        p, t0, t1, t2 = xTilde[PT[r, 0]], xTilde[PT[r, 1]], xTilde[PT[r, 2]], xTilde[PT[r, 3]]
+        y_PT[r, 0], y_PT[r, 1], y_PT[r, 2] = p - t0, p - t1, p - t2
+        r_PT[r, 0], r_PT[r, 1], r_PT[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    for r in range(n_EE[None]):
+        a0, a1, b0, b1 = xTilde[EE[r, 0]], xTilde[EE[r, 1]], xTilde[EE[r, 2]], xTilde[EE[r, 3]]
+        y_EE[r, 0], y_EE[r, 1], y_EE[r, 2] = a0 - a1, a0 - b0, a0 - b1
+        r_EE[r, 0], r_EE[r, 1], r_EE[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    for r in range(n_EEM[None]):
+        a0, a1, b0, b1 = xTilde[EEM[r, 0]], xTilde[EEM[r, 1]], xTilde[EEM[r, 2]], xTilde[EEM[r, 3]]
+        y_EEM[r, 0], y_EEM[r, 1], y_EEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
+        r_EEM[r, 0], r_EEM[r, 1], r_EEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    for r in range(n_PPM[None]):
+        a0, a1, b0, b1 = xTilde[PPM[r, 0]], xTilde[PPM[r, 1]], xTilde[PPM[r, 2]], xTilde[PPM[r, 3]]
+        y_PPM[r, 0], y_PPM[r, 1], y_PPM[r, 2] = a0 - a1, a0 - b0, a0 - b1
+        r_PPM[r, 0], r_PPM[r, 1], r_PPM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    for r in range(n_PEM[None]):
+        a0, a1, b0, b1 = xTilde[PEM[r, 0]], xTilde[PEM[r, 1]], xTilde[PEM[r, 2]], xTilde[PEM[r, 3]]
+        y_PEM[r, 0], y_PEM[r, 1], y_PEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
+        r_PEM[r, 0], r_PEM[r, 1], r_PEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    # reuse y, r
+    for c in range(old_n_PP[None]):
+        for d in range(n_PP[None]):
+            if old_PP[c, 0] == PP[d, 0] and old_PP[c, 1] == PP[d, 1]:
+                y_PP[d, 0] = old_y_PP[c, 0]
+                r_PP[d, 0] = old_r_PP[c, 0]
+                Q_PP[d, 0] = old_Q_PP[c, 0]
+    for c in range(old_n_PE[None]):
+        for d in range(n_PE[None]):
+            if old_PE[c, 0] == PE[d, 0] and old_PE[c, 1] == PE[d, 1] and old_PE[c, 2] == PE[d, 2]:
+                y_PE[d, 0], y_PE[d, 1] = old_y_PE[c, 0], old_y_PE[c, 1]
+                r_PE[d, 0], r_PE[d, 1] = old_r_PE[c, 0], old_r_PE[c, 1]
+                Q_PE[d, 0], Q_PE[d, 1] = old_Q_PE[c, 0], old_Q_PE[c, 1]
+    for c in range(old_n_PT[None]):
+        for d in range(n_PT[None]):
+            if old_PT[c, 0] == PT[d, 0] and old_PT[c, 1] == PT[d, 1] and old_PT[c, 2] == PT[d, 2] and old_PT[c, 3] == PT[d, 3]:
+                y_PT[d, 0], y_PT[d, 1], y_PT[d, 2] = old_y_PT[c, 0], old_y_PT[c, 1], old_y_PT[c, 2]
+                r_PT[d, 0], r_PT[d, 1], r_PT[d, 2] = old_r_PT[c, 0], old_r_PT[c, 1], old_r_PT[c, 2]
+                Q_PT[d, 0], Q_PT[d, 1], Q_PT[d, 2] = old_Q_PT[c, 0], old_Q_PT[c, 1], old_Q_PT[c, 2]
+    for c in range(old_n_EE[None]):
+        for d in range(n_EE[None]):
+            if old_EE[c, 0] == EE[d, 0] and old_EE[c, 1] == EE[d, 1] and old_EE[c, 2] == EE[d, 2] and old_EE[c, 3] == EE[d, 3]:
+                y_EE[d, 0], y_EE[d, 1], y_EE[d, 2] = old_y_EE[c, 0], old_y_EE[c, 1], old_y_EE[c, 2]
+                r_EE[d, 0], r_EE[d, 1], r_EE[d, 2] = old_r_EE[c, 0], old_r_EE[c, 1], old_r_EE[c, 2]
+                Q_EE[d, 0], Q_EE[d, 1], Q_EE[d, 2] = old_Q_EE[c, 0], old_Q_EE[c, 1], old_Q_EE[c, 2]
+    for c in range(old_n_EEM[None]):
+        for d in range(n_EEM[None]):
+            if old_EEM[c, 0] == EEM[d, 0] and old_EEM[c, 1] == EEM[d, 1] and old_EEM[c, 2] == EEM[d, 2] and old_EEM[c, 3] == EEM[d, 3]:
+                y_EEM[d, 0], y_EEM[d, 1], y_EEM[d, 2] = old_y_EEM[c, 0], old_y_EEM[c, 1], old_y_EEM[c, 2]
+                r_EEM[d, 0], r_EEM[d, 1], r_EEM[d, 2] = old_r_EEM[c, 0], old_r_EEM[c, 1], old_r_EEM[c, 2]
+                Q_EEM[d, 0], Q_EEM[d, 1], Q_EEM[d, 2] = old_Q_EEM[c, 0], old_Q_EEM[c, 1], old_Q_EEM[c, 2]
+    for c in range(old_n_PPM[None]):
+        for d in range(n_PPM[None]):
+            if old_PPM[c, 0] == PPM[d, 0] and old_PPM[c, 1] == PPM[d, 1] and old_PPM[c, 2] == PPM[d, 2] and old_PPM[c, 3] == PPM[d, 3]:
+                y_PPM[d, 0], y_PPM[d, 1], y_PPM[d, 2] = old_y_PPM[c, 0], old_y_PPM[c, 1], old_y_PPM[c, 2]
+                r_PPM[d, 0], r_PPM[d, 1], r_PPM[d, 2] = old_r_PPM[c, 0], old_r_PPM[c, 1], old_r_PPM[c, 2]
+                Q_PPM[d, 0], Q_PPM[d, 1], Q_PPM[d, 2] = old_Q_PPM[c, 0], old_Q_PPM[c, 1], old_Q_PPM[c, 2]
+    for c in range(old_n_PEM[None]):
+        for d in range(n_PEM[None]):
+            if old_PEM[c, 0] == PEM[d, 0] and old_PEM[c, 1] == PEM[d, 1] and old_PEM[c, 2] == PEM[d, 2] and old_PEM[c, 3] == PEM[d, 3]:
+                y_PEM[d, 0], y_PEM[d, 1], y_PEM[d, 2] = old_y_PEM[c, 0], old_y_PEM[c, 1], old_y_PEM[c, 2]
+                r_PEM[d, 0], r_PEM[d, 1], r_PEM[d, 2] = old_r_PEM[c, 0], old_r_PEM[c, 1], old_r_PEM[c, 2]
+                Q_PEM[d, 0], Q_PEM[d, 1], Q_PEM[d, 2] = old_Q_PEM[c, 0], old_Q_PEM[c, 1], old_Q_PEM[c, 2]
 
 
 @ti.kernel
