@@ -12,7 +12,7 @@ from reader import *
 
 ##############################################################################
 
-mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value = read(int(sys.argv[1]))
+mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, dim = read(int(sys.argv[1]))
 triangles = set()
 for [p0, p1, p2, p3] in mesh_elements:
     triangles.add((p0, p2, p1))
@@ -48,7 +48,6 @@ print('output directory:', directory)
 real = ti.f64
 ti.init(arch=ti.cpu, default_fp=real)
 
-dim = 3
 scalar = lambda: ti.var(dt=real)
 vec = lambda: ti.Vector(dim, dt=real)
 mat = lambda: ti.Matrix(dim, dim, dt=real)
@@ -308,7 +307,7 @@ def compute_xn_and_xTilde():
 
 @ti.kernel
 def move_nodes():
-    speed = math.pi / 15
+    speed = math.pi / 100
     for i in range(n_particles):
         if dirichlet[i * dim]:
             a, b, c = x(0)[i], x(1)[i], x(2)[i]
@@ -662,14 +661,20 @@ def solve_system():
         l = cnt[None] - c144 * 144 + i * 144
         r = l + 144
         val[l:r] = make_semi_positive_definite(val[l:r], 12)
-    indices = np.where(dirichlet_fixed[col])
-    rhs[row[indices]] -= dirichlet_value[col[indices]] * val[indices]
-    val[dirichlet_fixed[row]] = 0
-    val[dirichlet_fixed[col]] = 0
-    indices = np.where(dirichlet_fixed[row] & dirichlet_fixed[col])
-    val[indices] = 1
-    rhs[row[indices]] = 0
-    rhs[row[indices]] += dirichlet_value[row[indices]]
+
+    dirichlet_value.fill(0)
+    for i in range(cnt[None]):
+        if dirichlet_fixed[col[i]]:
+            rhs[row[i]] -= dirichlet_value[col[i]] * val[i]
+        if dirichlet_fixed[row[i]] or dirichlet_fixed[col[i]]:
+            val[i] = 0
+    indices = np.where(dirichlet_fixed)
+    for i in indices[0]:
+        row = np.append(row, i)
+        col = np.append(col, i)
+        val = np.append(val, 1.)
+        rhs[i] = dirichlet_value[i]
+
     n = n_particles * dim
     A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
     data_sol.from_numpy(scipy.sparse.linalg.spsolve(A, rhs))
