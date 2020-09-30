@@ -268,6 +268,38 @@ def X2F(p: ti.template(), q: ti.template(), i: ti.template(), j: ti.template(), 
     return val
 
 
+@ti.func
+def point_inside_triangle(P, A, B, C):
+    v0 = C - A
+    v1 = B - A
+    v2 = P - A
+    # Compute dot products
+    dot00 = v0.dot(v0)
+    dot01 = v0.dot(v1)
+    dot02 = v0.dot(v2)
+    dot11 = v1.dot(v1)
+    dot12 = v1.dot(v2)
+    # Compute barycentric coordinates
+    invDenom = 1 / (dot00 * dot11 - dot01 * dot01)
+    u = (dot11 * dot02 - dot01 * dot12) * invDenom
+    v = (dot00 * dot12 - dot01 * dot02) * invDenom
+    # Check if point is in triangle
+    return u >= 0 and v >= 0 and u + v < 1
+
+@ti.kernel
+def check_collision() -> ti.i32:
+    result = 0
+    for i in range(n_boundary_points):
+        P = boundary_points[i]
+        for j in range(n_elements):
+            A = vertices[j, 0]
+            B = vertices[j, 1]
+            C = vertices[j, 2]
+            if P != A and P != B and P != C:
+                if point_inside_triangle(x[P], x[A], x[B], x[C]):
+                    result = 1
+    return result
+
 @ti.kernel
 def global_step():
     cnt[None] = 0
@@ -468,12 +500,20 @@ def after_solve() -> real:
         x[i] = x[i] * alpha + xx[i] * (1 - alpha)
     return alpha
 
+@ti.kernel
+def op1():
+    for i in range(n_particles):
+        x[i] = (x[i] + xx[i]) / 2.0
+
+@ti.kernel
+def op2():
+    for i in range(n_particles):
+        x[i] = xx[i]
 
 def solve_system():
     before_solve()
     if cnt[None] >= MAX_LINEAR or n_PP[None] >= MAX_C or n_PE[None] >= MAX_C or n_PT[None] >= MAX_C or n_EE[None] >= MAX_C or n_EEM[None] >= MAX_C or n_PPM[None] >= MAX_C or n_PEM[None] >= MAX_C:
         print("FATAL ERROR: Array Too Small!")
-    print("Total entries: ", cnt[None])
     row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
     rhs = data_rhs.to_numpy()
 
@@ -495,7 +535,13 @@ def solve_system():
     tmp = A.dot(data_x.to_numpy()) - rhs
     residual = np.linalg.norm(tmp, ord=np.inf)
     print("Global solve residual = ", residual)
-    return after_solve()
+    alpha = after_solve()
+    while alpha >= 1e-6 and check_collision() == 1:
+        op1()
+        alpha /= 2.0
+    if alpha < 1e-6:
+        op2()
+    return alpha
 
 
 @ti.func
@@ -530,14 +576,14 @@ def PP_energy(pos):
         p0 = ti.Vector([0.0, 0.0])
         p1 = ti.Vector([pos[0], pos[1]])
         dist2 = PP_2D_E(p0, p1)
-        if dist2 < 1e-9:
+        if dist2 < 1e-12:
             print("ERROR PP", dist2)
         return barrier_E(dist2, dHat2, kappa)
     else:
         p0 = ti.Vector([0.0, 0.0, 0.0])
         p1 = ti.Vector([pos[0], pos[1], pos[2]])
         dist2 = PP_3D_E(p0, p1)
-        if dist2 < 1e-9:
+        if dist2 < 1e-12:
             print("ERROR PP", dist2)
         return barrier_E(dist2, dHat2, kappa)
 @ti.func
@@ -585,7 +631,7 @@ def PE_energy(pos):
         e0 = ti.Vector([pos[0], pos[1]])
         e1 = ti.Vector([pos[2], pos[3]])
         dist2 = PE_2D_E(p, e0, e1)
-        if dist2 < 1e-9:
+        if dist2 < 1e-12:
             print("ERROR PE", dist2)
         return barrier_E(dist2, dHat2, kappa)
     else:
@@ -593,7 +639,7 @@ def PE_energy(pos):
         e0 = ti.Vector([pos[0], pos[1], pos[2]])
         e1 = ti.Vector([pos[3], pos[4], pos[5]])
         dist2 = PE_3D_E(p, e0, e1)
-        if dist2 < 1e-9:
+        if dist2 < 1e-12:
             print("ERROR PE", dist2)
         return barrier_E(dist2, dHat2, kappa)
 @ti.func
@@ -1343,7 +1389,7 @@ def find_constraints(alpha: real):
         y_PP[r, 0] = p0 - p1
         r_PP[r, 0] = ti.Matrix.zero(real, dim)
         pos = p0 - p1
-        Q_PP[r, 0] = ti.sqrt(PP_hessian(pos).norm())
+        Q_PP[r, 0] = min(max(ti.sqrt(PP_hessian(pos).norm()), 1e-6), 1e6)
     for r in range(n_PE[None]):
         p = xTilde[PE[r, 0]] * alpha + x[PE[r, 0]] * (1 - alpha)
         e0 = xTilde[PE[r, 1]] * alpha + x[PE[r, 1]] * (1 - alpha)
@@ -1354,57 +1400,57 @@ def find_constraints(alpha: real):
         for i in ti.static(range(dim)):
             pos[i] = (p - e0)[i]
             pos[i + dim] = (p - e1)[i]
-        Q_PE[r, 0] = ti.sqrt(PE_hessian(pos).norm())
-    for r in range(n_PT[None]):
-        p, t0, t1, t2 = xTilde[PT[r, 0]], xTilde[PT[r, 1]], xTilde[PT[r, 2]], xTilde[PT[r, 3]]
-        y_PT[r, 0], y_PT[r, 1], y_PT[r, 2] = p - t0, p - t1, p - t2
-        r_PT[r, 0], r_PT[r, 1], r_PT[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-        pos = ti.Matrix.zero(real, 9)
-        for i in ti.static(range(dim)):
-            pos[i] = (p - t0)[i]
-            pos[i + dim] = (p - t1)[i]
-            pos[i + dim + dim] = (p - t2)[i]
-        Q_PT[r, 0] = ti.sqrt(PT_hessian(pos).norm())
-    for r in range(n_EE[None]):
-        a0, a1, b0, b1 = xTilde[EE[r, 0]], xTilde[EE[r, 1]], xTilde[EE[r, 2]], xTilde[EE[r, 3]]
-        y_EE[r, 0], y_EE[r, 1], y_EE[r, 2] = a0 - a1, a0 - b0, a0 - b1
-        r_EE[r, 0], r_EE[r, 1], r_EE[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-        pos = ti.Matrix.zero(real, 9)
-        for i in ti.static(range(dim)):
-            pos[i] = (a0 - a1)[i]
-            pos[i + dim] = (a0 - b0)[i]
-            pos[i + dim + dim] = (a0 - b1)[i]
-        Q_EE[r, 0] = ti.sqrt(EE_hessian(pos).norm())
-    for r in range(n_EEM[None]):
-        a0, a1, b0, b1 = xTilde[EEM[r, 0]], xTilde[EEM[r, 1]], xTilde[EEM[r, 2]], xTilde[EEM[r, 3]]
-        y_EEM[r, 0], y_EEM[r, 1], y_EEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
-        r_EEM[r, 0], r_EEM[r, 1], r_EEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-        pos = ti.Matrix.zero(real, 9)
-        for i in ti.static(range(dim)):
-            pos[i] = (a0 - a1)[i]
-            pos[i + dim] = (a0 - b0)[i]
-            pos[i + dim + dim] = (a0 - b1)[i]
-        Q_EEM[r, 0] = ti.sqrt(EEM_hessian(pos, r).norm())
-    for r in range(n_PPM[None]):
-        a0, a1, b0, b1 = xTilde[PPM[r, 0]], xTilde[PPM[r, 1]], xTilde[PPM[r, 2]], xTilde[PPM[r, 3]]
-        y_PPM[r, 0], y_PPM[r, 1], y_PPM[r, 2] = a0 - a1, a0 - b0, a0 - b1
-        r_PPM[r, 0], r_PPM[r, 1], r_PPM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-        pos = ti.Matrix.zero(real, 9)
-        for i in ti.static(range(dim)):
-            pos[i] = (a0 - a1)[i]
-            pos[i + dim] = (a0 - b0)[i]
-            pos[i + dim + dim] = (a0 - b1)[i]
-        Q_PPM[r, 0] = ti.sqrt(PPM_hessian(pos, r).norm())
-    for r in range(n_PEM[None]):
-        a0, a1, b0, b1 = xTilde[PEM[r, 0]], xTilde[PEM[r, 1]], xTilde[PEM[r, 2]], xTilde[PEM[r, 3]]
-        y_PEM[r, 0], y_PEM[r, 1], y_PEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
-        r_PEM[r, 0], r_PEM[r, 1], r_PEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-        pos = ti.Matrix.zero(real, 9)
-        for i in ti.static(range(dim)):
-            pos[i] = (a0 - a1)[i]
-            pos[i + dim] = (a0 - b0)[i]
-            pos[i + dim + dim] = (a0 - b1)[i]
-        Q_PEM[r, 0] = ti.sqrt(PEM_hessian(pos, r).norm())
+        Q_PE[r, 0] = min(max(ti.sqrt(PE_hessian(pos).norm()), 1e-6), 1e6)
+    # for r in range(n_PT[None]):
+    #     p, t0, t1, t2 = xTilde[PT[r, 0]], xTilde[PT[r, 1]], xTilde[PT[r, 2]], xTilde[PT[r, 3]]
+    #     y_PT[r, 0], y_PT[r, 1], y_PT[r, 2] = p - t0, p - t1, p - t2
+    #     r_PT[r, 0], r_PT[r, 1], r_PT[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    #     pos = ti.Matrix.zero(real, 9)
+    #     for i in ti.static(range(dim)):
+    #         pos[i] = (p - t0)[i]
+    #         pos[i + dim] = (p - t1)[i]
+    #         pos[i + dim + dim] = (p - t2)[i]
+    #     Q_PT[r, 0] = ti.sqrt(PT_hessian(pos).norm())
+    # for r in range(n_EE[None]):
+    #     a0, a1, b0, b1 = xTilde[EE[r, 0]], xTilde[EE[r, 1]], xTilde[EE[r, 2]], xTilde[EE[r, 3]]
+    #     y_EE[r, 0], y_EE[r, 1], y_EE[r, 2] = a0 - a1, a0 - b0, a0 - b1
+    #     r_EE[r, 0], r_EE[r, 1], r_EE[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    #     pos = ti.Matrix.zero(real, 9)
+    #     for i in ti.static(range(dim)):
+    #         pos[i] = (a0 - a1)[i]
+    #         pos[i + dim] = (a0 - b0)[i]
+    #         pos[i + dim + dim] = (a0 - b1)[i]
+    #     Q_EE[r, 0] = ti.sqrt(EE_hessian(pos).norm())
+    # for r in range(n_EEM[None]):
+    #     a0, a1, b0, b1 = xTilde[EEM[r, 0]], xTilde[EEM[r, 1]], xTilde[EEM[r, 2]], xTilde[EEM[r, 3]]
+    #     y_EEM[r, 0], y_EEM[r, 1], y_EEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
+    #     r_EEM[r, 0], r_EEM[r, 1], r_EEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    #     pos = ti.Matrix.zero(real, 9)
+    #     for i in ti.static(range(dim)):
+    #         pos[i] = (a0 - a1)[i]
+    #         pos[i + dim] = (a0 - b0)[i]
+    #         pos[i + dim + dim] = (a0 - b1)[i]
+    #     Q_EEM[r, 0] = ti.sqrt(EEM_hessian(pos, r).norm())
+    # for r in range(n_PPM[None]):
+    #     a0, a1, b0, b1 = xTilde[PPM[r, 0]], xTilde[PPM[r, 1]], xTilde[PPM[r, 2]], xTilde[PPM[r, 3]]
+    #     y_PPM[r, 0], y_PPM[r, 1], y_PPM[r, 2] = a0 - a1, a0 - b0, a0 - b1
+    #     r_PPM[r, 0], r_PPM[r, 1], r_PPM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    #     pos = ti.Matrix.zero(real, 9)
+    #     for i in ti.static(range(dim)):
+    #         pos[i] = (a0 - a1)[i]
+    #         pos[i + dim] = (a0 - b0)[i]
+    #         pos[i + dim + dim] = (a0 - b1)[i]
+    #     Q_PPM[r, 0] = ti.sqrt(PPM_hessian(pos, r).norm())
+    # for r in range(n_PEM[None]):
+    #     a0, a1, b0, b1 = xTilde[PEM[r, 0]], xTilde[PEM[r, 1]], xTilde[PEM[r, 2]], xTilde[PEM[r, 3]]
+    #     y_PEM[r, 0], y_PEM[r, 1], y_PEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
+    #     r_PEM[r, 0], r_PEM[r, 1], r_PEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    #     pos = ti.Matrix.zero(real, 9)
+    #     for i in ti.static(range(dim)):
+    #         pos[i] = (a0 - a1)[i]
+    #         pos[i + dim] = (a0 - b0)[i]
+    #         pos[i + dim + dim] = (a0 - b1)[i]
+    #     Q_PEM[r, 0] = ti.sqrt(PEM_hessian(pos, r).norm())
     # reuse y, r
     for c in range(old_n_PP[None]):
         for d in range(n_PP[None]):
@@ -1532,8 +1578,7 @@ if __name__ == "__main__":
                 global_PPM()
                 global_PEM()
 
-            if solve_system() < 1e-6:
-                break
+            solve_system()
 
             local_elasticity()
             local_PP()
@@ -1570,5 +1615,5 @@ if __name__ == "__main__":
         total_time += time.time()
         print("Time : ", total_time)
         write_image(f + 1)
-    cmd = 'ffmpeg -framerate 12 -i "' + directory + 'images/%6d.png" -c:v libx264 -profile:v high -crf 10 -pix_fmt yuv420p -threads 20 ' + directory + 'video.mp4'
+    cmd = 'ffmpeg -framerate 36 -i "' + directory + 'images/%6d.png" -c:v libx264 -profile:v high -crf 10 -pix_fmt yuv420p -threads 20 ' + directory + 'video.mp4'
     os.system((cmd))
