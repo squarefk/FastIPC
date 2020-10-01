@@ -947,7 +947,7 @@ def local_PP():
         for iter in range(20):
             g = PP_gradient(pos) + (pos - posTilde) * Q * Q
             P = PP_hessian(pos) + ti.Matrix.identity(real, dim) * Q * Q
-            p = -P.inverse() @ g
+            p = -inverse_2(P) @ g
             alpha = 1.0
             pos0 = pos
             E0 = PP_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
