@@ -56,6 +56,15 @@ extern "C" {
         out_0[0] = F(0, 0); out_1[0] = F(0, 1); out_2[0] = F(0, 2); out_3[0] = F(0, 3); out_4[0] = F(0, 4); out_5[0] = F(0, 5); out_6[0] = F(0, 6); out_7[0] = F(0, 7); out_8[0] = F(0, 8); out_9[0] = F(1, 0); out_10[0] = F(1, 1); out_11[0] = F(1, 2); out_12[0] = F(1, 3); out_13[0] = F(1, 4); out_14[0] = F(1, 5); out_15[0] = F(1, 6); out_16[0] = F(1, 7); out_17[0] = F(1, 8); out_18[0] = F(2, 0); out_19[0] = F(2, 1); out_20[0] = F(2, 2); out_21[0] = F(2, 3); out_22[0] = F(2, 4); out_23[0] = F(2, 5); out_24[0] = F(2, 6); out_25[0] = F(2, 7); out_26[0] = F(2, 8); out_27[0] = F(3, 0); out_28[0] = F(3, 1); out_29[0] = F(3, 2); out_30[0] = F(3, 3); out_31[0] = F(3, 4); out_32[0] = F(3, 5); out_33[0] = F(3, 6); out_34[0] = F(3, 7); out_35[0] = F(3, 8); out_36[0] = F(4, 0); out_37[0] = F(4, 1); out_38[0] = F(4, 2); out_39[0] = F(4, 3); out_40[0] = F(4, 4); out_41[0] = F(4, 5); out_42[0] = F(4, 6); out_43[0] = F(4, 7); out_44[0] = F(4, 8); out_45[0] = F(5, 0); out_46[0] = F(5, 1); out_47[0] = F(5, 2); out_48[0] = F(5, 3); out_49[0] = F(5, 4); out_50[0] = F(5, 5); out_51[0] = F(5, 6); out_52[0] = F(5, 7); out_53[0] = F(5, 8); out_54[0] = F(6, 0); out_55[0] = F(6, 1); out_56[0] = F(6, 2); out_57[0] = F(6, 3); out_58[0] = F(6, 4); out_59[0] = F(6, 5); out_60[0] = F(6, 6); out_61[0] = F(6, 7); out_62[0] = F(6, 8); out_63[0] = F(7, 0); out_64[0] = F(7, 1); out_65[0] = F(7, 2); out_66[0] = F(7, 3); out_67[0] = F(7, 4); out_68[0] = F(7, 5); out_69[0] = F(7, 6); out_70[0] = F(7, 7); out_71[0] = F(7, 8); out_72[0] = F(8, 0); out_73[0] = F(8, 1); out_74[0] = F(8, 2); out_75[0] = F(8, 3); out_76[0] = F(8, 4); out_77[0] = F(8, 5); out_78[0] = F(8, 6); out_79[0] = F(8, 7); out_80[0] = F(8, 8);
     }
 
+    void inverse_2(REAL in_0, REAL in_1, REAL in_2, REAL in_3, REAL* out_0, REAL* out_1, REAL* out_2, REAL* out_3)
+    {
+        Eigen::Matrix<REAL, 2, 2> F;
+        F(0, 0) = in_0; F(0, 1) = in_1; F(1, 0) = in_2; F(1, 1) = in_3;
+        Eigen::Matrix<REAL, 2, 2> tmp = F;
+        F = tmp.inverse();
+        out_0[0] = F(0, 0); out_1[0] = F(0, 1); out_2[0] = F(1, 0); out_3[0] = F(1, 1);
+    }
+
     void inverse_4(REAL in_0, REAL in_1, REAL in_2, REAL in_3, REAL in_4, REAL in_5, REAL in_6, REAL in_7, REAL in_8, REAL in_9, REAL in_10, REAL in_11, REAL in_12, REAL in_13, REAL in_14, REAL in_15, REAL* out_0, REAL* out_1, REAL* out_2, REAL* out_3, REAL* out_4, REAL* out_5, REAL* out_6, REAL* out_7, REAL* out_8, REAL* out_9, REAL* out_10, REAL* out_11, REAL* out_12, REAL* out_13, REAL* out_14, REAL* out_15)
     {
         Eigen::Matrix<REAL, 4, 4> F;
