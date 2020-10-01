@@ -184,6 +184,15 @@ kappa = 1e4
 
 
 @ti.kernel
+def compute_adaptive_kappa() -> real:
+    H_b = barrier_H(1.0e-16, dHat2, 1)
+    total_mass = 0.0
+    for i in range(n_particles):
+        total_mass += m[i]
+    return 1.0e13 * total_mass / n_particles / (4.0e-16 * H_b)
+
+
+@ti.kernel
 def compute_warm_start_filter() -> real:
     alpha = 1.0
     for i in range(n_boundary_points):
@@ -1383,13 +1392,19 @@ def find_constraints(alpha: real):
                                 EE[n, 0], EE[n, 1], EE[n, 2], EE[n, 3] = a0, a1, b0, b1
     print("Find constraints: ", n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None])
     # xTilde initiated y, r
+    PP_min_Q = ti.sqrt(PP_hessian(ti.Vector([9e-1 * dHat, 0])).norm())
+    PP_max_Q = ti.sqrt(PP_hessian(ti.Vector([1e-4 * dHat, 0])).norm())
+    print(PP_min_Q, PP_max_Q)
     for r in range(n_PP[None]):
         p0 = xTilde[PP[r, 0]] * alpha + x[PP[r, 0]] * (1 - alpha)
         p1 = xTilde[PP[r, 1]] * alpha + x[PP[r, 1]] * (1 - alpha)
         y_PP[r, 0] = p0 - p1
         r_PP[r, 0] = ti.Matrix.zero(real, dim)
         pos = p0 - p1
-        Q_PP[r, 0] = min(max(ti.sqrt(PP_hessian(pos).norm()), 1e-6), 1e6)
+        Q_PP[r, 0] = min(max(ti.sqrt(PP_hessian(pos).norm()), PP_min_Q), PP_max_Q)
+    PE_min_Q = ti.sqrt(PE_hessian(ti.Vector([9e-1 * dHat, 9e-1 * dHat, 9e-1 * dHat, -9e-1 * dHat])).norm())
+    PE_max_Q = ti.sqrt(PE_hessian(ti.Vector([1e-4 * dHat, 1e-4 * dHat, 1e-4 * dHat, -1e-4 * dHat])).norm())
+    print(PE_min_Q, PE_max_Q)
     for r in range(n_PE[None]):
         p = xTilde[PE[r, 0]] * alpha + x[PE[r, 0]] * (1 - alpha)
         e0 = xTilde[PE[r, 1]] * alpha + x[PE[r, 1]] * (1 - alpha)
@@ -1400,7 +1415,7 @@ def find_constraints(alpha: real):
         for i in ti.static(range(dim)):
             pos[i] = (p - e0)[i]
             pos[i + dim] = (p - e1)[i]
-        Q_PE[r, 0] = min(max(ti.sqrt(PE_hessian(pos).norm()), 1e-6), 1e6)
+        Q_PE[r, 0] = min(max(ti.sqrt(PE_hessian(pos).norm()), PE_min_Q), PE_max_Q)
     # for r in range(n_PT[None]):
     #     p, t0, t1, t2 = xTilde[PT[r, 0]], xTilde[PT[r, 1]], xTilde[PT[r, 2]], xTilde[PT[r, 3]]
     #     y_PT[r, 0], y_PT[r, 1], y_PT[r, 2] = p - t0, p - t1, p - t2
@@ -1549,6 +1564,7 @@ if __name__ == "__main__":
     boundary_edges.from_numpy(boundary_edges_.astype(np.int32))
     boundary_triangles.from_numpy(boundary_triangles_.astype(np.int32))
     compute_restT_and_m()
+    kappa = compute_adaptive_kappa()
     vertices_ = vertices.to_numpy()
     write_image(0)
     total_time = 0
