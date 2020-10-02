@@ -947,7 +947,7 @@ def local_PP():
         for iter in range(20):
             g = PP_gradient(pos) + (pos - posTilde) * Q * Q
             P = PP_hessian(pos) + ti.Matrix.identity(real, dim) * Q * Q
-            p = -inverse_2(P) @ g
+            p = -solve_2(P, g)
             alpha = 1.0
             pos0 = pos
             E0 = PP_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
@@ -973,7 +973,7 @@ def local_PE():
         for iter in range(20):
             g = PE_gradient(pos) + (pos - posTilde) * Q * Q
             P = PE_hessian(pos) + ti.Matrix.identity(real, dim * 2) * Q * Q
-            p = -inverse_4(P) @ g
+            p = -solve_4(P, g)
             alpha = 1.0
             pos0 = pos
             E0 = PE_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
@@ -1400,8 +1400,10 @@ def find_constraints(alpha: real):
         p1 = xTilde[PP[r, 1]] * alpha + x[PP[r, 1]] * (1 - alpha)
         y_PP[r, 0] = p0 - p1
         r_PP[r, 0] = ti.Matrix.zero(real, dim)
+        p0, p1 = x[PP[r, 0]], x[PP[r, 1]]
         pos = p0 - p1
-        Q_PP[r, 0] = min(max(ti.sqrt(PP_hessian(pos).norm()), PP_min_Q), PP_max_Q)
+        # Q_PP[r, 0] = min(max(ti.sqrt(PP_hessian(pos).norm()), PP_min_Q), PP_max_Q)
+        Q_PP[r, 0] = ti.sqrt(PP_hessian(pos).norm())
     PE_min_Q = ti.sqrt(PE_hessian(ti.Vector([9e-1 * dHat, 9e-1 * dHat, 9e-1 * dHat, -9e-1 * dHat])).norm())
     PE_max_Q = ti.sqrt(PE_hessian(ti.Vector([1e-4 * dHat, 1e-4 * dHat, 1e-4 * dHat, -1e-4 * dHat])).norm())
     print(PE_min_Q, PE_max_Q)
@@ -1411,11 +1413,13 @@ def find_constraints(alpha: real):
         e1 = xTilde[PE[r, 2]] * alpha + x[PE[r, 2]] * (1 - alpha)
         y_PE[r, 0], y_PE[r, 1] = p - e0, p - e1
         r_PE[r, 0], r_PE[r, 1] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+        p, e0, e1 = x[PE[r, 0]], x[PE[r, 1]], x[PE[r, 2]]
         pos = ti.Matrix.zero(real, dim * 2)
         for i in ti.static(range(dim)):
             pos[i] = (p - e0)[i]
             pos[i + dim] = (p - e1)[i]
-        Q_PE[r, 0] = min(max(ti.sqrt(PE_hessian(pos).norm()), PE_min_Q), PE_max_Q)
+        # Q_PE[r, 0] = min(max(ti.sqrt(PE_hessian(pos).norm()), PE_min_Q), PE_max_Q)
+        Q_PE[r, 0] = ti.sqrt(PE_hessian(pos).norm())
     # for r in range(n_PT[None]):
     #     p, t0, t1, t2 = xTilde[PT[r, 0]], xTilde[PT[r, 1]], xTilde[PT[r, 2]], xTilde[PT[r, 3]]
     #     y_PT[r, 0], y_PT[r, 1], y_PT[r, 2] = p - t0, p - t1, p - t2
