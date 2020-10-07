@@ -98,7 +98,10 @@ extern "C" {
         F(0, 0) = in_0; F(0, 1) = in_1; F(1, 0) = in_2; F(1, 1) = in_3;
         Eigen::Matrix<REAL, 2, 1> rhs;
         rhs(0) = rhs_0; rhs(1) = rhs_1;
-        Eigen::LLT solver = F.llt();
+        Eigen::LDLT solver = F.ldlt();
+        Eigen::Matrix<REAL, 2, 2> D = solver.vectorD().array().max(1e-8).matrix().asDiagonal();
+        F = solver.matrixL() * D * solver.matrixL().transpose();
+        solver = F.ldlt();
         Eigen::Matrix<REAL, 2, 1> x = solver.solve(rhs);
         if (solver.info() != Eigen::Success) {
             for (int i = 0; i < 2; ++i) {
@@ -117,7 +120,10 @@ extern "C" {
         F(0, 0) = in_0; F(0, 1) = in_1; F(0, 2) = in_2; F(0, 3) = in_3; F(1, 0) = in_4; F(1, 1) = in_5; F(1, 2) = in_6; F(1, 3) = in_7; F(2, 0) = in_8; F(2, 1) = in_9; F(2, 2) = in_10; F(2, 3) = in_11; F(3, 0) = in_12; F(3, 1) = in_13; F(3, 2) = in_14; F(3, 3) = in_15;
         Eigen::Matrix<REAL, 4, 1> rhs;
         rhs(0) = rhs_0; rhs(1) = rhs_1; rhs(2) = rhs_2; rhs(3) = rhs_3;
-        Eigen::LLT solver = F.llt();
+        Eigen::LDLT solver = F.ldlt();
+        Eigen::Matrix<REAL, 4, 4> D = solver.vectorD().array().max(1e-8).matrix().asDiagonal();
+        F = solver.matrixL() * D * solver.matrixL().transpose();
+        solver = F.ldlt();
         Eigen::Matrix<REAL, 4, 1> x = solver.solve(rhs);
         if (solver.info() != Eigen::Success) {
             for (int i = 0; i < 4; ++i) {
