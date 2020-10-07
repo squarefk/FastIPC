@@ -174,3 +174,21 @@ def read(testcase):
             dirichlet_fixed[i * 2 + 1] = True
         dirichlet_value = mesh_particles[:, :2].reshape((len(mesh_particles) * 2))
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
+    elif testcase == 12:
+        mesh = meshio.read("input/fluffy.obj")
+        mesh_particles = np.vstack((mesh.points, [
+            [-1, -0.8, 0], [1, -0.8, 0], [1, -0.7, 0], [-1, -0.7, 0]
+        ]))
+        offset = len(mesh.points)
+        mesh_elements = np.vstack((mesh.cells[0].data, [
+            [offset, offset + 1, offset + 2],
+            [offset + 0, offset + 2, offset + 3]
+        ]))
+        mesh_scale = 0.5
+        mesh_offset = [0.5, 0.6]
+        dirichlet_fixed = np.zeros(len(mesh_particles) * 2, dtype=bool)
+        for i in [offset, offset + 1, offset + 2, offset + 3]:
+            dirichlet_fixed[i * 2] = True
+            dirichlet_fixed[i * 2 + 1] = True
+        dirichlet_value = mesh_particles[:, :2].reshape((len(mesh_particles) * 2))
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
