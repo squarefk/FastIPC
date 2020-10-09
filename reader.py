@@ -96,7 +96,7 @@ def read(testcase):
         mesh_scale = 0.6
         mesh_offset = [0.32, 0.3]
         dirichlet_fixed = np.zeros(len(mesh_particles) * 2, dtype=bool)
-        for i in [954, 955]:
+        for i in [954, 955, 956, 957]:
             dirichlet_fixed[i * 2] = True
             dirichlet_fixed[i * 2 + 1] = True
         dirichlet_value = mesh_particles[:, :2].reshape((len(mesh_particles) * 2))
@@ -111,7 +111,7 @@ def read(testcase):
         mesh_scale = 0.6
         mesh_offset = [0.32, 0.3]
         dirichlet_fixed = np.zeros(len(mesh_particles) * 2, dtype=bool)
-        for i in [954, 957]:
+        for i in [954, 955, 956, 957, 958]:
             dirichlet_fixed[i * 2] = True
             dirichlet_fixed[i * 2 + 1] = True
         dirichlet_value = mesh_particles[:, :2].reshape((len(mesh_particles) * 2))
@@ -128,7 +128,7 @@ def read(testcase):
         mesh_scale = 0.4
         mesh_offset = [0.38, 0.2]
         dirichlet_fixed = np.zeros(len(mesh_particles) * 2, dtype=bool)
-        for i in [954, 957]:
+        for i in [954, 955, 956, 957, 958]:
             dirichlet_fixed[i * 2] = True
             dirichlet_fixed[i * 2 + 1] = True
         dirichlet_value = mesh_particles[:, :2].reshape((len(mesh_particles) * 2))

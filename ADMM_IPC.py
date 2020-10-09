@@ -964,7 +964,7 @@ def local_PP():
             E0 = PP_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
             E = PP_energy(pos) + (pos - posTilde).norm_sqr() * Q * Q / 2
-            if iter == 19 and p.norm_sqr() > 1e-6:
+            if iter == 19 and p.norm_sqr() > 1e-5:
                 print("FATAL ERROR: local PP Newton not converge", P, p.norm_sqr())
             while E > E0:
                 alpha *= 0.5
@@ -990,7 +990,7 @@ def local_PE():
             E0 = PE_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
             E = PE_energy(pos) + (pos - posTilde).norm_sqr() * Q * Q / 2
-            if iter == 19 and p.norm_sqr() > 1e-6:
+            if iter == 19 and p.norm_sqr() > 1e-5:
                 print("FATAL ERROR: local PE Newton not converge", P, p.norm_sqr())
             while E > E0:
                 alpha *= 0.5
@@ -1414,7 +1414,7 @@ def find_constraints(alpha: real):
         pos = p0 - p1
         # Q_PP[r, 0] = min(max(ti.sqrt(PP_hessian(pos).norm()), PP_min_Q), PP_max_Q)
         Q_PP[r, 0] = ti.sqrt(PP_hessian(pos).norm())
-        if not PP_min_Q < Q_PP[r, 0] < PP_max_Q:
+        if not Q_PP[r, 0] < PP_max_Q:
             print("WARNING : bad Q for PP", PP_min_Q, Q_PP[r, 0], PP_max_Q)
     PE_min_Q = ti.sqrt(PE_hessian(ti.Vector([9e-1 * dHat, 9e-1 * dHat, 9e-1 * dHat, -9e-1 * dHat])).norm())
     PE_max_Q = ti.sqrt(PE_hessian(ti.Vector([1e-4 * dHat, 1e-4 * dHat, 1e-4 * dHat, -1e-4 * dHat])).norm())
@@ -1431,7 +1431,7 @@ def find_constraints(alpha: real):
             pos[i + dim] = (p - e1)[i]
         # Q_PE[r, 0] = min(max(ti.sqrt(PE_hessian(pos).norm()), PE_min_Q), PE_max_Q)
         Q_PE[r, 0] = ti.sqrt(PE_hessian(pos).norm())
-        if not PE_min_Q < Q_PE[r, 0] < PE_max_Q:
+        if not Q_PE[r, 0] < PE_max_Q:
             print("WARNING : bad Q for PE", PE_min_Q, Q_PE[r, 0], PE_max_Q)
     # for r in range(n_PT[None]):
     #     p, t0, t1, t2 = xTilde[PT[r, 0]], xTilde[PT[r, 1]], xTilde[PT[r, 2]], xTilde[PT[r, 3]]
