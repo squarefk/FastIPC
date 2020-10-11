@@ -1230,7 +1230,7 @@ def dual_step():
 
 
 @ti.kernel
-def find_constraints(alpha: real):
+def backup_admm_variables():
     old_n_PP[None] = n_PP[None]
     for c in range(old_n_PP[None]):
         old_PP[c, 0], old_PP[c, 1] = PP[c, 0], PP[c, 1]
@@ -1274,8 +1274,10 @@ def find_constraints(alpha: real):
         old_r_PEM[c, 0], old_r_PEM[c, 1], old_r_PEM[c, 2] = r_PEM[c, 0], r_PEM[c, 1], r_PEM[c, 2]
         old_Q_PEM[c, 0], old_Q_PEM[c, 1], old_Q_PEM[c, 2] = Q_PEM[c, 0], Q_PEM[c, 1], Q_PEM[c, 2]
 
-    n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
 
+@ti.kernel
+def find_constraints():
+    n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
     if ti.static(dim == 2):
         inv_dx = 1 / 0.01
         for i in range(n_boundary_edges):
@@ -1300,11 +1302,11 @@ def find_constraints(alpha: real):
                         if case == 0:
                             if PP_2D_E(x[p], x[e0]) < dHat2:
                                 n = ti.atomic_add(n_PP[None], 1)
-                                PP[n, 0], PP[n, 1] = p, e0
+                                PP[n, 0], PP[n, 1] = min(p, e0), max(p, e0)
                         elif case == 1:
                             if PP_2D_E(x[p], x[e1]) < dHat2:
                                 n = ti.atomic_add(n_PP[None], 1)
-                                PP[n, 0], PP[n, 1] = p, e1
+                                PP[n, 0], PP[n, 1] = min(p, e1), max(p, e1)
                         elif case == 2:
                             if PE_2D_E(x[p], x[e0], x[e1]) < dHat2:
                                 n = ti.atomic_add(n_PE[None], 1)
@@ -1429,6 +1431,19 @@ def find_constraints(alpha: real):
                                 n = ti.atomic_add(n_EE[None], 1)
                                 EE[n, 0], EE[n, 1], EE[n, 2], EE[n, 3] = a0, a1, b0, b1
     print("Find constraints: ", n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None])
+
+
+def remove_duplicated_constraints():
+    tmp = np.unique(PP.to_numpy()[:n_PP[None], :], axis=0)
+    n_PP[None] = len(tmp)
+    PP.from_numpy(np.resize(tmp, (MAX_C, 2)))
+    tmp = np.unique(PE.to_numpy()[:n_PE[None], :], axis=0)
+    n_PE[None] = len(tmp)
+    PE.from_numpy(np.resize(tmp, (MAX_C, 3)))
+
+
+@ti.kernel
+def reuse_admm_variables(alpha: real):
     # xTilde initiated y, r
     PP_min_Q = ti.sqrt(PP_hessian(ti.Vector([9e-1 * dHat, 0])).norm())
     PP_max_Q = ti.sqrt(PP_hessian(ti.Vector([1e-4 * dHat, 0])).norm())
@@ -1621,7 +1636,10 @@ if __name__ == "__main__":
         for step in range(20):
             alpha = compute_warm_start_filter()
             grid.deactivate_all()
-            find_constraints(alpha)
+            backup_admm_variables()
+            find_constraints()
+            remove_duplicated_constraints()
+            reuse_admm_variables(alpha)
 
             data_row.fill(0)
             data_col.fill(0)
