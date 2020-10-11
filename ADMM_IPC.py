@@ -69,7 +69,7 @@ print('output directory:', directory)
 ##############################################################################
 
 real = ti.f64
-ti.init(arch=ti.cpu, default_fp=real)
+ti.init(arch=ti.cpu, default_fp=real, make_thread_local=False, kernel_profiler=True)
 scalar = lambda: ti.var(dt=real)
 vec = lambda: ti.Vector(dim, dt=real)
 mat = lambda: ti.Matrix(dim, dim, dt=real)
@@ -182,6 +182,21 @@ dHat2 = 1e-5
 dHat = dHat2 ** 0.5
 kappa = 1e4
 
+pid = ti.var(ti.i32)
+if dim == 2:
+    indices = ti.ij
+else:
+    indices = ti.ijk
+grid_size = 4096
+offset = tuple(-grid_size // 2 for _ in range(dim))
+grid_block_size = 128
+grid = ti.root.pointer(indices, grid_size // grid_block_size)
+if dim == 2:
+    leaf_block_size = 16
+else:
+    leaf_block_size = 8
+block = grid.pointer(indices, grid_block_size // leaf_block_size)
+block.dynamic(ti.indices(dim), 1024 * 1024, chunk_size=leaf_block_size**dim * 8).place(pid, offset=offset + (0, ))
 
 @ti.kernel
 def compute_adaptive_kappa() -> real:
@@ -1262,10 +1277,22 @@ def find_constraints(alpha: real):
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
 
     if ti.static(dim == 2):
-        for _ in range(1):
-            for i in range(n_boundary_points):
-                p = boundary_points[i]
-                for j in range(n_boundary_edges):
+        inv_dx = 1 / 0.01
+        for i in range(n_boundary_edges):
+            e0 = boundary_edges[i, 0]
+            e1 = boundary_edges[i, 1]
+            lower = int(ti.floor((ti.min(x[e0], x[e1]) - dHat) * inv_dx)) - ti.Vector(list(offset))
+            upper = int(ti.floor((ti.max(x[e0], x[e1]) + dHat) * inv_dx)) + 1 - ti.Vector(list(offset))
+            for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]))):
+                ti.append(pid.parent(), I, i)
+        for i in range(n_boundary_points):
+            p = boundary_points[i]
+            lower = int(ti.floor(x[p] * inv_dx)) - ti.Vector(list(offset))
+            upper = int(ti.floor(x[p] * inv_dx)) + 1 - ti.Vector(list(offset))
+            for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]))):
+                L = ti.length(pid.parent(), I)
+                for l in range(L):
+                    j = pid[I[0], I[1], l]
                     e0 = boundary_edges[j, 0]
                     e1 = boundary_edges[j, 1]
                     if p != e0 and p != e1 and point_edge_ccd_broadphase(x[p], x[e0], x[e1], dHat):
@@ -1593,6 +1620,7 @@ if __name__ == "__main__":
         drs = []
         for step in range(20):
             alpha = compute_warm_start_filter()
+            grid.deactivate_all()
             find_constraints(alpha)
 
             data_row.fill(0)
@@ -1648,5 +1676,6 @@ if __name__ == "__main__":
         total_time += time.time()
         print("Time : ", total_time)
         write_image(f + 1)
+        ti.kernel_profiler_print()
     cmd = 'ffmpeg -framerate 36 -i "' + directory + 'images/%6d.png" -c:v libx264 -profile:v high -crf 10 -pix_fmt yuv420p -threads 20 ' + directory + 'video.mp4'
     os.system((cmd))
