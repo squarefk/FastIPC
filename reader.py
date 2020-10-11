@@ -192,3 +192,27 @@ def read(testcase):
             dirichlet_fixed[i * 2 + 1] = True
         dirichlet_value = mesh_particles[:, :2].reshape((len(mesh_particles) * 2))
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
+    elif testcase == 13:
+        # two spheres
+        mesh = meshio.read("input/items.obj")
+        mesh_particles = np.vstack((mesh.points, [
+            [-0.5, -0.3, 0],
+            [0.3, -0.3, 0],
+            [-0.5, 0.6, 0],
+            [1.1, -0.3, 0],
+            [1.1, 0.6, 0]
+        ]))
+        offset = len(mesh.points)
+        mesh_elements = np.vstack((mesh.cells[0].data, [
+            [offset, offset + 1, offset + 2],
+            [offset + 1, offset + 3, offset + 4]
+        ]))
+        mesh_scale = 0.4
+        mesh_offset = [0.38, 0.2]
+        dirichlet_fixed = np.zeros(len(mesh_particles) * 2, dtype=bool)
+        print("!!!! offset : ", offset)
+        for i in range(offset, offset + 5):
+            dirichlet_fixed[i * 2] = True
+            dirichlet_fixed[i * 2 + 1] = True
+        dirichlet_value = mesh_particles[:, :2].reshape((len(mesh_particles) * 2))
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2

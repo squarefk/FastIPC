@@ -1546,7 +1546,6 @@ else:
     scene.add_light(light)
     gui = ti.GUI('IPC', camera.res)
 def write_image(f):
-    # find_constraints()
     particle_pos = x.to_numpy() * mesh_scale + mesh_offset
     vertices_ = vertices.to_numpy()
     if dim == 2:
