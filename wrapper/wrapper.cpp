@@ -24,6 +24,14 @@ extern "C" {
         V00[0] = V(0, 0),  V01[0] = V(0, 1), V10[0] = V(1, 0), V11[0] = V(1, 1);
     }
 
+    void project_pd_2(REAL in_0, REAL in_1, REAL in_2, REAL in_3, REAL* out_0, REAL* out_1, REAL* out_2, REAL* out_3)
+    {
+        Eigen::Matrix<REAL, 2, 2> F;
+        F(0, 0) = in_0; F(0, 1) = in_1; F(1, 0) = in_2; F(1, 1) = in_3;
+        JGSL::makePD(F);
+        out_0[0] = F(0, 0); out_1[0] = F(0, 1); out_2[0] = F(1, 0); out_3[0] = F(1, 1);
+    }
+
     void project_pd_3(REAL in_0, REAL in_1, REAL in_2, REAL in_3, REAL in_4, REAL in_5, REAL in_6, REAL in_7, REAL in_8, REAL* out_0, REAL* out_1, REAL* out_2, REAL* out_3, REAL* out_4, REAL* out_5, REAL* out_6, REAL* out_7, REAL* out_8)
     {
         Eigen::Matrix<REAL, 3, 3> F;

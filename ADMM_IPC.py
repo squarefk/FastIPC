@@ -599,10 +599,10 @@ def local_gradient(sigma, sigma_Dx_plus_u, vol0, W):
 def local_hessian(sigma, sigma_Dx_plus_u, vol0, W):
     if ti.static(dim == 2):
         sig = ti.Matrix([[sigma[0], 0.0], [0.0, sigma[1]]])
-        return make_pd(elasticity_hessian(sig, la, mu)) * dt * dt * vol0 + ti.Matrix.identity(real, 2) * W * W
+        return project_pd(elasticity_hessian(sig, la, mu), 2) * dt * dt * vol0 + ti.Matrix.identity(real, 2) * W * W
     else:
         sig = ti.Matrix([[sigma[0], 0.0, 0.0], [0.0, sigma[1], 0.0], [0.0, 0.0, sigma[2]]])
-        return project_pd_3(elasticity_hessian(sig, la, mu)) * dt * dt * vol0 + ti.Matrix.identity(real, 3) * W * W
+        return project_pd(elasticity_hessian(sig, la, mu), 3) * dt * dt * vol0 + ti.Matrix.identity(real, 3) * W * W
 
 
 @ti.func
@@ -649,7 +649,7 @@ def PP_hessian(pos):
         bg = barrier_g(dist2, dHat2, kappa)
         H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_2D_H(p0, p1)
         eH = ti.Matrix([[H[2, 2], H[2, 3]], [H[3, 2], H[3, 3]]])
-        return make_pd(eH)
+        return project_pd(eH, 2)
     else:
         p0 = ti.Vector([0.0, 0.0, 0.0])
         p1 = ti.Vector([pos[0], pos[1], pos[2]])
@@ -658,7 +658,7 @@ def PP_hessian(pos):
         bg = barrier_g(dist2, dHat2, kappa)
         H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(p0, p1)
         eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5]], [H[4, 3], H[4, 4], H[4, 5]], [H[5, 3], H[5, 4], H[5, 5]]])
-        return project_pd_3(eH)
+        return project_pd(eH, 3)
 @ti.func
 def PE_energy(pos):
     if ti.static(dim == 2):
@@ -708,7 +708,7 @@ def PE_hessian(pos):
         bg = barrier_g(dist2, dHat2, kappa)
         H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_2D_H(p, e0, e1)
         eH = ti.Matrix([[H[2, 2], H[2, 3], H[2, 4], H[2, 5]], [H[3, 2], H[3, 3], H[3, 4], H[3, 5]], [H[4, 2], H[4, 3], H[4, 4], H[4, 5]], [H[5, 2], H[5, 3], H[5, 4], H[5, 5]]])
-        return project_pd_4(eH)
+        return project_pd(eH, 4)
     else:
         p = ti.Vector([0.0, 0.0, 0.0])
         e0 = ti.Vector([pos[0], pos[1], pos[2]])
@@ -718,7 +718,7 @@ def PE_hessian(pos):
         bg = barrier_g(dist2, dHat2, kappa)
         H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(p, e0, e1)
         eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5], H[3, 6], H[3, 7], H[3, 8]], [H[4, 3], H[4, 4], H[4, 5], H[4, 6], H[4, 7], H[4, 8]], [H[5, 3], H[5, 4], H[5, 5], H[5, 6], H[5, 7], H[5, 8]], [H[6, 3], H[6, 4], H[6, 5], H[6, 6], H[6, 7], H[6, 8]], [H[7, 3], H[7, 4], H[7, 5], H[7, 6], H[7, 7], H[7, 8]], [H[8, 3], H[8, 4], H[8, 5], H[8, 6], H[8, 7], H[8, 8]]])
-        return project_pd_6(eH)
+        return project_pd(eH, 6)
 @ti.func
 def PT_energy(pos):
     p = ti.Vector([0.0, 0.0, 0.0])
@@ -751,7 +751,7 @@ def PT_hessian(pos):
     bg = barrier_g(dist2, dHat2, kappa)
     H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PT_3D_H(p, t0, t1, t2)
     eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5], H[3, 6], H[3, 7], H[3, 8], H[3, 9], H[3, 10], H[3, 11]], [H[4, 3], H[4, 4], H[4, 5], H[4, 6], H[4, 7], H[4, 8], H[4, 9], H[4, 10], H[4, 11]], [H[5, 3], H[5, 4], H[5, 5], H[5, 6], H[5, 7], H[5, 8], H[5, 9], H[5, 10], H[5, 11]], [H[6, 3], H[6, 4], H[6, 5], H[6, 6], H[6, 7], H[6, 8], H[6, 9], H[6, 10], H[6, 11]], [H[7, 3], H[7, 4], H[7, 5], H[7, 6], H[7, 7], H[7, 8], H[7, 9], H[7, 10], H[7, 11]], [H[8, 3], H[8, 4], H[8, 5], H[8, 6], H[8, 7], H[8, 8], H[8, 9], H[8, 10], H[8, 11]], [H[9, 3], H[9, 4], H[9, 5], H[9, 6], H[9, 7], H[9, 8], H[9, 9], H[9, 10], H[9, 11]], [H[10, 3], H[10, 4], H[10, 5], H[10, 6], H[10, 7], H[10, 8], H[10, 9], H[10, 10], H[10, 11]], [H[11, 3], H[11, 4], H[11, 5], H[11, 6], H[11, 7], H[11, 8], H[11, 9], H[11, 10], H[11, 11]]])
-    return project_pd_9(eH)
+    return project_pd(eH, 9)
 @ti.func
 def EE_energy(pos):
     a0 = ti.Vector([0.0, 0.0, 0.0])
@@ -784,7 +784,7 @@ def EE_hessian(pos):
     bg = barrier_g(dist2, dHat2, kappa)
     H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * EE_3D_H(a0, a1, b0, b1)
     eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5], H[3, 6], H[3, 7], H[3, 8], H[3, 9], H[3, 10], H[3, 11]], [H[4, 3], H[4, 4], H[4, 5], H[4, 6], H[4, 7], H[4, 8], H[4, 9], H[4, 10], H[4, 11]], [H[5, 3], H[5, 4], H[5, 5], H[5, 6], H[5, 7], H[5, 8], H[5, 9], H[5, 10], H[5, 11]], [H[6, 3], H[6, 4], H[6, 5], H[6, 6], H[6, 7], H[6, 8], H[6, 9], H[6, 10], H[6, 11]], [H[7, 3], H[7, 4], H[7, 5], H[7, 6], H[7, 7], H[7, 8], H[7, 9], H[7, 10], H[7, 11]], [H[8, 3], H[8, 4], H[8, 5], H[8, 6], H[8, 7], H[8, 8], H[8, 9], H[8, 10], H[8, 11]], [H[9, 3], H[9, 4], H[9, 5], H[9, 6], H[9, 7], H[9, 8], H[9, 9], H[9, 10], H[9, 11]], [H[10, 3], H[10, 4], H[10, 5], H[10, 6], H[10, 7], H[10, 8], H[10, 9], H[10, 10], H[10, 11]], [H[11, 3], H[11, 4], H[11, 5], H[11, 6], H[11, 7], H[11, 8], H[11, 9], H[11, 10], H[11, 11]]])
-    return project_pd_9(eH)
+    return project_pd(eH, 9)
 @ti.func
 def EEM_energy(pos, r):
     a0 = ti.Vector([0.0, 0.0, 0.0])
@@ -832,7 +832,7 @@ def EEM_hessian(pos, r):
     Mg = M_g(a0, a1, b0, b1, eps_x)
     H = lH * M + lg.outer_product(Mg) + Mg.outer_product(lg) + b * M_H(a0, a1, b0, b1, eps_x)
     eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5], H[3, 6], H[3, 7], H[3, 8], H[3, 9], H[3, 10], H[3, 11]], [H[4, 3], H[4, 4], H[4, 5], H[4, 6], H[4, 7], H[4, 8], H[4, 9], H[4, 10], H[4, 11]], [H[5, 3], H[5, 4], H[5, 5], H[5, 6], H[5, 7], H[5, 8], H[5, 9], H[5, 10], H[5, 11]], [H[6, 3], H[6, 4], H[6, 5], H[6, 6], H[6, 7], H[6, 8], H[6, 9], H[6, 10], H[6, 11]], [H[7, 3], H[7, 4], H[7, 5], H[7, 6], H[7, 7], H[7, 8], H[7, 9], H[7, 10], H[7, 11]], [H[8, 3], H[8, 4], H[8, 5], H[8, 6], H[8, 7], H[8, 8], H[8, 9], H[8, 10], H[8, 11]], [H[9, 3], H[9, 4], H[9, 5], H[9, 6], H[9, 7], H[9, 8], H[9, 9], H[9, 10], H[9, 11]], [H[10, 3], H[10, 4], H[10, 5], H[10, 6], H[10, 7], H[10, 8], H[10, 9], H[10, 10], H[10, 11]], [H[11, 3], H[11, 4], H[11, 5], H[11, 6], H[11, 7], H[11, 8], H[11, 9], H[11, 10], H[11, 11]]])
-    return project_pd_9(eH)
+    return project_pd(eH, 9)
 @ti.func
 def PPM_energy(pos, r):
     a0 = ti.Vector([0.0, 0.0, 0.0])
@@ -882,7 +882,7 @@ def PPM_hessian(pos, r):
     Mg = M_g(a0, a1, b0, b1, eps_x)
     H = lH * M + lg.outer_product(Mg) + Mg.outer_product(lg) + b * M_H(a0, a1, b0, b1, eps_x)
     eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5], H[3, 6], H[3, 7], H[3, 8], H[3, 9], H[3, 10], H[3, 11]], [H[4, 3], H[4, 4], H[4, 5], H[4, 6], H[4, 7], H[4, 8], H[4, 9], H[4, 10], H[4, 11]], [H[5, 3], H[5, 4], H[5, 5], H[5, 6], H[5, 7], H[5, 8], H[5, 9], H[5, 10], H[5, 11]], [H[6, 3], H[6, 4], H[6, 5], H[6, 6], H[6, 7], H[6, 8], H[6, 9], H[6, 10], H[6, 11]], [H[7, 3], H[7, 4], H[7, 5], H[7, 6], H[7, 7], H[7, 8], H[7, 9], H[7, 10], H[7, 11]], [H[8, 3], H[8, 4], H[8, 5], H[8, 6], H[8, 7], H[8, 8], H[8, 9], H[8, 10], H[8, 11]], [H[9, 3], H[9, 4], H[9, 5], H[9, 6], H[9, 7], H[9, 8], H[9, 9], H[9, 10], H[9, 11]], [H[10, 3], H[10, 4], H[10, 5], H[10, 6], H[10, 7], H[10, 8], H[10, 9], H[10, 10], H[10, 11]], [H[11, 3], H[11, 4], H[11, 5], H[11, 6], H[11, 7], H[11, 8], H[11, 9], H[11, 10], H[11, 11]]])
-    return project_pd_9(eH)
+    return project_pd(eH, 9)
 @ti.func
 def PEM_energy(pos, r):
     a0 = ti.Vector([0.0, 0.0, 0.0])
@@ -932,7 +932,7 @@ def PEM_hessian(pos, r):
     Mg = M_g(a0, a1, b0, b1, eps_x)
     H = lH * M + lg.outer_product(Mg) + Mg.outer_product(lg) + b * M_H(a0, a1, b0, b1, eps_x)
     eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5], H[3, 6], H[3, 7], H[3, 8], H[3, 9], H[3, 10], H[3, 11]], [H[4, 3], H[4, 4], H[4, 5], H[4, 6], H[4, 7], H[4, 8], H[4, 9], H[4, 10], H[4, 11]], [H[5, 3], H[5, 4], H[5, 5], H[5, 6], H[5, 7], H[5, 8], H[5, 9], H[5, 10], H[5, 11]], [H[6, 3], H[6, 4], H[6, 5], H[6, 6], H[6, 7], H[6, 8], H[6, 9], H[6, 10], H[6, 11]], [H[7, 3], H[7, 4], H[7, 5], H[7, 6], H[7, 7], H[7, 8], H[7, 9], H[7, 10], H[7, 11]], [H[8, 3], H[8, 4], H[8, 5], H[8, 6], H[8, 7], H[8, 8], H[8, 9], H[8, 10], H[8, 11]], [H[9, 3], H[9, 4], H[9, 5], H[9, 6], H[9, 7], H[9, 8], H[9, 9], H[9, 10], H[9, 11]], [H[10, 3], H[10, 4], H[10, 5], H[10, 6], H[10, 7], H[10, 8], H[10, 9], H[10, 10], H[10, 11]], [H[11, 3], H[11, 4], H[11, 5], H[11, 6], H[11, 7], H[11, 8], H[11, 9], H[11, 10], H[11, 11]]])
-    return project_pd_9(eH)
+    return project_pd(eH, 9)
 
 
 @ti.kernel
@@ -973,7 +973,7 @@ def local_PP():
         for iter in range(20):
             g = PP_gradient(pos) + (pos - posTilde) * Q * Q
             P = PP_hessian(pos) + ti.Matrix.identity(real, dim) * Q * Q
-            p = -solve_2(P, g)
+            p = -solve(P, g, 2)
             alpha = 1.0
             pos0 = pos
             E0 = PP_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
@@ -999,7 +999,7 @@ def local_PE():
         for iter in range(20):
             g = PE_gradient(pos) + (pos - posTilde) * Q * Q
             P = PE_hessian(pos) + ti.Matrix.identity(real, dim * 2) * Q * Q
-            p = -solve_4(P, g)
+            p = -solve(P, g, 4)
             alpha = 1.0
             pos0 = pos
             E0 = PE_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
