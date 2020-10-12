@@ -1615,7 +1615,7 @@ def write_image(f):
 
 
 if __name__ == "__main__":
-    x.from_numpy(mesh_particles.astype(np.float64)[:, :2])
+    x.from_numpy(mesh_particles.astype(np.float64)[:, :dim])
     v.fill(0)
     vertices.from_numpy(mesh_elements.astype(np.int32))
     boundary_points.from_numpy(np.array(list(boundary_points_)).astype(np.int32))
