@@ -57,8 +57,14 @@ so = ctypes.CDLL("./wrapper/a.so")
 
 
 @ti.func
-def cofactor_2(F):
-    return ti.Matrix([[F[0, 0], -F[1, 0]], [-F[0, 1], F[1, 1]]])
+def cofactor(F, dim: ti.template()):
+    if ti.static(dim == 2):
+        return ti.Matrix([[F[0, 0], -F[1, 0]], [-F[0, 1], F[1, 1]]])
+    else:
+        return ti.Matrix([[F[1, 1] * F[2, 2] - F[1, 2] * F[2, 1], F[1, 2] * F[2, 0] - F[1, 0] * F[2, 2], F[1, 0] * F[2, 1] - F[1, 1] * F[2, 0]],
+                          [F[0, 2] * F[2, 1] - F[0, 1] * F[2, 2], F[0, 0] * F[2, 2] - F[0, 2] * F[2, 0], F[0, 1] * F[2, 0] - F[0, 0] * F[2, 1]],
+                          [F[0, 1] * F[1, 2] - F[0, 2] * F[1, 1], F[0, 2] * F[1, 0] - F[0, 0] * F[1, 2], F[0, 0] * F[1, 1] - F[0, 1] * F[1, 0]]])
+
 
 
 @ti.func

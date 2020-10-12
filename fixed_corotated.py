@@ -35,7 +35,7 @@ def elasticity_hessian(sig, la, mu):
 @ti.func
 def elasticity_first_piola_kirchoff_stress(F, la, mu):
     J = F.determinant()
-    JFinvT = cofactor_2(F)
+    JFinvT = cofactor(F, 2)
     U, sig, V = singular_value_decomposition(F)
     R = U @ V.transpose()
     return 2 * mu * (F - R) + la * (J - 1) * JFinvT
