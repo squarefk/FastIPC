@@ -35,15 +35,15 @@ def elasticity_hessian(sig, la, mu):
 @ti.func
 def elasticity_first_piola_kirchoff_stress(F, la, mu):
     J = F.determinant()
-    JFinvT = cofactor(F, 2)
-    U, sig, V = singular_value_decomposition(F)
+    JFinvT = cofactor(F)
+    U, sig, V = svd(F)
     R = U @ V.transpose()
     return 2 * mu * (F - R) + la * (J - 1) * JFinvT
 
 
 @ti.func
 def elasticity_first_piola_kirchoff_stress_derivative(F, la, mu):
-    U, sig, V = singular_value_decomposition(F)
+    U, sig, V = svd(F)
     sigma = ti.Vector([sig[0, 0], sig[1, 1]])
     dE_div_dsigma = fixed_corotated_gradient(sig, la, mu)
     d2E_div_dsigma2 = make_pd(fixed_corotated_hessian(sig, la, mu))

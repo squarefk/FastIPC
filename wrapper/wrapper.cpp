@@ -9,7 +9,7 @@
 using namespace std;
 
 extern "C" {
-    void svd(REAL F00, REAL F01, REAL F10, REAL F11,
+    void svd_2(REAL F00, REAL F01, REAL F10, REAL F11,
              REAL* U00, REAL* U01, REAL* U10, REAL* U11,
              REAL* s00, REAL* s01, REAL* s10, REAL* s11,
              REAL* V00, REAL* V01, REAL* V10, REAL* V11)
@@ -19,9 +19,24 @@ extern "C" {
         JGSL::MATRIX<REAL, 2> U(1), V(1);
         JGSL::VECTOR<REAL, 2> sigma;
         JGSL::Singular_Value_Decomposition(F, U, sigma, V);
-        U00[0] = U(0, 0),  U01[0] = U(0, 1), U10[0] = U(1, 0), U11[0] = U(1, 1);
-        s00[0] = sigma(0), s01[0] = 0,      s10[0] = 0,       s11[0] = sigma(1);
-        V00[0] = V(0, 0),  V01[0] = V(0, 1), V10[0] = V(1, 0), V11[0] = V(1, 1);
+        U00[0] = U(0, 0);  U01[0] = U(0, 1); U10[0] = U(1, 0); U11[0] = U(1, 1);
+        s00[0] = sigma(0); s01[0] = 0;       s10[0] = 0;       s11[0] = sigma(1);
+        V00[0] = V(0, 0);  V01[0] = V(0, 1); V10[0] = V(1, 0); V11[0] = V(1, 1);
+    }
+
+    void svd_3(REAL F00, REAL F01, REAL F02, REAL F10, REAL F11, REAL F12, REAL F20, REAL F21, REAL F22,
+               REAL* U00, REAL* U01, REAL* U02, REAL* U10, REAL* U11, REAL* U12, REAL* U20, REAL* U21, REAL* U22,
+               REAL* s00, REAL* s01, REAL* s02, REAL* s10, REAL* s11, REAL* s12, REAL* s20, REAL* s21, REAL* s22,
+               REAL* V00, REAL* V01, REAL* V02, REAL* V10, REAL* V11, REAL* V12, REAL* V20, REAL* V21, REAL* V22)
+    {
+        JGSL::MATRIX<REAL, 3> F;
+        F(0, 0) = F00; F(0, 1) = F01; F(0, 2) = F02; F(1, 0) = F10; F(1, 1) = F11; F(1, 2) = F12; F(2, 0) = F20; F(2, 1) = F21; F(2, 2) = F22;
+        JGSL::MATRIX<REAL, 3> U(1), V(1);
+        JGSL::VECTOR<REAL, 3> sigma;
+        JGSL::Singular_Value_Decomposition(F, U, sigma, V);
+        U00[0] = U(0, 0);  U01[0] = U(0, 1); U02[0] = U(0, 2); U10[0] = U(1, 0); U11[0] = U(1, 1);  U12[0] = U(1, 2); U20[0] = U(2, 0); U21[0] = U(2, 1); U22[0] = U(2, 2);
+        s00[0] = sigma(0); s01[0] = 0;       s02[0] = 0;       s10[0] = 0;       s11[0] = sigma(1); s12[0] = 0;       s20[0] = 0;       s21[0] = 0;       s22[0] = sigma(2);
+        V00[0] = V(0, 0);  V01[0] = V(0, 1); V02[0] = V(0, 2); V10[0] = V(1, 0); V11[0] = V(1, 1);  V12[0] = V(1, 2); V20[0] = V(2, 0); V21[0] = V(2, 1); V22[0] = V(2, 2);
     }
 
     void project_pd_2(REAL in_0, REAL in_1, REAL in_2, REAL in_3, REAL* out_0, REAL* out_1, REAL* out_2, REAL* out_3)
