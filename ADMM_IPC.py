@@ -6,14 +6,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.sparse
 import scipy.sparse.linalg
-from fixed_corotated import *
 from math_tools import *
 from ipc import *
 from reader import *
 
+mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, dim = read(int(sys.argv[1]))
+if dim == 2:
+    from fixed_corotated import *
+else:
+    from fixed_corotated_3d import *
+
 ##############################################################################
 
-mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, dim = read(int(sys.argv[1]))
 if dim == 2:
     edges = set()
     for [i, j, k] in mesh_elements:
