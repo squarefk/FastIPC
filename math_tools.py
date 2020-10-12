@@ -9,18 +9,18 @@ def make_semi_positive_definite(mat, n):
 
 
 @ti.func
-def fill_vec(v, idx: ti.template(), t: ti.template(), real: ti.template()):
+def fill_vec(v, idx: ti.template(), real: ti.template()):
     vec = ti.Matrix.zero(real, 12)
-    for i in ti.static(range(t)):
+    for i in ti.static(range(idx.n)):
         vec[idx[i]] = v[i]
     return vec
 
 
 @ti.func
-def fill_mat(m, idx: ti.template(), t: ti.template(), real: ti.template()):
+def fill_mat(m, idx: ti.template(), real: ti.template()):
     mat = ti.Matrix.zero(real, 12, 12)
-    for i in ti.static(range(t)):
-        for j in ti.static(range(t)):
+    for i in ti.static(range(idx.n)):
+        for j in ti.static(range(idx.n)):
             mat[idx[i], idx[j]] = m[i, j]
     return mat
 

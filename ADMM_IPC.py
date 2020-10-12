@@ -867,7 +867,7 @@ def PPM_gradient(pos, r):
     b = barrier_E(dist2, dHat2, kappa)
     bg = barrier_g(dist2, dHat2, kappa)
     idx = ti.static([0, 1, 2, 6, 7, 8])
-    lg = fill_vec(bg * dist2g, idx, 6, real)
+    lg = fill_vec(bg * dist2g, idx, real)
     M = M_E(a0, a1, b0, b1, eps_x)
     Mg = M_g(a0, a1, b0, b1, eps_x)
     g = lg * M + b * Mg
@@ -885,8 +885,8 @@ def PPM_hessian(pos, r):
     b = barrier_E(dist2, dHat2, kappa)
     bg = barrier_g(dist2, dHat2, kappa)
     idx = ti.static([0, 1, 2, 6, 7, 8])
-    lg = fill_vec(bg * dist2g, idx, 6, real)
-    lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(a0, b0), idx, 6, real)
+    lg = fill_vec(bg * dist2g, idx, real)
+    lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(a0, b0), idx, real)
     M = M_E(a0, a1, b0, b1, eps_x)
     Mg = M_g(a0, a1, b0, b1, eps_x)
     H = lH * M + lg.outer_product(Mg) + Mg.outer_product(lg) + b * M_H(a0, a1, b0, b1, eps_x)
@@ -917,7 +917,7 @@ def PEM_gradient(pos, r):
     b = barrier_E(dist2, dHat2, kappa)
     bg = barrier_g(dist2, dHat2, kappa)
     idx = ti.static([0, 1, 2, 6, 7, 8, 9, 10, 11])
-    lg = fill_vec(bg * dist2g, idx, 9, real)
+    lg = fill_vec(bg * dist2g, idx, real)
     M = M_E(a0, a1, b0, b1, eps_x)
     Mg = M_g(a0, a1, b0, b1, eps_x)
     g = lg * M + b * Mg
@@ -935,8 +935,8 @@ def PEM_hessian(pos, r):
     b = barrier_E(dist2, dHat2, kappa)
     bg = barrier_g(dist2, dHat2, kappa)
     idx = ti.static([0, 1, 2, 6, 7, 8, 9, 10, 11])
-    lg = fill_vec(bg * dist2g, idx, 9, real)
-    lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(a0, b0, b1), idx, 9, real)
+    lg = fill_vec(bg * dist2g, idx, real)
+    lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(a0, b0, b1), idx, real)
     M = M_E(a0, a1, b0, b1, eps_x)
     Mg = M_g(a0, a1, b0, b1, eps_x)
     H = lH * M + lg.outer_product(Mg) + Mg.outer_product(lg) + b * M_H(a0, a1, b0, b1, eps_x)
@@ -1439,7 +1439,6 @@ def find_constraints():
                             else:
                                 n = ti.atomic_add(n_EE[None], 1)
                                 EE[n, 0], EE[n, 1], EE[n, 2], EE[n, 3] = a0, a1, b0, b1
-    print("Find constraints: ", n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None])
 
 
 def remove_duplicated_constraints():
@@ -1449,6 +1448,7 @@ def remove_duplicated_constraints():
     tmp = np.unique(PE.to_numpy()[:n_PE[None], :], axis=0)
     n_PE[None] = len(tmp)
     PE.from_numpy(np.resize(tmp, (MAX_C, 3)))
+    print("Find constraints: ", n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None])
 
 
 @ti.kernel
