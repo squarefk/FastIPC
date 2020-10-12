@@ -268,7 +268,6 @@ def initial_guess():
     for i in range(n_particles):
         xn[i] = x[i]
         xTilde[i] = x[i] + dt * v[i]
-        # xTilde(1)[i] -= dt * dt * 9.8
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
 
 
@@ -282,6 +281,12 @@ def move_nodes():
                 xTT[i, 0] = dirichlet_value[i * dim]
                 x(0)[i] = dirichlet_value[i * dim]
         xTilde.from_numpy(xTT)
+    if int(sys.argv[1]) != 10:
+        @ti.kernel
+        def add_gravity():
+            for i in range(n_particles):
+                xTilde(1)[i] -= dt * dt * 9.8
+        add_gravity()
 
 @ti.func
 def X2F(p: ti.template(), q: ti.template(), i: ti.template(), j: ti.template(), A):
