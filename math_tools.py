@@ -57,6 +57,11 @@ so = ctypes.CDLL("./wrapper/a.so")
 
 
 @ti.func
+def cofactor_2(F):
+    return ti.Matrix([[F[0, 0], -F[1, 0]], [-F[0, 1], F[1, 1]]])
+
+
+@ti.func
 def singular_value_decomposition(F):
     F00, F01, F10, F11 = F(0, 0), F(0, 1), F(1, 0), F(1, 1)
     U00, U01, U10, U11 = 0.0, 0.0, 0.0, 0.0

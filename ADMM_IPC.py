@@ -264,7 +264,7 @@ def initial_guess():
     for i in range(n_particles):
         xn[i] = x[i]
         xTilde[i] = x[i] + dt * v[i]
-        xTilde(1)[i] -= dt * dt * 9.8
+        # xTilde(1)[i] -= dt * dt * 9.8
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
 
 
@@ -940,7 +940,7 @@ def local_elasticity():
     for e in range(n_elements):
         currentT = compute_T(e)
         Dx_plus_u_mtr = currentT @ restT[e].inverse() + u[e]
-        U, sig, V = ti.svd(Dx_plus_u_mtr, real)
+        U, sig, V = singular_value_decomposition(Dx_plus_u_mtr)
         sigma = ti.Matrix.zero(real, dim)
         for i in ti.static(range(dim)):
             sigma[i] = sig[i, i]

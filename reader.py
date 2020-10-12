@@ -139,8 +139,8 @@ def read(testcase):
         # two spheres
         mesh = meshio.read("input/Sharkey.obj")
         mesh_particles = np.vstack((mesh.points, [
-            [1.1, 0.65, 0], [2.1, 0.65, 0], [0.8, 0.75, 0], [2.4, 0.75, 0],
-            [0.8, 0.45, 0], [2.4, 0.45, 0], [1.1, 0.55, 0], [2.1, 0.55, 0]
+            [1.1, 0.80, 0], [2.1, 0.80, 0], [0.5, 0.95, 0], [2.7, 0.95, 0],
+            [0.5, 0.25, 0], [2.7, 0.25, 0], [1.1, 0.40, 0], [2.1, 0.40, 0]
         ]))
         offset = len(mesh.points)
         mesh_elements = np.vstack((mesh.cells[0].data, [
@@ -157,7 +157,7 @@ def read(testcase):
             if mesh_particles[i, 0] > 0.745 and i < offset:
                 dirichlet_fixed[i * 2] = True
                 dirichlet_fixed[i * 2 + 1] = True
-        for i in [offset + 2, offset + 3, offset + 4, offset + 5]:
+        for i in range(offset, offset + 8):
             dirichlet_fixed[i * 2] = True
             dirichlet_fixed[i * 2 + 1] = True
         dirichlet_value = mesh_particles[:, :2].reshape((len(mesh_particles) * 2))
