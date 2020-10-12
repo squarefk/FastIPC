@@ -76,10 +76,7 @@ def singular_value_decomposition(F):
 @ti.func
 def project_pd(F, dim: ti.template()):
     if ti.static(dim == 2):
-        in_0, in_1, in_2, in_3 = F[0, 0], F[0, 1], F[1, 0], F[1, 1]
-        out_0, out_1, out_2, out_3 = 0.0, 0.0, 0.0, 0.0
-        ti.external_func_call(func=so.project_pd_2, args=(in_0, in_1, in_2, in_3), outputs=(out_0, out_1, out_2, out_3))
-        return ti.Matrix([[out_0, out_1], [out_2, out_3]])
+        return make_pd(F)
     if ti.static(dim == 3):
         in_0, in_1, in_2, in_3, in_4, in_5, in_6, in_7, in_8 = F[0, 0], F[0, 1], F[0, 2], F[1, 0], F[1, 1], F[1, 2], F[2, 0], F[2, 1], F[2, 2]
         out_0, out_1, out_2, out_3, out_4, out_5, out_6, out_7, out_8 = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -109,11 +106,26 @@ def solve(F, rhs, dim: ti.template()):
         out_0, out_1 = 0.0, 0.0
         ti.external_func_call(func=so.solve_2, args=(in_0, in_1, in_2, in_3, in_4, in_5), outputs=(out_0, out_1))
         return ti.Vector([out_0, out_1])
+    if ti.static(dim == 3):
+        in_0, in_1, in_2, in_3, in_4, in_5, in_6, in_7, in_8, in_9, in_10, in_11 = F[0, 0], F[0, 1], F[0, 2], F[1, 0], F[1, 1], F[1, 2], F[2, 0], F[2, 1], F[2, 2], rhs[0], rhs[1], rhs[2]
+        out_0, out_1, out_2 = 0.0, 0.0, 0.0
+        ti.external_func_call(func=so.solve_3, args=(in_0, in_1, in_2, in_3, in_4, in_5, in_6, in_7, in_8, in_9, in_10, in_11), outputs=(out_0, out_1, out_2))
+        return ti.Vector([out_0, out_1, out_2])
     if ti.static(dim == 4):
         in_0, in_1, in_2, in_3, in_4, in_5, in_6, in_7, in_8, in_9, in_10, in_11, in_12, in_13, in_14, in_15, in_16, in_17, in_18, in_19 = F[0, 0], F[0, 1], F[0, 2], F[0, 3], F[1, 0], F[1, 1], F[1, 2], F[1, 3], F[2, 0], F[2, 1], F[2, 2], F[2, 3], F[3, 0], F[3, 1], F[3, 2], F[3, 3], rhs[0], rhs[1], rhs[2], rhs[3]
         out_0, out_1, out_2, out_3 = 0.0, 0.0, 0.0, 0.0
         ti.external_func_call(func=so.solve_4, args=(in_0, in_1, in_2, in_3, in_4, in_5, in_6, in_7, in_8, in_9, in_10, in_11, in_12, in_13, in_14, in_15, in_16, in_17, in_18, in_19), outputs=(out_0, out_1, out_2, out_3))
         return ti.Vector([out_0, out_1, out_2, out_3])
+    if ti.static(dim == 6):
+        in_0, in_1, in_2, in_3, in_4, in_5, in_6, in_7, in_8, in_9, in_10, in_11, in_12, in_13, in_14, in_15, in_16, in_17, in_18, in_19, in_20, in_21, in_22, in_23, in_24, in_25, in_26, in_27, in_28, in_29, in_30, in_31, in_32, in_33, in_34, in_35, in_36, in_37, in_38, in_39, in_40, in_41 = F[0, 0], F[0, 1], F[0, 2], F[0, 3], F[0, 4], F[0, 5], F[1, 0], F[1, 1], F[1, 2], F[1, 3], F[1, 4], F[1, 5], F[2, 0], F[2, 1], F[2, 2], F[2, 3], F[2, 4], F[2, 5], F[3, 0], F[3, 1], F[3, 2], F[3, 3], F[3, 4], F[3, 5], F[4, 0], F[4, 1], F[4, 2], F[4, 3], F[4, 4], F[4, 5], F[5, 0], F[5, 1], F[5, 2], F[5, 3], F[5, 4], F[5, 5], rhs[0], rhs[1], rhs[2], rhs[3], rhs[4], rhs[5]
+        out_0, out_1, out_2, out_3, out_4, out_5 = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        ti.external_func_call(func=so.solve_6, args=(in_0, in_1, in_2, in_3, in_4, in_5, in_6, in_7, in_8, in_9, in_10, in_11, in_12, in_13, in_14, in_15, in_16, in_17, in_18, in_19, in_20, in_21, in_22, in_23, in_24, in_25, in_26, in_27, in_28, in_29, in_30, in_31, in_32, in_33, in_34, in_35, in_36, in_37, in_38, in_39, in_40, in_41), outputs=(out_0, out_1, out_2, out_3, out_4, out_5))
+        return ti.Vector([out_0, out_1, out_2, out_3, out_4, out_5])
+    if ti.static(dim == 9):
+        in_0, in_1, in_2, in_3, in_4, in_5, in_6, in_7, in_8, in_9, in_10, in_11, in_12, in_13, in_14, in_15, in_16, in_17, in_18, in_19, in_20, in_21, in_22, in_23, in_24, in_25, in_26, in_27, in_28, in_29, in_30, in_31, in_32, in_33, in_34, in_35, in_36, in_37, in_38, in_39, in_40, in_41, in_42, in_43, in_44, in_45, in_46, in_47, in_48, in_49, in_50, in_51, in_52, in_53, in_54, in_55, in_56, in_57, in_58, in_59, in_60, in_61, in_62, in_63, in_64, in_65, in_66, in_67, in_68, in_69, in_70, in_71, in_72, in_73, in_74, in_75, in_76, in_77, in_78, in_79, in_80, in_81, in_82, in_83, in_84, in_85, in_86, in_87, in_88, in_89 = F[0, 0], F[0, 1], F[0, 2], F[0, 3], F[0, 4], F[0, 5], F[0, 6], F[0, 7], F[0, 8], F[1, 0], F[1, 1], F[1, 2], F[1, 3], F[1, 4], F[1, 5], F[1, 6], F[1, 7], F[1, 8], F[2, 0], F[2, 1], F[2, 2], F[2, 3], F[2, 4], F[2, 5], F[2, 6], F[2, 7], F[2, 8], F[3, 0], F[3, 1], F[3, 2], F[3, 3], F[3, 4], F[3, 5], F[3, 6], F[3, 7], F[3, 8], F[4, 0], F[4, 1], F[4, 2], F[4, 3], F[4, 4], F[4, 5], F[4, 6], F[4, 7], F[4, 8], F[5, 0], F[5, 1], F[5, 2], F[5, 3], F[5, 4], F[5, 5], F[5, 6], F[5, 7], F[5, 8], F[6, 0], F[6, 1], F[6, 2], F[6, 3], F[6, 4], F[6, 5], F[6, 6], F[6, 7], F[6, 8], F[7, 0], F[7, 1], F[7, 2], F[7, 3], F[7, 4], F[7, 5], F[7, 6], F[7, 7], F[7, 8], F[8, 0], F[8, 1], F[8, 2], F[8, 3], F[8, 4], F[8, 5], F[8, 6], F[8, 7], F[8, 8], rhs[0], rhs[1], rhs[2], rhs[3], rhs[4], rhs[5], rhs[6], rhs[7], rhs[8]
+        out_0, out_1, out_2, out_3, out_4, out_5, out_6, out_7, out_8 = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        ti.external_func_call(func=so.solve_9, args=(in_0, in_1, in_2, in_3, in_4, in_5, in_6, in_7, in_8, in_9, in_10, in_11, in_12, in_13, in_14, in_15, in_16, in_17, in_18, in_19, in_20, in_21, in_22, in_23, in_24, in_25, in_26, in_27, in_28, in_29, in_30, in_31, in_32, in_33, in_34, in_35, in_36, in_37, in_38, in_39, in_40, in_41, in_42, in_43, in_44, in_45, in_46, in_47, in_48, in_49, in_50, in_51, in_52, in_53, in_54, in_55, in_56, in_57, in_58, in_59, in_60, in_61, in_62, in_63, in_64, in_65, in_66, in_67, in_68, in_69, in_70, in_71, in_72, in_73, in_74, in_75, in_76, in_77, in_78, in_79, in_80, in_81, in_82, in_83, in_84, in_85, in_86, in_87, in_88, in_89), outputs=(out_0, out_1, out_2, out_3, out_4, out_5, out_6, out_7, out_8))
+        return ti.Vector([out_0, out_1, out_2, out_3, out_4, out_5, out_6, out_7, out_8])
 
 @ti.func
 def get_smallest_positive_real_cubic_root(x1, x2, x3, x4, p1, p2, p3, p4, eta):

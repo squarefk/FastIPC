@@ -973,7 +973,7 @@ def local_PP():
         for iter in range(20):
             g = PP_gradient(pos) + (pos - posTilde) * Q * Q
             P = PP_hessian(pos) + ti.Matrix.identity(real, dim) * Q * Q
-            p = -solve(P, g, 2)
+            p = -solve(P, g, dim)
             alpha = 1.0
             pos0 = pos
             E0 = PP_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
@@ -999,7 +999,7 @@ def local_PE():
         for iter in range(20):
             g = PE_gradient(pos) + (pos - posTilde) * Q * Q
             P = PE_hessian(pos) + ti.Matrix.identity(real, dim * 2) * Q * Q
-            p = -solve(P, g, 4)
+            p = -solve(P, g, dim * 2)
             alpha = 1.0
             pos0 = pos
             E0 = PE_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
@@ -1025,7 +1025,7 @@ def local_PT():
         for iter in range(20):
             g = PT_gradient(pos) + (pos - posTilde) * Q * Q
             P = PT_hessian(pos) + ti.Matrix.identity(real, dim * 3) * Q * Q
-            p = -inverse_9(P) @ g
+            p = -solve(P, g, 9)
             alpha = 1.0
             pos0 = pos
             E0 = PT_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
@@ -1049,7 +1049,7 @@ def local_EE():
         for iter in range(20):
             g = EE_gradient(pos) + (pos - posTilde) * Q * Q
             P = EE_hessian(pos) + ti.Matrix.identity(real, dim * 3) * Q * Q
-            p = -inverse_9(P) @ g
+            p = -solve(P, g, 9)
             alpha = 1.0
             pos0 = pos
             E0 = EE_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
@@ -1073,7 +1073,7 @@ def local_EEM():
         for iter in range(20):
             g = EEM_gradient(pos, c) + (pos - posTilde) * Q * Q
             P = EEM_hessian(pos, c) + ti.Matrix.identity(real, dim * 3) * Q * Q
-            p = -inverse_9(P) @ g
+            p = -solve(P, g, 9)
             alpha = 1.0
             pos0 = pos
             E0 = EEM_energy(pos0, c) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
@@ -1097,7 +1097,7 @@ def local_PPM():
         for iter in range(20):
             g = PPM_gradient(pos, c) + (pos - posTilde) * Q * Q
             P = PPM_hessian(pos, c) + ti.Matrix.identity(real, dim * 3) * Q * Q
-            p = -inverse_9(P) @ g
+            p = -solve(P, g, 9)
             alpha = 1.0
             pos0 = pos
             E0 = PPM_energy(pos0, c) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
@@ -1121,7 +1121,7 @@ def local_PEM():
         for iter in range(20):
             g = PEM_gradient(pos, c) + (pos - posTilde) * Q * Q
             P = PEM_hessian(pos, c) + ti.Matrix.identity(real, dim * 3) * Q * Q
-            p = -inverse_9(P) @ g
+            p = -solve(P, g, 9)
             alpha = 1.0
             pos0 = pos
             E0 = PEM_energy(pos0, c) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
