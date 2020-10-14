@@ -1010,6 +1010,10 @@ def local_PE():
             P = PE_hessian(pos) + ti.Matrix.identity(real, dim * 2) * Q * Q
             p = -solve(P, g)
             alpha = 1.0
+            if ti.static(dim == 2):
+                alpha = moving_point_edge_ccd(ti.Vector([0.0, 0.0]), ti.Vector([pos[0], pos[1]]), ti.Vector([pos[2], pos[3]]), ti.Vector([0.0, 0.0]), ti.Vector([p[0], p[1]]), ti.Vector([p[2], p[3]]), 0.1)
+            else:
+                print("not implemented")
             pos0 = pos
             E0 = PE_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
