@@ -1136,64 +1136,69 @@ def reuse_admm_variables(alpha: real):
 
         p, e0, e1 = x[PE[r, 0]], x[PE[r, 1]], x[PE[r, 2]]
         Q_PE[r, 0] = min(max(ti.sqrt(PE_hessian(ti.Matrix.zero(real, dim), p - e0, p - e1, dHat2, kappa).norm()), min_Q), max_Q)
-    # ############################################### PT ###############################################
-    # for r in range(n_PT[None]):
-    #     p = xTilde[PT[r, 0]] * alpha + x[PT[r, 0]] * (1 - alpha)
-    #     t0 = xTilde[PT[r, 1]] * alpha + x[PT[r, 1]] * (1 - alpha)
-    #     t1 = xTilde[PT[r, 2]] * alpha + x[PT[r, 2]] * (1 - alpha)
-    #     t2 = xTilde[PT[r, 3]] * alpha + x[PT[r, 3]] * (1 - alpha)
-    #     y_PT[r, 0], y_PT[r, 1], y_PT[r, 2] = p - t0, p - t1, p - t2
-    #     r_PT[r, 0], r_PT[r, 1], r_PT[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-    # 
-    #     p, t0, t1, t2 = x[PT[r, 0]], x[PT[r, 1]], x[PT[r, 2]], x[PT[r, 3]]
-    #     Q_PT[r, 0] = min(max(ti.sqrt(PT_hessian(ti.Matrix.zero(real, dim), p - t0, p - t1, p - t2, dHat2, kappa).norm()), min_Q), max_Q)
-    # ############################################### EE ###############################################
-    # for r in range(n_EE[None]):
-    #     a0 = xTilde[EE[r, 0]] * alpha + x[EE[r, 0]] * (1 - alpha)
-    #     a1 = xTilde[EE[r, 1]] * alpha + x[EE[r, 1]] * (1 - alpha)
-    #     b0 = xTilde[EE[r, 2]] * alpha + x[EE[r, 2]] * (1 - alpha)
-    #     b1 = xTilde[EE[r, 3]] * alpha + x[EE[r, 3]] * (1 - alpha)
-    #     y_EE[r, 0], y_EE[r, 1], y_EE[r, 2] = a0 - a1, a0 - b0, a0 - b1
-    #     r_EE[r, 0], r_EE[r, 1], r_EE[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-    # 
-    #     a0, a1, b0, b1 = x[EE[r, 0]], x[EE[r, 1]], x[EE[r, 2]], x[EE[r, 3]]
-    #     Q_EE[r, 0] = min(max(ti.sqrt(EE_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, dHat2, kappa).norm()), min_Q), max_Q)
-    # ############################################### EEM ###############################################
-    # for r in range(n_EEM[None]):
-    #     a0 = xTilde[EEM[r, 0]] * alpha + x[EEM[r, 0]] * (1 - alpha)
-    #     a1 = xTilde[EEM[r, 1]] * alpha + x[EEM[r, 1]] * (1 - alpha)
-    #     b0 = xTilde[EEM[r, 2]] * alpha + x[EEM[r, 2]] * (1 - alpha)
-    #     b1 = xTilde[EEM[r, 3]] * alpha + x[EEM[r, 3]] * (1 - alpha)
-    #     y_EEM[r, 0], y_EEM[r, 1], y_EEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
-    #     r_EEM[r, 0], r_EEM[r, 1], r_EEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-    # 
-    #     a0, a1, b0, b1 = x[EEM[r, 0]], x[EEM[r, 1]], x[EEM[r, 2]], x[EEM[r, 3]]
-    #     _a0, _a1, _b0, _b1 = x0[EEM[r, 0]], x0[EEM[r, 1]], x0[EEM[r, 2]], x0[EEM[r, 3]]
-    #     Q_EEM[r, 0] = min(max(ti.sqrt(EEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _b0, _a1, _b1, dHat2, kappa).norm()), min_Q), max_Q)
-    # ############################################### PPM ###############################################
-    # for r in range(n_PPM[None]):
-    #     a0 = xTilde[PPM[r, 0]] * alpha + x[PPM[r, 0]] * (1 - alpha)
-    #     a1 = xTilde[PPM[r, 1]] * alpha + x[PPM[r, 1]] * (1 - alpha)
-    #     b0 = xTilde[PPM[r, 2]] * alpha + x[PPM[r, 2]] * (1 - alpha)
-    #     b1 = xTilde[PPM[r, 3]] * alpha + x[PPM[r, 3]] * (1 - alpha)
-    #     y_PPM[r, 0], y_PPM[r, 1], y_PPM[r, 2] = a0 - a1, a0 - b0, a0 - b1
-    #     r_PPM[r, 0], r_PPM[r, 1], r_PPM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-    # 
-    #     a0, a1, b0, b1 = x[PPM[r, 0]], x[PPM[r, 1]], x[PPM[r, 2]], x[PPM[r, 3]]
-    #     _a0, _a1, _b0, _b1 = x0[PPM[r, 0]], x0[PPM[r, 1]], x0[PPM[r, 2]], x0[PPM[r, 3]]
-    #     Q_PPM[r, 0] = min(max(ti.sqrt(PPM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _b0, _a1, _b1, dHat2, kappa).norm()), min_Q), max_Q)
-    # ############################################### PEM ###############################################
-    # for r in range(n_PEM[None]):
-    #     a0 = xTilde[PEM[r, 0]] * alpha + x[PEM[r, 0]] * (1 - alpha)
-    #     a1 = xTilde[PEM[r, 1]] * alpha + x[PEM[r, 1]] * (1 - alpha)
-    #     b0 = xTilde[PEM[r, 2]] * alpha + x[PEM[r, 2]] * (1 - alpha)
-    #     b1 = xTilde[PEM[r, 3]] * alpha + x[PEM[r, 3]] * (1 - alpha)
-    #     y_PEM[r, 0], y_PEM[r, 1], y_PEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
-    #     r_PEM[r, 0], r_PEM[r, 1], r_PEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-    # 
-    #     a0, a1, b0, b1 = x[PEM[r, 0]], x[PEM[r, 1]], x[PEM[r, 2]], x[PEM[r, 3]]
-    #     _a0, _a1, _b0, _b1 = x0[PEM[r, 0]], x0[PEM[r, 1]], x0[PEM[r, 2]], x0[PEM[r, 3]]
-    #     Q_PEM[r, 0] = min(max(ti.sqrt(PEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _b0, _a1, _b1, dHat2, kappa).norm()), min_Q), max_Q)
+    ############################################### PT ###############################################
+    if ti.static(dim == 3):
+        for r in range(n_PT[None]):
+            p = xTilde[PT[r, 0]] * alpha + x[PT[r, 0]] * (1 - alpha)
+            t0 = xTilde[PT[r, 1]] * alpha + x[PT[r, 1]] * (1 - alpha)
+            t1 = xTilde[PT[r, 2]] * alpha + x[PT[r, 2]] * (1 - alpha)
+            t2 = xTilde[PT[r, 3]] * alpha + x[PT[r, 3]] * (1 - alpha)
+            y_PT[r, 0], y_PT[r, 1], y_PT[r, 2] = p - t0, p - t1, p - t2
+            r_PT[r, 0], r_PT[r, 1], r_PT[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+
+            p, t0, t1, t2 = x[PT[r, 0]], x[PT[r, 1]], x[PT[r, 2]], x[PT[r, 3]]
+            Q_PT[r, 0] = min(max(ti.sqrt(PT_hessian(ti.Matrix.zero(real, dim), p - t0, p - t1, p - t2, dHat2, kappa).norm()), min_Q), max_Q)
+    ############################################### EE ###############################################
+    if ti.static(dim == 3):
+        for r in range(n_EE[None]):
+            a0 = xTilde[EE[r, 0]] * alpha + x[EE[r, 0]] * (1 - alpha)
+            a1 = xTilde[EE[r, 1]] * alpha + x[EE[r, 1]] * (1 - alpha)
+            b0 = xTilde[EE[r, 2]] * alpha + x[EE[r, 2]] * (1 - alpha)
+            b1 = xTilde[EE[r, 3]] * alpha + x[EE[r, 3]] * (1 - alpha)
+            y_EE[r, 0], y_EE[r, 1], y_EE[r, 2] = a0 - a1, a0 - b0, a0 - b1
+            r_EE[r, 0], r_EE[r, 1], r_EE[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+
+            a0, a1, b0, b1 = x[EE[r, 0]], x[EE[r, 1]], x[EE[r, 2]], x[EE[r, 3]]
+            Q_EE[r, 0] = min(max(ti.sqrt(EE_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, dHat2, kappa).norm()), min_Q), max_Q)
+    ############################################### EEM ###############################################
+    if ti.static(dim == 3):
+        for r in range(n_EEM[None]):
+            a0 = xTilde[EEM[r, 0]] * alpha + x[EEM[r, 0]] * (1 - alpha)
+            a1 = xTilde[EEM[r, 1]] * alpha + x[EEM[r, 1]] * (1 - alpha)
+            b0 = xTilde[EEM[r, 2]] * alpha + x[EEM[r, 2]] * (1 - alpha)
+            b1 = xTilde[EEM[r, 3]] * alpha + x[EEM[r, 3]] * (1 - alpha)
+            y_EEM[r, 0], y_EEM[r, 1], y_EEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
+            r_EEM[r, 0], r_EEM[r, 1], r_EEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+
+            a0, a1, b0, b1 = x[EEM[r, 0]], x[EEM[r, 1]], x[EEM[r, 2]], x[EEM[r, 3]]
+            _a0, _a1, _b0, _b1 = x0[EEM[r, 0]], x0[EEM[r, 1]], x0[EEM[r, 2]], x0[EEM[r, 3]]
+            Q_EEM[r, 0] = min(max(ti.sqrt(EEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _b0, _a1, _b1, dHat2, kappa).norm()), min_Q), max_Q)
+    ############################################### PPM ###############################################
+    if ti.static(dim == 3):
+        for r in range(n_PPM[None]):
+            a0 = xTilde[PPM[r, 0]] * alpha + x[PPM[r, 0]] * (1 - alpha)
+            a1 = xTilde[PPM[r, 1]] * alpha + x[PPM[r, 1]] * (1 - alpha)
+            b0 = xTilde[PPM[r, 2]] * alpha + x[PPM[r, 2]] * (1 - alpha)
+            b1 = xTilde[PPM[r, 3]] * alpha + x[PPM[r, 3]] * (1 - alpha)
+            y_PPM[r, 0], y_PPM[r, 1], y_PPM[r, 2] = a0 - a1, a0 - b0, a0 - b1
+            r_PPM[r, 0], r_PPM[r, 1], r_PPM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+
+            a0, a1, b0, b1 = x[PPM[r, 0]], x[PPM[r, 1]], x[PPM[r, 2]], x[PPM[r, 3]]
+            _a0, _a1, _b0, _b1 = x0[PPM[r, 0]], x0[PPM[r, 1]], x0[PPM[r, 2]], x0[PPM[r, 3]]
+            Q_PPM[r, 0] = min(max(ti.sqrt(PPM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _b0, _a1, _b1, dHat2, kappa).norm()), min_Q), max_Q)
+    ############################################### PEM ###############################################
+    if ti.static(dim == 3):
+        for r in range(n_PEM[None]):
+            a0 = xTilde[PEM[r, 0]] * alpha + x[PEM[r, 0]] * (1 - alpha)
+            a1 = xTilde[PEM[r, 1]] * alpha + x[PEM[r, 1]] * (1 - alpha)
+            b0 = xTilde[PEM[r, 2]] * alpha + x[PEM[r, 2]] * (1 - alpha)
+            b1 = xTilde[PEM[r, 3]] * alpha + x[PEM[r, 3]] * (1 - alpha)
+            y_PEM[r, 0], y_PEM[r, 1], y_PEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
+            r_PEM[r, 0], r_PEM[r, 1], r_PEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+
+            a0, a1, b0, b1 = x[PEM[r, 0]], x[PEM[r, 1]], x[PEM[r, 2]], x[PEM[r, 3]]
+            _a0, _a1, _b0, _b1 = x0[PEM[r, 0]], x0[PEM[r, 1]], x0[PEM[r, 2]], x0[PEM[r, 3]]
+            Q_PEM[r, 0] = min(max(ti.sqrt(PEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _b0, _a1, _b1, dHat2, kappa).norm()), min_Q), max_Q)
     # reuse y, r
     for c in range(old_n_PP[None]):
         for d in range(n_PP[None]):
