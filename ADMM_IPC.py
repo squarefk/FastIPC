@@ -203,19 +203,51 @@ def compute_adaptive_kappa() -> real:
 
 
 @ti.kernel
-def compute_warm_start_filter() -> real:
+def compute_filter(xx: ti.template(), x: ti.template()) -> real:
     alpha = 1.0
-    for i in range(n_boundary_points):
-        p = boundary_points[i]
-        for j in range(n_boundary_edges):
-            e0 = boundary_edges[j, 0]
-            e1 = boundary_edges[j, 1]
-            if p != e0 and p != e1:
-                dp = xTilde[p] - x[p]
-                de0 = xTilde[e0] - x[e0]
-                de1 = xTilde[e1] - x[e1]
-                if moving_point_edge_ccd_broadphase(x[p], x[e0], x[e1], dp, de0, de1, dHat):
-                    alpha = ti.min(alpha, moving_point_edge_ccd(x[p], x[e0], x[e1], dp, de0, de1, 0.2))
+    if ti.static(dim == 2):
+        for i in range(n_boundary_points):
+            p = boundary_points[i]
+            for j in range(n_boundary_edges):
+                e0 = boundary_edges[j, 0]
+                e1 = boundary_edges[j, 1]
+                if p != e0 and p != e1:
+                    dp = x[p] - xx[p]
+                    de0 = x[e0] - xx[e0]
+                    de1 = x[e1] - xx[e1]
+                    if moving_point_edge_ccd_broadphase(xx[p], xx[e0], xx[e1], dp, de0, de1, dHat):
+                        alpha = ti.min(alpha, moving_point_edge_ccd(xx[p], xx[e0], xx[e1], dp, de0, de1, 0.2))
+    else:
+        for i in range(n_boundary_points):
+            p = boundary_points[i]
+            for j in range(n_boundary_triangles):
+                t0 = boundary_triangles[j, 0]
+                t1 = boundary_triangles[j, 1]
+                t2 = boundary_triangles[j, 2]
+                if p != t0 and p != t1 and p != t2:
+                    dp = x[p] - xx[p]
+                    dt0 = x[t0] - xx[t0]
+                    dt1 = x[t1] - xx[t1]
+                    dt2 = x[t2] - xx[t2]
+                    if moving_point_triangle_ccd_broadphase(xx[p], xx[t0], xx[t1], xx[t2], dp, dt0, dt1, dt2, dHat):
+                        dist2 = PT_dist2(xx[p], xx[t0], xx[t1], xx[t2], PT_type(xx[p], xx[t0], xx[t1], xx[t2]))
+                        alpha = ti.min(alpha, point_triangle_ccd(xx[p], xx[t0], xx[t1], xx[t2], dp, dt0, dt1, dt2, 0.2, dist2))
+        for i in range(n_boundary_edges):
+            a0 = boundary_edges[i, 0]
+            a1 = boundary_edges[i, 1]
+            for j in range(n_boundary_edges):
+                b0 = boundary_edges[j, 0]
+                b1 = boundary_edges[j, 1]
+                if a0 != b0 and a0 != b1 and a1 != b0 and a1 != b1:
+                    da0 = x[a0] - xx[a0]
+                    da1 = x[a1] - xx[a1]
+                    db0 = x[b0] - xx[b0]
+                    db1 = x[b1] - xx[b1]
+                    if moving_edge_edge_ccd_broadphase(xx[a0], xx[a1], xx[b0], xx[b1], da0, da1, db0, db1, dHat):
+                        dist2 = EE_dist2(xx[a0], xx[a1], xx[b0], xx[b1], EE_type(xx[a0], xx[a1], xx[b0], xx[b1]))
+                        alpha = ti.min(alpha, edge_edge_ccd(xx[a0], xx[a1], xx[b0], xx[b1], da0, da1, db0, db1, 0.2, dist2))
+
+
     return alpha
 
 
@@ -512,29 +544,15 @@ def global_PEM():
 def before_solve():
     for i in range(n_particles):
         xx[i] = x[i]
-
-
 @ti.kernel
 def after_solve() -> real:
     for i in range(n_particles):
         for d in ti.static(range(dim)):
             x(d)[i] = data_x[i * dim + d]
-    alpha = 1.0
-    for i in range(n_boundary_points):
-        p = boundary_points[i]
-        for j in range(n_boundary_edges):
-            e0 = boundary_edges[j, 0]
-            e1 = boundary_edges[j, 1]
-            if p != e0 and p != e1:
-                dp = x[p] - xx[p]
-                de0 = x[e0] - xx[e0]
-                de1 = x[e1] - xx[e1]
-                if moving_point_edge_ccd_broadphase(xx[p], xx[e0], xx[e1], dp, de0, de1, dHat):
-                    alpha = ti.min(alpha, moving_point_edge_ccd(xx[p], xx[e0], xx[e1], dp, de0, de1, 0.1))
+@ti.kernel
+def op0(alpha: real):
     for i in range(n_particles):
         x[i] = x[i] * alpha + xx[i] * (1 - alpha)
-    return alpha
-
 @ti.kernel
 def op1():
     for i in range(n_particles):
@@ -568,12 +586,14 @@ def solve_system():
     tmp = A.dot(data_x.to_numpy()) - rhs
     residual = np.linalg.norm(tmp, ord=np.inf)
     print("Global solve residual = ", residual)
-    alpha = after_solve()
-    while alpha >= 1e-6 and check_collision() == 1:
-        op1()
-        alpha /= 2.0
-    if alpha < 1e-6:
-        op2()
+    after_solve()
+    alpha = compute_filter(xx, x)
+    op0(alpha)
+    # while alpha >= 1e-6 and check_collision() == 1:
+    #     op1()
+    #     alpha /= 2.0
+    # if alpha < 1e-6:
+    #     op2()
     return alpha
 
 
@@ -1308,7 +1328,7 @@ if __name__ == "__main__":
         prs = []
         drs = []
         for step in range(20):
-            alpha = compute_warm_start_filter() if step == 0 else 0.0
+            alpha = compute_filter(x, xTilde) if step == 0 else 0.0
             grid.deactivate_all()
             backup_admm_variables()
             find_constraints()
