@@ -192,6 +192,7 @@ else:
 block = grid.pointer(indices, grid_block_size // leaf_block_size)
 block.dynamic(ti.indices(dim), 1024 * 1024, chunk_size=leaf_block_size**dim * 8).place(pid, offset=offset + (0, ))
 
+
 @ti.kernel
 def compute_adaptive_kappa() -> real:
     H_b = barrier_H(1.0e-16, dHat2, 1)
@@ -229,7 +230,6 @@ def compute_T(i):
         ac = x[vertices[i, 2]] - x[vertices[i, 0]]
         ad = x[vertices[i, 3]] - x[vertices[i, 0]]
         return ti.Matrix([[ab[0], ac[0], ad[0]], [ab[1], ac[1], ad[1]], [ab[2], ac[2], ad[2]]])
-
 
 
 @ti.kernel
@@ -278,6 +278,7 @@ def move_nodes():
                 xTilde(1)[i] -= dt * dt * 9.8
         add_gravity()
 
+
 @ti.func
 def X2F(p: ti.template(), q: ti.template(), i: ti.template(), j: ti.template(), A):
     val = 0.0
@@ -319,7 +320,6 @@ def point_inside_triangle(P, A, B, C):
     v = (dot00 * dot12 - dot01 * dot02) * invDenom
     # Check if point is in triangle
     return u >= 0 and v >= 0 and u + v < 1
-
 @ti.kernel
 def check_collision() -> ti.i32:
     result = 0
@@ -333,6 +333,7 @@ def check_collision() -> ti.i32:
                 if point_inside_triangle(x[P], x[A], x[B], x[C]):
                     result = 1
     return result
+
 
 @ti.kernel
 def global_step():
@@ -538,12 +539,10 @@ def after_solve() -> real:
 def op1():
     for i in range(n_particles):
         x[i] = (x[i] + xx[i]) / 2.0
-
 @ti.kernel
 def op2():
     for i in range(n_particles):
         x[i] = xx[i]
-
 def solve_system():
     before_solve()
     if cnt[None] >= MAX_LINEAR or n_PP[None] >= MAX_C or n_PE[None] >= MAX_C or n_PT[None] >= MAX_C or n_EE[None] >= MAX_C or n_EEM[None] >= MAX_C or n_PPM[None] >= MAX_C or n_PEM[None] >= MAX_C:
@@ -578,362 +577,6 @@ def solve_system():
     return alpha
 
 
-@ti.func
-def local_energy(sigma, sigma_Dx_plus_u, vol0, W):
-    if ti.static(dim == 2):
-        sig = ti.Matrix([[sigma[0], 0.0], [0.0, sigma[1]]])
-        return elasticity_energy(sig, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u).norm_sqr() * W * W / 2
-    else:
-        sig = ti.Matrix([[sigma[0], 0.0, 0.0], [0.0, sigma[1], 0.0], [0.0, 0.0, sigma[2]]])
-        return elasticity_energy(sig, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u).norm_sqr() * W * W / 2
-@ti.func
-def local_gradient(sigma, sigma_Dx_plus_u, vol0, W):
-    if ti.static(dim == 2):
-        sig = ti.Matrix([[sigma[0], 0.0], [0.0, sigma[1]]])
-        return elasticity_gradient(sig, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u) * W * W
-    else:
-        sig = ti.Matrix([[sigma[0], 0.0, 0.0], [0.0, sigma[1], 0.0], [0.0, 0.0, sigma[2]]])
-        return elasticity_gradient(sig, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u) * W * W
-@ti.func
-def local_hessian(sigma, sigma_Dx_plus_u, vol0, W):
-    if ti.static(dim == 2):
-        sig = ti.Matrix([[sigma[0], 0.0], [0.0, sigma[1]]])
-        return project_pd(elasticity_hessian(sig, la, mu)) * dt * dt * vol0 + ti.Matrix.identity(real, 2) * W * W
-    else:
-        sig = ti.Matrix([[sigma[0], 0.0, 0.0], [0.0, sigma[1], 0.0], [0.0, 0.0, sigma[2]]])
-        return project_pd(elasticity_hessian(sig, la, mu)) * dt * dt * vol0 + ti.Matrix.identity(real, 3) * W * W
-
-
-@ti.func
-def PP_energy(pos):
-    if ti.static(dim == 2):
-        p0 = ti.Vector([0.0, 0.0])
-        p1 = ti.Vector([pos[0], pos[1]])
-        dist2 = PP_2D_E(p0, p1)
-        if dist2 < 1e-12:
-            print("ERROR PP", dist2)
-        return barrier_E(dist2, dHat2, kappa)
-    else:
-        p0 = ti.Vector([0.0, 0.0, 0.0])
-        p1 = ti.Vector([pos[0], pos[1], pos[2]])
-        dist2 = PP_3D_E(p0, p1)
-        if dist2 < 1e-12:
-            print("ERROR PP", dist2)
-        return barrier_E(dist2, dHat2, kappa)
-@ti.func
-def PP_gradient(pos):
-    if ti.static(dim == 2):
-        p0 = ti.Vector([0.0, 0.0])
-        p1 = ti.Vector([pos[0], pos[1]])
-        dist2 = PP_2D_E(p0, p1)
-        dist2g = PP_2D_g(p0, p1)
-        bg = barrier_g(dist2, dHat2, kappa)
-        g = bg * dist2g
-        return ti.Vector([g[2], g[3]])
-    else:
-        p0 = ti.Vector([0.0, 0.0, 0.0])
-        p1 = ti.Vector([pos[0], pos[1], pos[2]])
-        dist2 = PP_3D_E(p0, p1)
-        dist2g = PP_3D_g(p0, p1)
-        bg = barrier_g(dist2, dHat2, kappa)
-        g = bg * dist2g
-        return ti.Vector([g[3], g[4], g[5]])
-@ti.func
-def PP_hessian(pos):
-    if ti.static(dim == 2):
-        p0 = ti.Vector([0.0, 0.0])
-        p1 = ti.Vector([pos[0], pos[1]])
-        dist2 = PP_2D_E(p0, p1)
-        dist2g = PP_2D_g(p0, p1)
-        bg = barrier_g(dist2, dHat2, kappa)
-        H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_2D_H(p0, p1)
-        eH = ti.Matrix([[H[2, 2], H[2, 3]], [H[3, 2], H[3, 3]]])
-        return project_pd(eH)
-    else:
-        p0 = ti.Vector([0.0, 0.0, 0.0])
-        p1 = ti.Vector([pos[0], pos[1], pos[2]])
-        dist2 = PP_3D_E(p0, p1)
-        dist2g = PP_3D_g(p0, p1)
-        bg = barrier_g(dist2, dHat2, kappa)
-        H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(p0, p1)
-        eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5]], [H[4, 3], H[4, 4], H[4, 5]], [H[5, 3], H[5, 4], H[5, 5]]])
-        return project_pd(eH)
-@ti.func
-def PE_energy(pos):
-    if ti.static(dim == 2):
-        p = ti.Vector([0.0, 0.0])
-        e0 = ti.Vector([pos[0], pos[1]])
-        e1 = ti.Vector([pos[2], pos[3]])
-        dist2 = PE_2D_E(p, e0, e1)
-        if dist2 < 1e-12:
-            print("ERROR PE", dist2)
-        return barrier_E(dist2, dHat2, kappa)
-    else:
-        p = ti.Vector([0.0, 0.0, 0.0])
-        e0 = ti.Vector([pos[0], pos[1], pos[2]])
-        e1 = ti.Vector([pos[3], pos[4], pos[5]])
-        dist2 = PE_3D_E(p, e0, e1)
-        if dist2 < 1e-12:
-            print("ERROR PE", dist2)
-        return barrier_E(dist2, dHat2, kappa)
-@ti.func
-def PE_gradient(pos):
-    if ti.static(dim == 2):
-        p = ti.Vector([0.0, 0.0])
-        e0 = ti.Vector([pos[0], pos[1]])
-        e1 = ti.Vector([pos[2], pos[3]])
-        dist2 = PE_2D_E(p, e0, e1)
-        dist2g = PE_2D_g(p, e0, e1)
-        bg = barrier_g(dist2, dHat2, kappa)
-        g = bg * dist2g
-        return ti.Vector([g[2], g[3], g[4], g[5]])
-    else:
-        p = ti.Vector([0.0, 0.0, 0.0])
-        e0 = ti.Vector([pos[0], pos[1], pos[2]])
-        e1 = ti.Vector([pos[3], pos[4], pos[5]])
-        dist2 = PE_3D_E(p, e0, e1)
-        dist2g = PE_3D_g(p, e0, e1)
-        bg = barrier_g(dist2, dHat2, kappa)
-        g = bg * dist2g
-        return ti.Vector([g[3], g[4], g[5], g[6], g[7], g[8]])
-@ti.func
-def PE_hessian(pos):
-    if ti.static(dim == 2):
-        p = ti.Vector([0.0, 0.0])
-        e0 = ti.Vector([pos[0], pos[1]])
-        e1 = ti.Vector([pos[2], pos[3]])
-        dist2 = PE_2D_E(p, e0, e1)
-        dist2g = PE_2D_g(p, e0, e1)
-        bg = barrier_g(dist2, dHat2, kappa)
-        H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_2D_H(p, e0, e1)
-        eH = ti.Matrix([[H[2, 2], H[2, 3], H[2, 4], H[2, 5]], [H[3, 2], H[3, 3], H[3, 4], H[3, 5]], [H[4, 2], H[4, 3], H[4, 4], H[4, 5]], [H[5, 2], H[5, 3], H[5, 4], H[5, 5]]])
-        return project_pd(eH)
-    else:
-        p = ti.Vector([0.0, 0.0, 0.0])
-        e0 = ti.Vector([pos[0], pos[1], pos[2]])
-        e1 = ti.Vector([pos[3], pos[4], pos[5]])
-        dist2 = PE_3D_E(p, e0, e1)
-        dist2g = PE_3D_g(p, e0, e1)
-        bg = barrier_g(dist2, dHat2, kappa)
-        H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(p, e0, e1)
-        eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5], H[3, 6], H[3, 7], H[3, 8]], [H[4, 3], H[4, 4], H[4, 5], H[4, 6], H[4, 7], H[4, 8]], [H[5, 3], H[5, 4], H[5, 5], H[5, 6], H[5, 7], H[5, 8]], [H[6, 3], H[6, 4], H[6, 5], H[6, 6], H[6, 7], H[6, 8]], [H[7, 3], H[7, 4], H[7, 5], H[7, 6], H[7, 7], H[7, 8]], [H[8, 3], H[8, 4], H[8, 5], H[8, 6], H[8, 7], H[8, 8]]])
-        return project_pd(eH)
-@ti.func
-def PT_energy(pos):
-    p = ti.Vector([0.0, 0.0, 0.0])
-    t0 = ti.Vector([pos[0], pos[1], pos[2]])
-    t1 = ti.Vector([pos[3], pos[4], pos[5]])
-    t2 = ti.Vector([pos[6], pos[7], pos[8]])
-    dist2 = PT_3D_E(p, t0, t1, t2)
-    if dist2 < 1e-9:
-        print("ERROR PT", dist2)
-    return barrier_E(dist2, dHat2, kappa)
-@ti.func
-def PT_gradient(pos):
-    p = ti.Vector([0.0, 0.0, 0.0])
-    t0 = ti.Vector([pos[0], pos[1], pos[2]])
-    t1 = ti.Vector([pos[3], pos[4], pos[5]])
-    t2 = ti.Vector([pos[6], pos[7], pos[8]])
-    dist2 = PT_3D_E(p, t0, t1, t2)
-    dist2g = PT_3D_g(p, t0, t1, t2)
-    bg = barrier_g(dist2, dHat2, kappa)
-    g = bg * dist2g
-    return ti.Vector([g[3], g[4], g[5], g[6], g[7], g[8], g[9], g[10], g[11]])
-@ti.func
-def PT_hessian(pos):
-    p = ti.Vector([0.0, 0.0, 0.0])
-    t0 = ti.Vector([pos[0], pos[1], pos[2]])
-    t1 = ti.Vector([pos[3], pos[4], pos[5]])
-    t2 = ti.Vector([pos[6], pos[7], pos[8]])
-    dist2 = PT_3D_E(p, t0, t1, t2)
-    dist2g = PT_3D_g(p, t0, t1, t2)
-    bg = barrier_g(dist2, dHat2, kappa)
-    H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PT_3D_H(p, t0, t1, t2)
-    eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5], H[3, 6], H[3, 7], H[3, 8], H[3, 9], H[3, 10], H[3, 11]], [H[4, 3], H[4, 4], H[4, 5], H[4, 6], H[4, 7], H[4, 8], H[4, 9], H[4, 10], H[4, 11]], [H[5, 3], H[5, 4], H[5, 5], H[5, 6], H[5, 7], H[5, 8], H[5, 9], H[5, 10], H[5, 11]], [H[6, 3], H[6, 4], H[6, 5], H[6, 6], H[6, 7], H[6, 8], H[6, 9], H[6, 10], H[6, 11]], [H[7, 3], H[7, 4], H[7, 5], H[7, 6], H[7, 7], H[7, 8], H[7, 9], H[7, 10], H[7, 11]], [H[8, 3], H[8, 4], H[8, 5], H[8, 6], H[8, 7], H[8, 8], H[8, 9], H[8, 10], H[8, 11]], [H[9, 3], H[9, 4], H[9, 5], H[9, 6], H[9, 7], H[9, 8], H[9, 9], H[9, 10], H[9, 11]], [H[10, 3], H[10, 4], H[10, 5], H[10, 6], H[10, 7], H[10, 8], H[10, 9], H[10, 10], H[10, 11]], [H[11, 3], H[11, 4], H[11, 5], H[11, 6], H[11, 7], H[11, 8], H[11, 9], H[11, 10], H[11, 11]]])
-    return project_pd(eH)
-@ti.func
-def EE_energy(pos):
-    a0 = ti.Vector([0.0, 0.0, 0.0])
-    a1 = ti.Vector([pos[0], pos[1], pos[2]])
-    b0 = ti.Vector([pos[3], pos[4], pos[5]])
-    b1 = ti.Vector([pos[6], pos[7], pos[8]])
-    dist2 = EE_3D_E(a0, a1, b0, b1)
-    if dist2 < 1e-9:
-        print("ERROR EE", dist2)
-    return barrier_E(dist2, dHat2, kappa)
-@ti.func
-def EE_gradient(pos):
-    a0 = ti.Vector([0.0, 0.0, 0.0])
-    a1 = ti.Vector([pos[0], pos[1], pos[2]])
-    b0 = ti.Vector([pos[3], pos[4], pos[5]])
-    b1 = ti.Vector([pos[6], pos[7], pos[8]])
-    dist2 = EE_3D_E(a0, a1, b0, b1)
-    dist2g = EE_3D_g(a0, a1, b0, b1)
-    bg = barrier_g(dist2, dHat2, kappa)
-    g = bg * dist2g
-    return ti.Vector([g[3], g[4], g[5], g[6], g[7], g[8], g[9], g[10], g[11]])
-@ti.func
-def EE_hessian(pos):
-    a0 = ti.Vector([0.0, 0.0, 0.0])
-    a1 = ti.Vector([pos[0], pos[1], pos[2]])
-    b0 = ti.Vector([pos[3], pos[4], pos[5]])
-    b1 = ti.Vector([pos[6], pos[7], pos[8]])
-    dist2 = EE_3D_E(a0, a1, b0, b1)
-    dist2g = EE_3D_g(a0, a1, b0, b1)
-    bg = barrier_g(dist2, dHat2, kappa)
-    H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * EE_3D_H(a0, a1, b0, b1)
-    eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5], H[3, 6], H[3, 7], H[3, 8], H[3, 9], H[3, 10], H[3, 11]], [H[4, 3], H[4, 4], H[4, 5], H[4, 6], H[4, 7], H[4, 8], H[4, 9], H[4, 10], H[4, 11]], [H[5, 3], H[5, 4], H[5, 5], H[5, 6], H[5, 7], H[5, 8], H[5, 9], H[5, 10], H[5, 11]], [H[6, 3], H[6, 4], H[6, 5], H[6, 6], H[6, 7], H[6, 8], H[6, 9], H[6, 10], H[6, 11]], [H[7, 3], H[7, 4], H[7, 5], H[7, 6], H[7, 7], H[7, 8], H[7, 9], H[7, 10], H[7, 11]], [H[8, 3], H[8, 4], H[8, 5], H[8, 6], H[8, 7], H[8, 8], H[8, 9], H[8, 10], H[8, 11]], [H[9, 3], H[9, 4], H[9, 5], H[9, 6], H[9, 7], H[9, 8], H[9, 9], H[9, 10], H[9, 11]], [H[10, 3], H[10, 4], H[10, 5], H[10, 6], H[10, 7], H[10, 8], H[10, 9], H[10, 10], H[10, 11]], [H[11, 3], H[11, 4], H[11, 5], H[11, 6], H[11, 7], H[11, 8], H[11, 9], H[11, 10], H[11, 11]]])
-    return project_pd(eH)
-@ti.func
-def EEM_energy(pos, r):
-    a0 = ti.Vector([0.0, 0.0, 0.0])
-    a1 = ti.Vector([pos[0], pos[1], pos[2]])
-    b0 = ti.Vector([pos[3], pos[4], pos[5]])
-    b1 = ti.Vector([pos[6], pos[7], pos[8]])
-    _a0, _a1, _b0, _b1 = x0[EEM[r, 0]], x0[EEM[r, 1]], x0[EEM[r, 2]], x0[EEM[r, 3]]
-    eps_x = M_threshold(_a0, _a1, _b0, _b1)
-    dist2 = EE_3D_E(a0, a1, b0, b1)
-    if dist2 < 1e-9:
-        print("ERROR EEM", dist2)
-    return barrier_E(dist2, dHat2, kappa) * M_E(a0, a1, b0, b1, eps_x)
-@ti.func
-def EEM_gradient(pos, r):
-    a0 = ti.Vector([0.0, 0.0, 0.0])
-    a1 = ti.Vector([pos[0], pos[1], pos[2]])
-    b0 = ti.Vector([pos[3], pos[4], pos[5]])
-    b1 = ti.Vector([pos[6], pos[7], pos[8]])
-    _a0, _a1, _b0, _b1 = x0[EEM[r, 0]], x0[EEM[r, 1]], x0[EEM[r, 2]], x0[EEM[r, 3]]
-    eps_x = M_threshold(_a0, _a1, _b0, _b1)
-    dist2 = EE_3D_E(a0, a1, b0, b1)
-    dist2g = EE_3D_g(a0, a1, b0, b1)
-    b = barrier_E(dist2, dHat2, kappa)
-    bg = barrier_g(dist2, dHat2, kappa)
-    lg = bg * dist2g
-    M = M_E(a0, a1, b0, b1, eps_x)
-    Mg = M_g(a0, a1, b0, b1, eps_x)
-    g = lg * M + b * Mg
-    return ti.Vector([g[3], g[4], g[5], g[6], g[7], g[8], g[9], g[10], g[11]])
-@ti.func
-def EEM_hessian(pos, r):
-    a0 = ti.Vector([0.0, 0.0, 0.0])
-    a1 = ti.Vector([pos[0], pos[1], pos[2]])
-    b0 = ti.Vector([pos[3], pos[4], pos[5]])
-    b1 = ti.Vector([pos[6], pos[7], pos[8]])
-    _a0, _a1, _b0, _b1 = x0[EEM[r, 0]], x0[EEM[r, 1]], x0[EEM[r, 2]], x0[EEM[r, 3]]
-    eps_x = M_threshold(_a0, _a1, _b0, _b1)
-    dist2 = EE_3D_E(a0, a1, b0, b1)
-    dist2g = EE_3D_g(a0, a1, b0, b1)
-    b = barrier_E(dist2, dHat2, kappa)
-    bg = barrier_g(dist2, dHat2, kappa)
-    lg = bg * dist2g
-    lH = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * EE_3D_H(a0, a1, b0, b1)
-    M = M_E(a0, a1, b0, b1, eps_x)
-    Mg = M_g(a0, a1, b0, b1, eps_x)
-    H = lH * M + lg.outer_product(Mg) + Mg.outer_product(lg) + b * M_H(a0, a1, b0, b1, eps_x)
-    eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5], H[3, 6], H[3, 7], H[3, 8], H[3, 9], H[3, 10], H[3, 11]], [H[4, 3], H[4, 4], H[4, 5], H[4, 6], H[4, 7], H[4, 8], H[4, 9], H[4, 10], H[4, 11]], [H[5, 3], H[5, 4], H[5, 5], H[5, 6], H[5, 7], H[5, 8], H[5, 9], H[5, 10], H[5, 11]], [H[6, 3], H[6, 4], H[6, 5], H[6, 6], H[6, 7], H[6, 8], H[6, 9], H[6, 10], H[6, 11]], [H[7, 3], H[7, 4], H[7, 5], H[7, 6], H[7, 7], H[7, 8], H[7, 9], H[7, 10], H[7, 11]], [H[8, 3], H[8, 4], H[8, 5], H[8, 6], H[8, 7], H[8, 8], H[8, 9], H[8, 10], H[8, 11]], [H[9, 3], H[9, 4], H[9, 5], H[9, 6], H[9, 7], H[9, 8], H[9, 9], H[9, 10], H[9, 11]], [H[10, 3], H[10, 4], H[10, 5], H[10, 6], H[10, 7], H[10, 8], H[10, 9], H[10, 10], H[10, 11]], [H[11, 3], H[11, 4], H[11, 5], H[11, 6], H[11, 7], H[11, 8], H[11, 9], H[11, 10], H[11, 11]]])
-    return project_pd(eH)
-@ti.func
-def PPM_energy(pos, r):
-    a0 = ti.Vector([0.0, 0.0, 0.0])
-    a1 = ti.Vector([pos[0], pos[1], pos[2]])
-    b0 = ti.Vector([pos[3], pos[4], pos[5]])
-    b1 = ti.Vector([pos[6], pos[7], pos[8]])
-    _a0, _a1, _b0, _b1 = x0[PPM[r, 0]], x0[PPM[r, 1]], x0[PPM[r, 2]], x0[PPM[r, 3]]
-    eps_x = M_threshold(_a0, _a1, _b0, _b1)
-    dist2 = PP_3D_E(a0, b0)
-    if dist2 < 1e-9:
-        print("ERROR EPPM", dist2)
-    return barrier_E(dist2, dHat2, kappa) * M_E(a0, a1, b0, b1, eps_x)
-@ti.func
-def PPM_gradient(pos, r):
-    a0 = ti.Vector([0.0, 0.0, 0.0])
-    a1 = ti.Vector([pos[0], pos[1], pos[2]])
-    b0 = ti.Vector([pos[3], pos[4], pos[5]])
-    b1 = ti.Vector([pos[6], pos[7], pos[8]])
-    _a0, _a1, _b0, _b1 = x0[PPM[r, 0]], x0[PPM[r, 1]], x0[PPM[r, 2]], x0[PPM[r, 3]]
-    eps_x = M_threshold(_a0, _a1, _b0, _b1)
-    dist2 = PP_3D_E(a0, b0)
-    dist2g = PP_3D_g(a0, b0)
-    b = barrier_E(dist2, dHat2, kappa)
-    bg = barrier_g(dist2, dHat2, kappa)
-    idx = ti.static([0, 1, 2, 6, 7, 8])
-    lg = fill_vec(bg * dist2g, idx, real)
-    M = M_E(a0, a1, b0, b1, eps_x)
-    Mg = M_g(a0, a1, b0, b1, eps_x)
-    g = lg * M + b * Mg
-    return ti.Vector([g[3], g[4], g[5], g[6], g[7], g[8], g[9], g[10], g[11]])
-@ti.func
-def PPM_hessian(pos, r):
-    a0 = ti.Vector([0.0, 0.0, 0.0])
-    a1 = ti.Vector([pos[0], pos[1], pos[2]])
-    b0 = ti.Vector([pos[3], pos[4], pos[5]])
-    b1 = ti.Vector([pos[6], pos[7], pos[8]])
-    _a0, _a1, _b0, _b1 = x0[PPM[r, 0]], x0[PPM[r, 1]], x0[PPM[r, 2]], x0[PPM[r, 3]]
-    eps_x = M_threshold(_a0, _a1, _b0, _b1)
-    dist2 = PP_3D_E(a0, b0)
-    dist2g = PP_3D_g(a0, b0)
-    b = barrier_E(dist2, dHat2, kappa)
-    bg = barrier_g(dist2, dHat2, kappa)
-    idx = ti.static([0, 1, 2, 6, 7, 8])
-    lg = fill_vec(bg * dist2g, idx, real)
-    lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(a0, b0), idx, real)
-    M = M_E(a0, a1, b0, b1, eps_x)
-    Mg = M_g(a0, a1, b0, b1, eps_x)
-    H = lH * M + lg.outer_product(Mg) + Mg.outer_product(lg) + b * M_H(a0, a1, b0, b1, eps_x)
-    eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5], H[3, 6], H[3, 7], H[3, 8], H[3, 9], H[3, 10], H[3, 11]], [H[4, 3], H[4, 4], H[4, 5], H[4, 6], H[4, 7], H[4, 8], H[4, 9], H[4, 10], H[4, 11]], [H[5, 3], H[5, 4], H[5, 5], H[5, 6], H[5, 7], H[5, 8], H[5, 9], H[5, 10], H[5, 11]], [H[6, 3], H[6, 4], H[6, 5], H[6, 6], H[6, 7], H[6, 8], H[6, 9], H[6, 10], H[6, 11]], [H[7, 3], H[7, 4], H[7, 5], H[7, 6], H[7, 7], H[7, 8], H[7, 9], H[7, 10], H[7, 11]], [H[8, 3], H[8, 4], H[8, 5], H[8, 6], H[8, 7], H[8, 8], H[8, 9], H[8, 10], H[8, 11]], [H[9, 3], H[9, 4], H[9, 5], H[9, 6], H[9, 7], H[9, 8], H[9, 9], H[9, 10], H[9, 11]], [H[10, 3], H[10, 4], H[10, 5], H[10, 6], H[10, 7], H[10, 8], H[10, 9], H[10, 10], H[10, 11]], [H[11, 3], H[11, 4], H[11, 5], H[11, 6], H[11, 7], H[11, 8], H[11, 9], H[11, 10], H[11, 11]]])
-    return project_pd(eH)
-@ti.func
-def PEM_energy(pos, r):
-    a0 = ti.Vector([0.0, 0.0, 0.0])
-    a1 = ti.Vector([pos[0], pos[1], pos[2]])
-    b0 = ti.Vector([pos[3], pos[4], pos[5]])
-    b1 = ti.Vector([pos[6], pos[7], pos[8]])
-    _a0, _a1, _b0, _b1 = x0[PEM[r, 0]], x0[PEM[r, 1]], x0[PEM[r, 2]], x0[PEM[r, 3]]
-    eps_x = M_threshold(_a0, _a1, _b0, _b1)
-    dist2 = PE_3D_E(a0, b0, b1)
-    if dist2 < 1e-9:
-        print("ERROR PEM", dist2)
-    return barrier_E(dist2, dHat2, kappa) * M_E(a0, a1, b0, b1, eps_x)
-@ti.func
-def PEM_gradient(pos, r):
-    a0 = ti.Vector([0.0, 0.0, 0.0])
-    a1 = ti.Vector([pos[0], pos[1], pos[2]])
-    b0 = ti.Vector([pos[3], pos[4], pos[5]])
-    b1 = ti.Vector([pos[6], pos[7], pos[8]])
-    _a0, _a1, _b0, _b1 = x0[PEM[r, 0]], x0[PEM[r, 1]], x0[PEM[r, 2]], x0[PEM[r, 3]]
-    eps_x = M_threshold(_a0, _a1, _b0, _b1)
-    dist2 = PE_3D_E(a0, b0, b1)
-    dist2g = PE_3D_g(a0, b0, b1)
-    b = barrier_E(dist2, dHat2, kappa)
-    bg = barrier_g(dist2, dHat2, kappa)
-    idx = ti.static([0, 1, 2, 6, 7, 8, 9, 10, 11])
-    lg = fill_vec(bg * dist2g, idx, real)
-    M = M_E(a0, a1, b0, b1, eps_x)
-    Mg = M_g(a0, a1, b0, b1, eps_x)
-    g = lg * M + b * Mg
-    return ti.Vector([g[3], g[4], g[5], g[6], g[7], g[8], g[9], g[10], g[11]])
-@ti.func
-def PEM_hessian(pos, r):
-    a0 = ti.Vector([0.0, 0.0, 0.0])
-    a1 = ti.Vector([pos[0], pos[1], pos[2]])
-    b0 = ti.Vector([pos[3], pos[4], pos[5]])
-    b1 = ti.Vector([pos[6], pos[7], pos[8]])
-    _a0, _a1, _b0, _b1 = x0[PEM[r, 0]], x0[PEM[r, 1]], x0[PEM[r, 2]], x0[PEM[r, 3]]
-    eps_x = M_threshold(_a0, _a1, _b0, _b1)
-    dist2 = PE_3D_E(a0, b0, b1)
-    dist2g = PE_3D_g(a0, b0, b1)
-    b = barrier_E(dist2, dHat2, kappa)
-    bg = barrier_g(dist2, dHat2, kappa)
-    idx = ti.static([0, 1, 2, 6, 7, 8, 9, 10, 11])
-    lg = fill_vec(bg * dist2g, idx, real)
-    lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(a0, b0, b1), idx, real)
-    M = M_E(a0, a1, b0, b1, eps_x)
-    Mg = M_g(a0, a1, b0, b1, eps_x)
-    H = lH * M + lg.outer_product(Mg) + Mg.outer_product(lg) + b * M_H(a0, a1, b0, b1, eps_x)
-    eH = ti.Matrix([[H[3, 3], H[3, 4], H[3, 5], H[3, 6], H[3, 7], H[3, 8], H[3, 9], H[3, 10], H[3, 11]], [H[4, 3], H[4, 4], H[4, 5], H[4, 6], H[4, 7], H[4, 8], H[4, 9], H[4, 10], H[4, 11]], [H[5, 3], H[5, 4], H[5, 5], H[5, 6], H[5, 7], H[5, 8], H[5, 9], H[5, 10], H[5, 11]], [H[6, 3], H[6, 4], H[6, 5], H[6, 6], H[6, 7], H[6, 8], H[6, 9], H[6, 10], H[6, 11]], [H[7, 3], H[7, 4], H[7, 5], H[7, 6], H[7, 7], H[7, 8], H[7, 9], H[7, 10], H[7, 11]], [H[8, 3], H[8, 4], H[8, 5], H[8, 6], H[8, 7], H[8, 8], H[8, 9], H[8, 10], H[8, 11]], [H[9, 3], H[9, 4], H[9, 5], H[9, 6], H[9, 7], H[9, 8], H[9, 9], H[9, 10], H[9, 11]], [H[10, 3], H[10, 4], H[10, 5], H[10, 6], H[10, 7], H[10, 8], H[10, 9], H[10, 10], H[10, 11]], [H[11, 3], H[11, 4], H[11, 5], H[11, 6], H[11, 7], H[11, 8], H[11, 9], H[11, 10], H[11, 11]]])
-    return project_pd(eH)
-
-
 @ti.kernel
 def local_elasticity():
     for e in range(n_elements):
@@ -945,19 +588,20 @@ def local_elasticity():
             sigma[i] = sig[i, i]
         sigma_Dx_plus_u = sigma
         vol0 = restT[e].determinant() / dim / (dim - 1)
+        We = W[e]
         for iter in range(20):
-            g = local_gradient(sigma, sigma_Dx_plus_u, vol0, W[e])
-            P = local_hessian(sigma, sigma_Dx_plus_u, vol0, W[e])
+            g = elasticity_gradient(sigma, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u) * We * We
+            P = project_pd(elasticity_hessian(sigma, la, mu)) * dt * dt * vol0 + ti.Matrix.identity(real, dim) * We * We
             p = -P.inverse() @ g
             alpha = 1.0
             sigma0 = sigma
-            E0 = local_energy(sigma0, sigma_Dx_plus_u, vol0, W[e])
+            E0 = elasticity_energy(sigma, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u).norm_sqr() * We * We / 2
             sigma = sigma0 + p
-            E = local_energy(sigma, sigma_Dx_plus_u, vol0, W[e])
+            E = elasticity_energy(sigma, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u).norm_sqr() * We * We / 2
             while E > E0:
                 alpha *= 0.5
                 sigma = sigma0 + alpha * p
-                E = local_energy(sigma, sigma_Dx_plus_u, vol0, W[e])
+                E = elasticity_energy(sigma, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u).norm_sqr() * We * We / 2
         for i in ti.static(range(dim)):
             sig[i, i] = sigma[i]
         z[e] = U @ sig @ V.transpose()
@@ -965,39 +609,44 @@ def local_elasticity():
 def local_PP():
     for c in range(n_PP[None]):
         pos = ti.Matrix.zero(real, dim)
+        posTilde = ti.Matrix.zero(real, dim)
         for i in ti.static(range(dim)):
             pos[i] = x(i)[PP[c, 0]] - x(i)[PP[c, 1]]
-        posTilde = pos
+            posTilde[i] = x(i)[PP[c, 0]] - x(i)[PP[c, 1]] + r_PP(i)[c, 0]
         Q = Q_PP[c, 0]
+        op = ti.Matrix.zero(real, dim)
         for iter in range(20):
-            g = PP_gradient(pos) + (pos - posTilde) * Q * Q
-            P = PP_hessian(pos) + ti.Matrix.identity(real, dim) * Q * Q
+            g = PP_gradient(op, extract_vec(pos, list(range(0, dim))), dHat2, kappa) + (pos - posTilde) * Q * Q
+            P = PP_hessian(op, extract_vec(pos, list(range(0, dim))), dHat2, kappa) + ti.Matrix.identity(real, dim) * Q * Q
             p = -solve(P, g)
             alpha = 1.0
             pos0 = pos
-            E0 = PP_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
+            E0 = PP_energy(op, extract_vec(pos, list(range(0, dim))), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
-            E = PP_energy(pos) + (pos - posTilde).norm_sqr() * Q * Q / 2
+            E = PP_energy(op, extract_vec(pos, list(range(0, dim))), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             if iter == 19 and p.norm_sqr() > 1e-5:
                 print("FATAL ERROR: local PP Newton not converge", P, p.norm_sqr())
             while E > E0:
                 alpha *= 0.5
                 pos = pos0 + alpha * p
-                E = PP_energy(pos) + (pos - posTilde).norm_sqr() * Q * Q / 2
+                E = PP_energy(op, extract_vec(pos, list(range(0, dim))), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
         for i in ti.static(range(dim)):
             y_PP(i)[c, 0] = pos[i]
 @ti.kernel
 def local_PE():
     for c in range(n_PE[None]):
         pos = ti.Matrix.zero(real, dim * 2)
+        posTilde = ti.Matrix.zero(real, dim * 2)
         for i in ti.static(range(dim)):
             pos[i] = x(i)[PE[c, 0]] - x(i)[PE[c, 1]]
             pos[i + dim] = x(i)[PE[c, 0]] - x(i)[PE[c, 2]]
-        posTilde = pos
+            posTilde[i] = x(i)[PE[c, 0]] - x(i)[PE[c, 1]] + r_PE(i)[c, 0]
+            posTilde[i + dim] = x(i)[PE[c, 0]] - x(i)[PE[c, 2]] + r_PE(i)[c, 1]
         Q = Q_PE[c, 0]
+        op = ti.Matrix.zero(real, dim)
         for iter in range(20):
-            g = PE_gradient(pos) + (pos - posTilde) * Q * Q
-            P = PE_hessian(pos) + ti.Matrix.identity(real, dim * 2) * Q * Q
+            g = PE_gradient(op, extract_vec(pos, list(range(0, dim))), extract_vec(pos, list(range(dim, dim * 2))), dHat2, kappa) + (pos - posTilde) * Q * Q
+            P = PE_hessian(op, extract_vec(pos, list(range(0, dim))), extract_vec(pos, list(range(dim, dim * 2))), dHat2, kappa) + ti.Matrix.identity(real, dim * 2) * Q * Q
             p = -solve(P, g)
             alpha = 1.0
             if ti.static(dim == 2):
@@ -1005,15 +654,15 @@ def local_PE():
             else:
                 print("not implemented")
             pos0 = pos
-            E0 = PE_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
+            E0 = PE_energy(op, extract_vec(pos, list(range(0, dim))), extract_vec(pos, list(range(dim, dim * 2))), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
-            E = PE_energy(pos) + (pos - posTilde).norm_sqr() * Q * Q / 2
+            E = PE_energy(op, extract_vec(pos, list(range(0, dim))), extract_vec(pos, list(range(dim, dim * 2))), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             if iter == 19 and p.norm_sqr() > 1e-5:
                 print("FATAL ERROR: local PE Newton not converge", P, p.norm_sqr())
             while E > E0:
                 alpha *= 0.5
                 pos = pos0 + alpha * p
-                E = PE_energy(pos) + (pos - posTilde).norm_sqr() * Q * Q / 2
+                E = PE_energy(op, extract_vec(pos, list(range(0, dim))), extract_vec(pos, list(range(dim, dim * 2))), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
         for i in ti.static(range(dim)):
             y_PE(i)[c, 0] = pos[i]
             y_PE(i)[c, 1] = pos[i + dim]
@@ -1023,23 +672,26 @@ def local_PT():
         pos = ti.Vector([x(0)[PT[c, 0]] - x(0)[PT[c, 1]], x(1)[PT[c, 0]] - x(1)[PT[c, 1]], x(2)[PT[c, 0]] - x(2)[PT[c, 1]],
                          x(0)[PT[c, 0]] - x(0)[PT[c, 2]], x(1)[PT[c, 0]] - x(1)[PT[c, 2]], x(2)[PT[c, 0]] - x(2)[PT[c, 2]],
                          x(0)[PT[c, 0]] - x(0)[PT[c, 3]], x(1)[PT[c, 0]] - x(1)[PT[c, 3]], x(2)[PT[c, 0]] - x(2)[PT[c, 3]]])
-        posTilde = pos
+        posTilde = ti.Vector([x(0)[PT[c, 0]] - x(0)[PT[c, 1]] + r_PT(0)[c, 0], x(1)[PT[c, 0]] - x(1)[PT[c, 1]] + r_PT(1)[c, 0], x(2)[PT[c, 0]] - x(2)[PT[c, 1]] + r_PT(2)[c, 0],
+                              x(0)[PT[c, 0]] - x(0)[PT[c, 2]] + r_PT(0)[c, 1], x(1)[PT[c, 0]] - x(1)[PT[c, 2]] + r_PT(1)[c, 1], x(2)[PT[c, 0]] - x(2)[PT[c, 2]] + r_PT(2)[c, 1],
+                              x(0)[PT[c, 0]] - x(0)[PT[c, 3]] + r_PT(0)[c, 2], x(1)[PT[c, 0]] - x(1)[PT[c, 3]] + r_PT(1)[c, 2], x(2)[PT[c, 0]] - x(2)[PT[c, 3]] + r_PT(2)[c, 2]])
         Q = Q_PT[c, 0]
+        op = ti.Matrix.zero(real, dim)
         for iter in range(20):
-            g = PT_gradient(pos) + (pos - posTilde) * Q * Q
-            P = PT_hessian(pos) + ti.Matrix.identity(real, dim * 3) * Q * Q
+            g = PT_gradient(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde) * Q * Q
+            P = PT_hessian(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + ti.Matrix.identity(real, dim * 3) * Q * Q
             p = -solve(P, g)
             alpha = 1.0
             pos0 = pos
-            E0 = PT_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
+            E0 = PT_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
-            E = PT_energy(pos) + (pos - posTilde).norm_sqr() * Q * Q / 2
+            E = PT_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             if iter == 19 and p.norm_sqr() > 1e-6:
                 print("FATAL ERROR: Newton not converge")
             while E > E0:
                 alpha *= 0.5
                 pos = pos0 + alpha * p
-                E = PT_energy(pos) + (pos - posTilde).norm_sqr() * Q * Q / 2
+                E = PT_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
         y_PT[c, 0], y_PT[c, 1], y_PT[c, 2] = ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]])
 @ti.kernel
 def local_EE():
@@ -1047,23 +699,26 @@ def local_EE():
         pos = ti.Vector([x(0)[EE[c, 0]] - x(0)[EE[c, 1]], x(1)[EE[c, 0]] - x(1)[EE[c, 1]], x(2)[EE[c, 0]] - x(2)[EE[c, 1]],
                          x(0)[EE[c, 0]] - x(0)[EE[c, 2]], x(1)[EE[c, 0]] - x(1)[EE[c, 2]], x(2)[EE[c, 0]] - x(2)[EE[c, 2]],
                          x(0)[EE[c, 0]] - x(0)[EE[c, 3]], x(1)[EE[c, 0]] - x(1)[EE[c, 3]], x(2)[EE[c, 0]] - x(2)[EE[c, 3]]])
-        posTilde = pos
+        posTilde = ti.Vector([x(0)[EE[c, 0]] - x(0)[EE[c, 1]] + r_EE(0)[c, 0], x(1)[EE[c, 0]] - x(1)[EE[c, 1]] + r_EE(1)[c, 0], x(2)[EE[c, 0]] - x(2)[EE[c, 1]] + r_EE(2)[c, 0],
+                              x(0)[EE[c, 0]] - x(0)[EE[c, 2]] + r_EE(0)[c, 1], x(1)[EE[c, 0]] - x(1)[EE[c, 2]] + r_EE(1)[c, 1], x(2)[EE[c, 0]] - x(2)[EE[c, 2]] + r_EE(2)[c, 1],
+                              x(0)[EE[c, 0]] - x(0)[EE[c, 3]] + r_EE(0)[c, 2], x(1)[EE[c, 0]] - x(1)[EE[c, 3]] + r_EE(1)[c, 2], x(2)[EE[c, 0]] - x(2)[EE[c, 3]] + r_EE(2)[c, 2]])
         Q = Q_EE[c, 0]
+        op = ti.Matrix.zero(real, dim)
         for iter in range(20):
-            g = EE_gradient(pos) + (pos - posTilde) * Q * Q
-            P = EE_hessian(pos) + ti.Matrix.identity(real, dim * 3) * Q * Q
+            g = EE_gradient(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde) * Q * Q
+            P = EE_hessian(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + ti.Matrix.identity(real, dim * 3) * Q * Q
             p = -solve(P, g)
             alpha = 1.0
             pos0 = pos
-            E0 = EE_energy(pos0) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
+            E0 = EE_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
-            E = EE_energy(pos) + (pos - posTilde).norm_sqr() * Q * Q / 2
+            E = EE_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             if iter == 19 and p.norm_sqr() > 1e-6:
                 print("FATAL ERROR: Newton not converge")
             while E > E0:
                 alpha *= 0.5
                 pos = pos0 + alpha * p
-                E = EE_energy(pos) + (pos - posTilde).norm_sqr() * Q * Q / 2
+                E = EE_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
         y_EE[c, 0], y_EE[c, 1], y_EE[c, 2] = ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]])
 @ti.kernel
 def local_EEM():
@@ -1071,23 +726,27 @@ def local_EEM():
         pos = ti.Vector([x(0)[EEM[c, 0]] - x(0)[EEM[c, 1]], x(1)[EEM[c, 0]] - x(1)[EEM[c, 1]], x(2)[EEM[c, 0]] - x(2)[EEM[c, 1]],
                          x(0)[EEM[c, 0]] - x(0)[EEM[c, 2]], x(1)[EEM[c, 0]] - x(1)[EEM[c, 2]], x(2)[EEM[c, 0]] - x(2)[EEM[c, 2]],
                          x(0)[EEM[c, 0]] - x(0)[EEM[c, 3]], x(1)[EEM[c, 0]] - x(1)[EEM[c, 3]], x(2)[EEM[c, 0]] - x(2)[EEM[c, 3]]])
-        posTilde = pos
+        posTilde = ti.Vector([x(0)[EEM[c, 0]] - x(0)[EEM[c, 1]] + r_EEM(0)[c, 0], x(1)[EEM[c, 0]] - x(1)[EEM[c, 1]] + r_EEM(1)[c, 0], x(2)[EEM[c, 0]] - x(2)[EEM[c, 1]] + r_EEM(2)[c, 0],
+                              x(0)[EEM[c, 0]] - x(0)[EEM[c, 2]] + r_EEM(0)[c, 1], x(1)[EEM[c, 0]] - x(1)[EEM[c, 2]] + r_EEM(1)[c, 1], x(2)[EEM[c, 0]] - x(2)[EEM[c, 2]] + r_EEM(2)[c, 1],
+                              x(0)[EEM[c, 0]] - x(0)[EEM[c, 3]] + r_EEM(0)[c, 2], x(1)[EEM[c, 0]] - x(1)[EEM[c, 3]] + r_EEM(1)[c, 2], x(2)[EEM[c, 0]] - x(2)[EEM[c, 3]] + r_EEM(2)[c, 2]])
         Q = Q_EEM[c, 0]
+        op = ti.Matrix.zero(real, dim)
+        _a0, _a1, _b0, _b1 = x0[EEM[c, 0]], x0[EEM[c, 1]], x0[EEM[c, 2]], x0[EEM[c, 3]]
         for iter in range(20):
-            g = EEM_gradient(pos, c) + (pos - posTilde) * Q * Q
-            P = EEM_hessian(pos, c) + ti.Matrix.identity(real, dim * 3) * Q * Q
+            g = EEM_gradient(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde) * Q * Q
+            P = EEM_hessian(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + ti.Matrix.identity(real, dim * 3) * Q * Q
             p = -solve(P, g)
             alpha = 1.0
             pos0 = pos
-            E0 = EEM_energy(pos0, c) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
+            E0 = EEM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
-            E = EEM_energy(pos, c) + (pos - posTilde).norm_sqr() * Q * Q / 2
+            E = EEM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             if iter == 19 and p.norm_sqr() > 1e-6:
                 print("FATAL ERROR: Newton not converge")
             while E > E0:
                 alpha *= 0.5
                 pos = pos0 + alpha * p
-                E = EEM_energy(pos, c) + (pos - posTilde).norm_sqr() * Q * Q / 2
+                E = EEM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
         y_EEM[c, 0], y_EEM[c, 1], y_EEM[c, 2] = ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]])
 @ti.kernel
 def local_PPM():
@@ -1095,23 +754,27 @@ def local_PPM():
         pos = ti.Vector([x(0)[PPM[c, 0]] - x(0)[PPM[c, 1]], x(1)[PPM[c, 0]] - x(1)[PPM[c, 1]], x(2)[PPM[c, 0]] - x(2)[PPM[c, 1]],
                          x(0)[PPM[c, 0]] - x(0)[PPM[c, 2]], x(1)[PPM[c, 0]] - x(1)[PPM[c, 2]], x(2)[PPM[c, 0]] - x(2)[PPM[c, 2]],
                          x(0)[PPM[c, 0]] - x(0)[PPM[c, 3]], x(1)[PPM[c, 0]] - x(1)[PPM[c, 3]], x(2)[PPM[c, 0]] - x(2)[PPM[c, 3]]])
-        posTilde = pos
+        posTilde = ti.Vector([x(0)[PPM[c, 0]] - x(0)[PPM[c, 1]] + r_PPM(0)[c, 0], x(1)[PPM[c, 0]] - x(1)[PPM[c, 1]] + r_PPM(1)[c, 0], x(2)[PPM[c, 0]] - x(2)[PPM[c, 1]] + r_PPM(2)[c, 0],
+                              x(0)[PPM[c, 0]] - x(0)[PPM[c, 2]] + r_PPM(0)[c, 1], x(1)[PPM[c, 0]] - x(1)[PPM[c, 2]] + r_PPM(1)[c, 1], x(2)[PPM[c, 0]] - x(2)[PPM[c, 2]] + r_PPM(2)[c, 1],
+                              x(0)[PPM[c, 0]] - x(0)[PPM[c, 3]] + r_PPM(0)[c, 2], x(1)[PPM[c, 0]] - x(1)[PPM[c, 3]] + r_PPM(1)[c, 2], x(2)[PPM[c, 0]] - x(2)[PPM[c, 3]] + r_PPM(2)[c, 2]])
         Q = Q_PPM[c, 0]
+        op = ti.Matrix.zero(real, dim)
+        _a0, _a1, _b0, _b1 = x0[PPM[c, 0]], x0[PPM[c, 1]], x0[PPM[c, 2]], x0[PPM[c, 3]]
         for iter in range(20):
-            g = PPM_gradient(pos, c) + (pos - posTilde) * Q * Q
-            P = PPM_hessian(pos, c) + ti.Matrix.identity(real, dim * 3) * Q * Q
+            g = PPM_gradient(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde) * Q * Q
+            P = PPM_hessian(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + ti.Matrix.identity(real, dim * 3) * Q * Q
             p = -solve(P, g)
             alpha = 1.0
             pos0 = pos
-            E0 = PPM_energy(pos0, c) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
+            E0 = PPM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
-            E = PPM_energy(pos, c) + (pos - posTilde).norm_sqr() * Q * Q / 2
+            E = PPM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             if iter == 19 and p.norm_sqr() > 1e-6:
                 print("FATAL ERROR: Newton not converge")
             while E > E0:
                 alpha *= 0.5
                 pos = pos0 + alpha * p
-                E = PPM_energy(pos, c) + (pos - posTilde).norm_sqr() * Q * Q / 2
+                E = PPM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
         y_PPM[c, 0], y_PPM[c, 1], y_PPM[c, 2] = ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]])
 @ti.kernel
 def local_PEM():
@@ -1119,23 +782,27 @@ def local_PEM():
         pos = ti.Vector([x(0)[PEM[c, 0]] - x(0)[PEM[c, 1]], x(1)[PEM[c, 0]] - x(1)[PEM[c, 1]], x(2)[PEM[c, 0]] - x(2)[PEM[c, 1]],
                          x(0)[PEM[c, 0]] - x(0)[PEM[c, 2]], x(1)[PEM[c, 0]] - x(1)[PEM[c, 2]], x(2)[PEM[c, 0]] - x(2)[PEM[c, 2]],
                          x(0)[PEM[c, 0]] - x(0)[PEM[c, 3]], x(1)[PEM[c, 0]] - x(1)[PEM[c, 3]], x(2)[PEM[c, 0]] - x(2)[PEM[c, 3]]])
-        posTilde = pos
+        posTilde = ti.Vector([x(0)[PEM[c, 0]] - x(0)[PEM[c, 1]] + r_PEM(0)[c, 0], x(1)[PEM[c, 0]] - x(1)[PEM[c, 1]] + r_PEM(1)[c, 0], x(2)[PEM[c, 0]] - x(2)[PEM[c, 1]] + r_PEM(2)[c, 0],
+                              x(0)[PEM[c, 0]] - x(0)[PEM[c, 2]] + r_PEM(0)[c, 1], x(1)[PEM[c, 0]] - x(1)[PEM[c, 2]] + r_PEM(1)[c, 1], x(2)[PEM[c, 0]] - x(2)[PEM[c, 2]] + r_PEM(2)[c, 1],
+                              x(0)[PEM[c, 0]] - x(0)[PEM[c, 3]] + r_PEM(0)[c, 2], x(1)[PEM[c, 0]] - x(1)[PEM[c, 3]] + r_PEM(1)[c, 2], x(2)[PEM[c, 0]] - x(2)[PEM[c, 3]] + r_PEM(2)[c, 2]])
         Q = Q_PEM[c, 0]
+        op = ti.Matrix.zero(real, dim)
+        _a0, _a1, _b0, _b1 = x0[PEM[c, 0]], x0[PEM[c, 1]], x0[PEM[c, 2]], x0[PEM[c, 3]]
         for iter in range(20):
-            g = PEM_gradient(pos, c) + (pos - posTilde) * Q * Q
-            P = PEM_hessian(pos, c) + ti.Matrix.identity(real, dim * 3) * Q * Q
+            g = PEM_gradient(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde) * Q * Q
+            P = PEM_hessian(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + ti.Matrix.identity(real, dim * 3) * Q * Q
             p = -solve(P, g)
             alpha = 1.0
             pos0 = pos
-            E0 = PEM_energy(pos0, c) + (pos0 - posTilde).norm_sqr() * Q * Q / 2
+            E0 = PEM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
-            E = PEM_energy(pos, c) + (pos - posTilde).norm_sqr() * Q * Q / 2
+            E = PEM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             if iter == 19 and p.norm_sqr() > 1e-6:
                 print("FATAL ERROR: Newton not converge")
             while E > E0:
                 alpha *= 0.5
                 pos = pos0 + alpha * p
-                E = PEM_energy(pos, c) + (pos - posTilde).norm_sqr() * Q * Q / 2
+                E = PEM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
         y_PEM[c, 0], y_PEM[c, 1], y_PEM[c, 2] = ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]])
 
 
@@ -1448,8 +1115,8 @@ def remove_duplicated_constraints():
 @ti.kernel
 def reuse_admm_variables(alpha: real):
     # xTilde initiated y, r
-    min_Q = ti.sqrt(PP_hessian(ti.Vector([9e-1 * dHat, 0])).norm()) / 10
-    max_Q = ti.sqrt(PP_hessian(ti.Vector([1e-4 * dHat, 0])).norm()) * 10
+    min_Q = ti.sqrt(PP_hessian(ti.Matrix.zero(real, dim), ti.Matrix.one(real, dim) * 9e-1 * dHat, dHat2, kappa).norm()) / 10
+    max_Q = ti.sqrt(PP_hessian(ti.Matrix.zero(real, dim), ti.Matrix.one(real, dim) * 1e-4 * dHat, dHat2, kappa).norm()) * 10
     ############################################### PP ###############################################
     for r in range(n_PP[None]):
         p0 = xTilde[PP[r, 0]] * alpha + x[PP[r, 0]] * (1 - alpha)
@@ -1458,8 +1125,7 @@ def reuse_admm_variables(alpha: real):
         r_PP[r, 0] = ti.Matrix.zero(real, dim)
 
         p0, p1 = x[PP[r, 0]], x[PP[r, 1]]
-        pos = p0 - p1
-        Q_PP[r, 0] = min(max(ti.sqrt(PP_hessian(pos).norm()), min_Q), max_Q)
+        Q_PP[r, 0] = min(max(ti.sqrt(PP_hessian(ti.Matrix.zero(real, dim), p0 - p1, dHat2, kappa).norm()), min_Q), max_Q)
     ############################################### PE ###############################################
     for r in range(n_PE[None]):
         p = xTilde[PE[r, 0]] * alpha + x[PE[r, 0]] * (1 - alpha)
@@ -1469,91 +1135,65 @@ def reuse_admm_variables(alpha: real):
         r_PE[r, 0], r_PE[r, 1] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
 
         p, e0, e1 = x[PE[r, 0]], x[PE[r, 1]], x[PE[r, 2]]
-        pos = ti.Matrix.zero(real, dim * 2)
-        for i in ti.static(range(dim)):
-            pos[i] = (p - e0)[i]
-            pos[i + dim] = (p - e1)[i]
-        Q_PE[r, 0] = min(max(ti.sqrt(PE_hessian(pos).norm()), min_Q), max_Q)
-    ############################################### PT ###############################################
-    for r in range(n_PT[None]):
-        p = xTilde[PT[r, 0]] * alpha + x[PT[r, 0]] * (1 - alpha)
-        t0 = xTilde[PT[r, 1]] * alpha + x[PT[r, 1]] * (1 - alpha)
-        t1 = xTilde[PT[r, 2]] * alpha + x[PT[r, 2]] * (1 - alpha)
-        t2 = xTilde[PT[r, 3]] * alpha + x[PT[r, 3]] * (1 - alpha)
-        y_PT[r, 0], y_PT[r, 1], y_PT[r, 2] = p - t0, p - t1, p - t2
-        r_PT[r, 0], r_PT[r, 1], r_PT[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-
-        p, t0, t1, t2 = x[PT[r, 0]], x[PT[r, 1]], x[PT[r, 2]], x[PT[r, 3]]
-        pos = ti.Matrix.zero(real, 9)
-        for i in ti.static(range(dim)):
-            pos[i] = (p - t0)[i]
-            pos[i + dim] = (p - t1)[i]
-            pos[i + dim + dim] = (p - t2)[i]
-        Q_PT[r, 0] = min(max(ti.sqrt(PT_hessian(pos).norm()), min_Q), max_Q)
-    ############################################### EE ###############################################
-    for r in range(n_EE[None]):
-        a0 = xTilde[EE[r, 0]] * alpha + x[EE[r, 0]] * (1 - alpha)
-        a1 = xTilde[EE[r, 1]] * alpha + x[EE[r, 1]] * (1 - alpha)
-        b0 = xTilde[EE[r, 2]] * alpha + x[EE[r, 2]] * (1 - alpha)
-        b1 = xTilde[EE[r, 3]] * alpha + x[EE[r, 3]] * (1 - alpha)
-        y_EE[r, 0], y_EE[r, 1], y_EE[r, 2] = a0 - a1, a0 - b0, a0 - b1
-        r_EE[r, 0], r_EE[r, 1], r_EE[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-
-        a0, a1, b0, b1 = x[EE[r, 0]], x[EE[r, 1]], x[EE[r, 2]], x[EE[r, 3]]
-        pos = ti.Matrix.zero(real, 9)
-        for i in ti.static(range(dim)):
-            pos[i] = (a0 - a1)[i]
-            pos[i + dim] = (a0 - b0)[i]
-            pos[i + dim + dim] = (a0 - b1)[i]
-        Q_EE[r, 0] = min(max(ti.sqrt(EE_hessian(pos).norm()), min_Q), max_Q)
-    ############################################### EEM ###############################################
-    for r in range(n_EEM[None]):
-        a0 = xTilde[EEM[r, 0]] * alpha + x[EEM[r, 0]] * (1 - alpha)
-        a1 = xTilde[EEM[r, 1]] * alpha + x[EEM[r, 1]] * (1 - alpha)
-        b0 = xTilde[EEM[r, 2]] * alpha + x[EEM[r, 2]] * (1 - alpha)
-        b1 = xTilde[EEM[r, 3]] * alpha + x[EEM[r, 3]] * (1 - alpha)
-        y_EEM[r, 0], y_EEM[r, 1], y_EEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
-        r_EEM[r, 0], r_EEM[r, 1], r_EEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-
-        a0, a1, b0, b1 = x[EEM[r, 0]], x[EEM[r, 1]], x[EEM[r, 2]], x[EEM[r, 3]]
-        pos = ti.Matrix.zero(real, 9)
-        for i in ti.static(range(dim)):
-            pos[i] = (a0 - a1)[i]
-            pos[i + dim] = (a0 - b0)[i]
-            pos[i + dim + dim] = (a0 - b1)[i]
-        Q_EEM[r, 0] = min(max(ti.sqrt(EEM_hessian(pos, r).norm()), min_Q), max_Q)
-    ############################################### PPM ###############################################
-    for r in range(n_PPM[None]):
-        a0 = xTilde[PPM[r, 0]] * alpha + x[PPM[r, 0]] * (1 - alpha)
-        a1 = xTilde[PPM[r, 1]] * alpha + x[PPM[r, 1]] * (1 - alpha)
-        b0 = xTilde[PPM[r, 2]] * alpha + x[PPM[r, 2]] * (1 - alpha)
-        b1 = xTilde[PPM[r, 3]] * alpha + x[PPM[r, 3]] * (1 - alpha)
-        y_PPM[r, 0], y_PPM[r, 1], y_PPM[r, 2] = a0 - a1, a0 - b0, a0 - b1
-        r_PPM[r, 0], r_PPM[r, 1], r_PPM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-
-        a0, a1, b0, b1 = x[PPM[r, 0]], x[PPM[r, 1]], x[PPM[r, 2]], x[PPM[r, 3]]
-        pos = ti.Matrix.zero(real, 9)
-        for i in ti.static(range(dim)):
-            pos[i] = (a0 - a1)[i]
-            pos[i + dim] = (a0 - b0)[i]
-            pos[i + dim + dim] = (a0 - b1)[i]
-        Q_PPM[r, 0] = min(max(ti.sqrt(PPM_hessian(pos, r).norm()), min_Q), max_Q)
-    ############################################### PEM ###############################################
-    for r in range(n_PEM[None]):
-        a0 = xTilde[PEM[r, 0]] * alpha + x[PEM[r, 0]] * (1 - alpha)
-        a1 = xTilde[PEM[r, 1]] * alpha + x[PEM[r, 1]] * (1 - alpha)
-        b0 = xTilde[PEM[r, 2]] * alpha + x[PEM[r, 2]] * (1 - alpha)
-        b1 = xTilde[PEM[r, 3]] * alpha + x[PEM[r, 3]] * (1 - alpha)
-        y_PEM[r, 0], y_PEM[r, 1], y_PEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
-        r_PEM[r, 0], r_PEM[r, 1], r_PEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
-
-        a0, a1, b0, b1 = x[PEM[r, 0]], x[PEM[r, 1]], x[PEM[r, 2]], x[PEM[r, 3]]
-        pos = ti.Matrix.zero(real, 9)
-        for i in ti.static(range(dim)):
-            pos[i] = (a0 - a1)[i]
-            pos[i + dim] = (a0 - b0)[i]
-            pos[i + dim + dim] = (a0 - b1)[i]
-        Q_PEM[r, 0] = min(max(ti.sqrt(PEM_hessian(pos, r).norm()), min_Q), max_Q)
+        Q_PE[r, 0] = min(max(ti.sqrt(PE_hessian(ti.Matrix.zero(real, dim), p - e0, p - e1, dHat2, kappa).norm()), min_Q), max_Q)
+    # ############################################### PT ###############################################
+    # for r in range(n_PT[None]):
+    #     p = xTilde[PT[r, 0]] * alpha + x[PT[r, 0]] * (1 - alpha)
+    #     t0 = xTilde[PT[r, 1]] * alpha + x[PT[r, 1]] * (1 - alpha)
+    #     t1 = xTilde[PT[r, 2]] * alpha + x[PT[r, 2]] * (1 - alpha)
+    #     t2 = xTilde[PT[r, 3]] * alpha + x[PT[r, 3]] * (1 - alpha)
+    #     y_PT[r, 0], y_PT[r, 1], y_PT[r, 2] = p - t0, p - t1, p - t2
+    #     r_PT[r, 0], r_PT[r, 1], r_PT[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    # 
+    #     p, t0, t1, t2 = x[PT[r, 0]], x[PT[r, 1]], x[PT[r, 2]], x[PT[r, 3]]
+    #     Q_PT[r, 0] = min(max(ti.sqrt(PT_hessian(ti.Matrix.zero(real, dim), p - t0, p - t1, p - t2, dHat2, kappa).norm()), min_Q), max_Q)
+    # ############################################### EE ###############################################
+    # for r in range(n_EE[None]):
+    #     a0 = xTilde[EE[r, 0]] * alpha + x[EE[r, 0]] * (1 - alpha)
+    #     a1 = xTilde[EE[r, 1]] * alpha + x[EE[r, 1]] * (1 - alpha)
+    #     b0 = xTilde[EE[r, 2]] * alpha + x[EE[r, 2]] * (1 - alpha)
+    #     b1 = xTilde[EE[r, 3]] * alpha + x[EE[r, 3]] * (1 - alpha)
+    #     y_EE[r, 0], y_EE[r, 1], y_EE[r, 2] = a0 - a1, a0 - b0, a0 - b1
+    #     r_EE[r, 0], r_EE[r, 1], r_EE[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    # 
+    #     a0, a1, b0, b1 = x[EE[r, 0]], x[EE[r, 1]], x[EE[r, 2]], x[EE[r, 3]]
+    #     Q_EE[r, 0] = min(max(ti.sqrt(EE_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, dHat2, kappa).norm()), min_Q), max_Q)
+    # ############################################### EEM ###############################################
+    # for r in range(n_EEM[None]):
+    #     a0 = xTilde[EEM[r, 0]] * alpha + x[EEM[r, 0]] * (1 - alpha)
+    #     a1 = xTilde[EEM[r, 1]] * alpha + x[EEM[r, 1]] * (1 - alpha)
+    #     b0 = xTilde[EEM[r, 2]] * alpha + x[EEM[r, 2]] * (1 - alpha)
+    #     b1 = xTilde[EEM[r, 3]] * alpha + x[EEM[r, 3]] * (1 - alpha)
+    #     y_EEM[r, 0], y_EEM[r, 1], y_EEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
+    #     r_EEM[r, 0], r_EEM[r, 1], r_EEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    # 
+    #     a0, a1, b0, b1 = x[EEM[r, 0]], x[EEM[r, 1]], x[EEM[r, 2]], x[EEM[r, 3]]
+    #     _a0, _a1, _b0, _b1 = x0[EEM[r, 0]], x0[EEM[r, 1]], x0[EEM[r, 2]], x0[EEM[r, 3]]
+    #     Q_EEM[r, 0] = min(max(ti.sqrt(EEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _b0, _a1, _b1, dHat2, kappa).norm()), min_Q), max_Q)
+    # ############################################### PPM ###############################################
+    # for r in range(n_PPM[None]):
+    #     a0 = xTilde[PPM[r, 0]] * alpha + x[PPM[r, 0]] * (1 - alpha)
+    #     a1 = xTilde[PPM[r, 1]] * alpha + x[PPM[r, 1]] * (1 - alpha)
+    #     b0 = xTilde[PPM[r, 2]] * alpha + x[PPM[r, 2]] * (1 - alpha)
+    #     b1 = xTilde[PPM[r, 3]] * alpha + x[PPM[r, 3]] * (1 - alpha)
+    #     y_PPM[r, 0], y_PPM[r, 1], y_PPM[r, 2] = a0 - a1, a0 - b0, a0 - b1
+    #     r_PPM[r, 0], r_PPM[r, 1], r_PPM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    # 
+    #     a0, a1, b0, b1 = x[PPM[r, 0]], x[PPM[r, 1]], x[PPM[r, 2]], x[PPM[r, 3]]
+    #     _a0, _a1, _b0, _b1 = x0[PPM[r, 0]], x0[PPM[r, 1]], x0[PPM[r, 2]], x0[PPM[r, 3]]
+    #     Q_PPM[r, 0] = min(max(ti.sqrt(PPM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _b0, _a1, _b1, dHat2, kappa).norm()), min_Q), max_Q)
+    # ############################################### PEM ###############################################
+    # for r in range(n_PEM[None]):
+    #     a0 = xTilde[PEM[r, 0]] * alpha + x[PEM[r, 0]] * (1 - alpha)
+    #     a1 = xTilde[PEM[r, 1]] * alpha + x[PEM[r, 1]] * (1 - alpha)
+    #     b0 = xTilde[PEM[r, 2]] * alpha + x[PEM[r, 2]] * (1 - alpha)
+    #     b1 = xTilde[PEM[r, 3]] * alpha + x[PEM[r, 3]] * (1 - alpha)
+    #     y_PEM[r, 0], y_PEM[r, 1], y_PEM[r, 2] = a0 - a1, a0 - b0, a0 - b1
+    #     r_PEM[r, 0], r_PEM[r, 1], r_PEM[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    # 
+    #     a0, a1, b0, b1 = x[PEM[r, 0]], x[PEM[r, 1]], x[PEM[r, 2]], x[PEM[r, 3]]
+    #     _a0, _a1, _b0, _b1 = x0[PEM[r, 0]], x0[PEM[r, 1]], x0[PEM[r, 2]], x0[PEM[r, 3]]
+    #     Q_PEM[r, 0] = min(max(ti.sqrt(PEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _b0, _a1, _b1, dHat2, kappa).norm()), min_Q), max_Q)
     # reuse y, r
     for c in range(old_n_PP[None]):
         for d in range(n_PP[None]):
