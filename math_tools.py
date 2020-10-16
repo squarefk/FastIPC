@@ -9,19 +9,27 @@ def make_semi_positive_definite(mat, n):
 
 
 @ti.func
-def fill_vec(v, idx: ti.template(), real: ti.template()):
-    vec = ti.Matrix.zero(real, 12)
-    for i in ti.static(range(idx.n)):
-        vec[idx[i]] = v[i]
+def extract_vec(v, idx: ti.template()):
+    vec = ti.Matrix.zero(ti.get_runtime().default_fp, len(idx))
+    for i, j in ti.static(enumerate(idx)):
+        vec[i] = v[j]
     return vec
 
 
 @ti.func
-def fill_mat(m, idx: ti.template(), real: ti.template()):
-    mat = ti.Matrix.zero(real, 12, 12)
-    for i in ti.static(range(idx.n)):
-        for j in ti.static(range(idx.n)):
-            mat[idx[i], idx[j]] = m[i, j]
+def fill_vec(v, idx: ti.template()):
+    vec = ti.Matrix.zero(ti.get_runtime().default_fp, 12)
+    for i, j in ti.static(enumerate(idx)):
+        vec[j] = v[i]
+    return vec
+
+
+@ti.func
+def fill_mat(m, idx: ti.template()):
+    mat = ti.Matrix.zero(ti.get_runtime().default_fp, 12, 12)
+    for i, j in ti.static(enumerate(idx)):
+        for p, q in ti.static(enumerate(idx)):
+            mat[j, q] = m[i, p]
     return mat
 
 
