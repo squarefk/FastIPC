@@ -589,9 +589,8 @@ def compute_ipc5():
         dist2g = PP_3D_g(a0, b0)
         b = barrier_E(dist2, dHat2, kappa)
         bg = barrier_g(dist2, dHat2, kappa)
-        idx = [0, 1, 2, 6, 7, 8]
-        lg = fill_vec(bg * dist2g, idx)
-        lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(a0, b0), idx)
+        lg = fill_vec(bg * dist2g, [0, 1, 2, 6, 7, 8])
+        lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(a0, b0), [0, 1, 2, 6, 7, 8])
         M = M_E(a0, a1, b0, b1, eps_x)
         Mg = M_g(a0, a1, b0, b1, eps_x)
         g = lg * M + b * Mg
@@ -608,9 +607,8 @@ def compute_ipc6():
         dist2g = PE_3D_g(a0, b0, b1)
         b = barrier_E(dist2, dHat2, kappa)
         bg = barrier_g(dist2, dHat2, kappa)
-        idx = [0, 1, 2, 6, 7, 8, 9, 10, 11]
-        lg = fill_vec(bg * dist2g, idx)
-        lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(a0, b0, b1), idx)
+        lg = fill_vec(bg * dist2g, [0, 1, 2, 6, 7, 8, 9, 10, 11])
+        lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(a0, b0, b1), [0, 1, 2, 6, 7, 8, 9, 10, 11])
         M = M_E(a0, a1, b0, b1, eps_x)
         Mg = M_g(a0, a1, b0, b1, eps_x)
         g = lg * M + b * Mg
