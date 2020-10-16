@@ -3,16 +3,20 @@ from math_tools import *
 
 
 @ti.func
-def elasticity_energy(sig, la, mu):
-    sigma = ti.Vector([sig[0, 0], sig[1, 1]])
+def elasticity_energy(sig: ti.template(), la, mu):
+    sigma = ti.Matrix.zero(ti.get_runtime().default_fp, sig.n, 1)
+    for i in ti.static(range(sig.n)):
+        sigma[i] = sig[i, 0 if ti.static(sig.m == 1) else i]
     sigmam12Sum = (sigma - ti.Vector([1, 1])).norm_sqr()
     sigmaProdm1 = sigma[0] * sigma[1] - 1
     return mu * sigmam12Sum + la / 2 * sigmaProdm1 * sigmaProdm1
 
 
 @ti.func
-def elasticity_gradient(sig, la, mu):
-    sigma = ti.Vector([sig[0, 0], sig[1, 1]])
+def elasticity_gradient(sig: ti.template(), la, mu):
+    sigma = ti.Matrix.zero(ti.get_runtime().default_fp, sig.n, 1)
+    for i in ti.static(range(sig.n)):
+        sigma[i] = sig[i, 0 if ti.static(sig.m == 1) else i]
     sigmaProdm1lambda = la * (sigma[0] * sigma[1] - 1)
     sigmaProd_noI = ti.Vector([sigma[1], sigma[0]])
     _2u = mu * 2
@@ -21,8 +25,10 @@ def elasticity_gradient(sig, la, mu):
 
 
 @ti.func
-def elasticity_hessian(sig, la, mu):
-    sigma = ti.Vector([sig[0, 0], sig[1, 1]])
+def elasticity_hessian(sig: ti.template(), la, mu):
+    sigma = ti.Matrix.zero(ti.get_runtime().default_fp, sig.n, 1)
+    for i in ti.static(range(sig.n)):
+        sigma[i] = sig[i, 0 if ti.static(sig.m == 1) else i]
     sigmaProd = sigma[0] * sigma[1]
     sigmaProd_noI = ti.Vector([sigma[1], sigma[0]])
     _2u = mu * 2
