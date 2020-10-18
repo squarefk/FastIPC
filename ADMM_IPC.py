@@ -277,8 +277,6 @@ def compute_restT_and_m():
                 m[vertices[i, d]] += mass
     for i in range(n_particles):
         x0[i] = x[i]
-        # v(0)[i] = 1 if i < n_particles / 2 else -1
-
 
 @ti.kernel
 def initial_guess():
@@ -294,17 +292,20 @@ def initial_guess():
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
 
 
-def move_nodes():
-    if int(sys.argv[1]) == 10:
+def move_nodes(f):
+    if int(sys.argv[1]) == 0:
+        @ti.kernel
+        def add_initial_velocity():
+            for i in range(n_particles):
+                v(0)[i] = 1 if i < n_particles / 2 else -1
+        if f == 0:
+            add_initial_velocity()
+    elif int(sys.argv[1]) == 10:
         speed = 1
-        xTT = xTilde.to_numpy()
         for i in range(954):
             if dirichlet_fixed[i * dim]:
                 dirichlet_value[i * dim] += speed * dt
-                xTT[i, 0] = dirichlet_value[i * dim]
-                x(0)[i] = dirichlet_value[i * dim]
-        xTilde.from_numpy(xTT)
-    if int(sys.argv[1]) != 10:
+    else:
         @ti.kernel
         def add_gravity():
             for i in range(n_particles):
@@ -1324,8 +1325,8 @@ if __name__ == "__main__":
     for f in range(360):
         with Timer("Time Step"):
             print("==================== Frame: ", f, " ====================")
+            move_nodes(f)
             initial_guess()
-            move_nodes()
             prs = []
             drs = []
             for step in range(20):
