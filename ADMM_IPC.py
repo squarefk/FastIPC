@@ -1,5 +1,5 @@
 from hashlib import sha1
-import sys, os, time, math
+import sys, os, math
 import taichi as ti
 import taichi_three as t3
 import numpy as np
@@ -9,6 +9,7 @@ import scipy.sparse.linalg
 from math_tools import *
 from ipc import *
 from reader import *
+from timer import *
 
 mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, dim = read(int(sys.argv[1]))
 if dim == 2:
@@ -73,7 +74,7 @@ print('output directory:', directory)
 ##############################################################################
 
 real = ti.f64
-ti.init(arch=ti.cpu, default_fp=real, make_thread_local=False, kernel_profiler=True)
+ti.init(arch=ti.cpu, default_fp=real, make_thread_local=False)
 scalar = lambda: ti.var(dt=real)
 vec = lambda: ti.Vector(dim, dt=real)
 mat = lambda: ti.Matrix(dim, dim, dt=real)
@@ -1309,6 +1310,7 @@ def write_image(f):
 
 
 if __name__ == "__main__":
+    start = time()
     x.from_numpy(mesh_particles.astype(np.float64)[:, :dim])
     v.fill(0)
     vertices.from_numpy(mesh_elements.astype(np.int32))
@@ -1319,75 +1321,70 @@ if __name__ == "__main__":
     kappa = compute_adaptive_kappa()
     vertices_ = vertices.to_numpy()
     write_image(0)
-    total_time = 0
     for f in range(360):
-        total_time -= time.time()
-        print("==================== Frame: ", f, " ====================")
-        initial_guess()
-        move_nodes()
-        prs = []
-        drs = []
-        for step in range(20):
-            alpha = compute_filter(x, xTilde) if step == 0 else 0.0
-            grid.deactivate_all()
-            backup_admm_variables()
-            find_constraints()
-            remove_duplicated_constraints()
-            reuse_admm_variables(alpha)
+        with Timer("Time Step"):
+            print("==================== Frame: ", f, " ====================")
+            initial_guess()
+            move_nodes()
+            prs = []
+            drs = []
+            for step in range(20):
+                with Timer("Global Initialization"):
+                    alpha = compute_filter(x, xTilde) if step == 0 else 0.0
+                    grid.deactivate_all()
+                    backup_admm_variables()
+                    find_constraints()
+                    remove_duplicated_constraints()
+                    reuse_admm_variables(alpha)
 
-            data_row.fill(0)
-            data_col.fill(0)
-            data_val.fill(0)
-            data_rhs.fill(0)
-            data_x.fill(0)
+                with Timer("Global Step"):
+                    data_row.fill(0)
+                    data_col.fill(0)
+                    data_val.fill(0)
+                    data_rhs.fill(0)
+                    data_x.fill(0)
+                    global_step()
+                    global_PP()
+                    global_PE()
+                    if dim == 3:
+                        global_PT()
+                        global_EE()
+                        global_EEM()
+                        global_PPM()
+                        global_PEM()
+                    solve_system()
 
-            global_step()
-            global_PP()
-            global_PE()
-            if dim == 3:
-                global_PT()
-                global_EE()
-                global_EEM()
-                global_PPM()
-                global_PEM()
+                with Timer("Local Step"):
+                    local_elasticity()
+                    local_PP()
+                    local_PE()
+                    if dim == 3:
+                        local_PT()
+                        local_EE()
+                        local_EEM()
+                        local_PPM()
+                        local_PEM()
 
-            solve_system()
+                with Timer("Dual Step"):
+                    dual_step()
+                print(f, '/', step, ': ', sha1(x.to_numpy()).hexdigest())
 
-            local_elasticity()
-            local_PP()
-            local_PE()
-            if dim == 3:
-                local_PT()
-                local_EE()
-                local_EEM()
-                local_PPM()
-                local_PEM()
+            # iters = range(len(prs))
+            # fig = plt.figure()
+            # plt.plot(iters, prs)
+            # plt.title("log primal")
+            # fig.savefig(directory + str(f) + "_primal.png")
+            # fig = plt.figure()
+            # plt.plot(iters, drs)
+            # plt.title("log dual")
+            # fig.savefig(directory + str(f) + "_dual.png")
 
-            # pr = prime_residual()
-            # prs.append(math.log(max(pr, 1e-20)))
-            # dr = dual_residual()
-            # drs.append(math.log(max(dr, 1e-20)))
-            # xr = X_residual()
-            # print(f, "/", step, f" change of X: {xr:.8f}, prime residual: {pr:.8f}, dual residual: {dr:.8f}")
-
-            dual_step()
-            print(f, '/', step, ': ', sha1(x.to_numpy()).hexdigest())
-
-        # iters = range(len(prs))
-        # fig = plt.figure()
-        # plt.plot(iters, prs)
-        # plt.title("log primal")
-        # fig.savefig(directory + str(f) + "_primal.png")
-        # fig = plt.figure()
-        # plt.plot(iters, drs)
-        # plt.title("log dual")
-        # fig.savefig(directory + str(f) + "_dual.png")
-
-        compute_v()
-        # TODO: why is visualization so slow?
-        total_time += time.time()
-        print("Time : ", total_time)
-        write_image(f + 1)
-        ti.kernel_profiler_print()
-    cmd = 'ffmpeg -framerate 36 -i "' + directory + 'images/%6d.png" -c:v libx264 -profile:v high -crf 10 -pix_fmt yuv420p -threads 20 ' + directory + 'video.mp4'
-    os.system((cmd))
+            compute_v()
+            # TODO: why is visualization so slow?
+        with Timer("Visualization"):
+            write_image(f + 1)
+        Timer_Print()
+    end = time()
+    print("!!!!!!!!!!!!!!!!!!!!!!!! ", end - start)
+    # cmd = 'ffmpeg -framerate 36 -i "' + directory + 'images/%6d.png" -c:v libx264 -profile:v high -crf 10 -pix_fmt yuv420p -threads 20 ' + directory + 'video.mp4'
+    # os.system((cmd))
