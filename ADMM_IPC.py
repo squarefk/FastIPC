@@ -309,7 +309,7 @@ def move_nodes(f):
         speed = 1
         for i in range(954):
             if dirichlet_fixed[i]:
-                dirichlet_value(0)[i] += speed * dt
+                dirichlet_value[i, 0] += speed * dt
     else:
         @ti.kernel
         def add_gravity():
