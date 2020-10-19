@@ -11,7 +11,7 @@ from ipc import *
 from reader import *
 from timer import *
 
-mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, dim = read(int(sys.argv[1]))
+mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, gravity, dim = read(int(sys.argv[1]))
 if dim == 2:
     from fixed_corotated import *
 else:
@@ -294,6 +294,7 @@ def initial_guess():
     for i in range(n_particles):
         xn[i] = x[i]
         xTilde[i] = x[i] + dt * v[i]
+        xTilde(1)[i] += dt * dt * gravity
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
 
 
@@ -310,12 +311,6 @@ def move_nodes(f):
         for i in range(954):
             if dirichlet_fixed[i]:
                 dirichlet_value[i, 0] += speed * dt
-    else:
-        @ti.kernel
-        def add_gravity():
-            for i in range(n_particles):
-                xTilde(1)[i] -= dt * dt * 9.8
-        add_gravity()
 
 
 @ti.func

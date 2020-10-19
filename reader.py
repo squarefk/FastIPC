@@ -14,7 +14,7 @@ def read(testcase):
         n_particles = len(mesh_particles)
         dirichlet_fixed = np.zeros(n_particles, dtype=bool)
         dirichlet_value = mesh_particles
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 3
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 3
     elif testcase == 1:
         mesh = meshio.read("input/mat20x20.vtk")
         mesh_particles = mesh.points
@@ -28,7 +28,7 @@ def read(testcase):
             if mesh_particles[i][0] < -0.45 or mesh_particles[i][0] > 0.45:
                 dirichlet_fixed[i] = True
                 print(i, mesh_particles[i][0], mesh_particles[i][1], mesh_particles[i][2])
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 3
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 3
     elif testcase == 3:
         # two tets
         mesh = meshio.read("input/tet.vtk")
@@ -39,7 +39,7 @@ def read(testcase):
         n_particles = len(mesh_particles)
         dirichlet_fixed = np.zeros(n_particles, dtype=bool)
         dirichlet_value = mesh_particles
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 3
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 3
     ##################################################### 2D #####################################################
     elif testcase == 4:
         # two triangles
@@ -51,7 +51,7 @@ def read(testcase):
         n_particles = len(mesh_particles)
         dirichlet_fixed = np.zeros(n_particles, dtype=bool)
         dirichlet_value = mesh_particles[:, :2]
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 2
     elif testcase == 5:
         # two spheres
         mesh = meshio.read("input/sphere.obj")
@@ -64,7 +64,7 @@ def read(testcase):
         dirichlet_value = mesh_particles[:, :2]
         for i in range(2):
             dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 2
     elif testcase == 6:
         # two spheres
         mesh = meshio.read("input/Sharkey.obj")
@@ -77,7 +77,7 @@ def read(testcase):
         dirichlet_value = mesh_particles[:, :2]
         for i in range(12):
             dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
     elif testcase == 7:
         # two spheres
         mesh = meshio.read("input/Sharkey_floor.obj")
@@ -90,7 +90,7 @@ def read(testcase):
         dirichlet_value = mesh_particles[:, :2]
         for i in [954, 955, 956, 957]:
             dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
     elif testcase == 8:
         # two spheres
         mesh = meshio.read("input/Sharkey_valley.obj")
@@ -103,7 +103,7 @@ def read(testcase):
         dirichlet_value = mesh_particles[:, :2]
         for i in [954, 955, 956, 957, 958]:
             dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
     elif testcase == 9:
         # two spheres
         mesh0 = meshio.read("input/Sharkey_valley.obj")
@@ -118,7 +118,7 @@ def read(testcase):
         dirichlet_value = mesh_particles[:, :2]
         for i in [954, 955, 956, 957, 958]:
             dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
     elif testcase == 10:
         # two spheres
         mesh = meshio.read("input/Sharkey.obj")
@@ -144,7 +144,7 @@ def read(testcase):
                 dirichlet_fixed[i] = True
         for i in range(offset, offset + 8):
             dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 2
     elif testcase == 11:
         mesh = meshio.read("input/noodles.obj")
         mesh_particles = mesh.points
@@ -156,7 +156,7 @@ def read(testcase):
         dirichlet_value = mesh_particles[:, :2]
         for i in [4000, 4001, 4004, 4005]:
             dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
     elif testcase == 12:
         mesh = meshio.read("input/fluffy.obj")
         mesh_particles = np.vstack((mesh.points, [
@@ -174,7 +174,7 @@ def read(testcase):
         dirichlet_value = mesh_particles[:, :2]
         for i in range(offset, offset + 4):
             dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
     elif testcase == 13:
         # two spheres
         mesh = meshio.read("input/items.obj")
@@ -197,4 +197,4 @@ def read(testcase):
         dirichlet_value = mesh_particles[:, :2]
         for i in range(offset, offset + 5):
             dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 2
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
