@@ -588,7 +588,7 @@ def solve_system():
                         data_row[idx + d] = i * dim + d
                         data_col[idx + d] = i * dim + d
                         data_val[idx + d] = 1
-                        data_rhs[idx + d] = drv[i * dim + d]
+                        data_rhs[i * dim + d] = drv[i * dim + d]
         add_DBC_to_triplets()
 
     if cnt[None] >= MAX_LINEAR or n_PP[None] >= MAX_C or n_PE[None] >= MAX_C or n_PT[None] >= MAX_C or n_EE[None] >= MAX_C or n_EEM[None] >= MAX_C or n_PPM[None] >= MAX_C or n_PEM[None] >= MAX_C:
