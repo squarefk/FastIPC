@@ -98,13 +98,18 @@ W, z, zz, u = scalar(), mat(), mat(), mat()
 boundary_points = ti.var(ti.i32)
 boundary_edges = ti.var(ti.i32)
 boundary_triangles = ti.var(ti.i32)
-ti.root.dense(ti.k, n_particles).place(x, x0, xx, xTilde, xn, v, m)
+ti.root.dense(ti.i, n_particles).place(x, x0, xx, xTilde, xn, v, m)
 ti.root.dense(ti.i, n_elements).place(restT)
 ti.root.dense(ti.ij, (n_elements, dim + 1)).place(vertices)
 ti.root.dense(ti.i, n_elements).place(W, z, zz, u)
 ti.root.dense(ti.i, n_boundary_points).place(boundary_points)
 ti.root.dense(ti.ij, (n_boundary_edges, 2)).place(boundary_edges)
 ti.root.dense(ti.ij, (n_boundary_triangles, 3)).place(boundary_triangles)
+
+drf = ti.var(ti.i32)
+ti.root.dense(ti.i, n_particles).place(drf)
+drv = scalar()
+ti.root.dense(ti.i, n_particles * dim).place(drv)
 
 MAX_LINEAR = 5000000
 data_rhs = ti.var(real, shape=n_particles * dim)
@@ -303,8 +308,8 @@ def move_nodes(f):
     elif int(sys.argv[1]) == 10:
         speed = 1
         for i in range(954):
-            if dirichlet_fixed[i * dim]:
-                dirichlet_value[i * dim] += speed * dt
+            if dirichlet_fixed[i]:
+                dirichlet_value(0)[i] += speed * dt
     else:
         @ti.kernel
         def add_gravity():
@@ -565,23 +570,33 @@ def op2():
         x[i] = xx[i]
 def solve_system():
     before_solve()
-    if cnt[None] >= MAX_LINEAR or n_PP[None] >= MAX_C or n_PE[None] >= MAX_C or n_PT[None] >= MAX_C or n_EE[None] >= MAX_C or n_EEM[None] >= MAX_C or n_PPM[None] >= MAX_C or n_PEM[None] >= MAX_C:
-        print("FATAL ERROR: Array Too Small!")
-    row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
-    rhs = data_rhs.to_numpy()
 
     with Timer("DBC"):
-        for i in range(cnt[None]):
-            if dirichlet_fixed[col[i]]:
-                rhs[row[i]] -= dirichlet_value[col[i]] * val[i]
-            if dirichlet_fixed[row[i]] or dirichlet_fixed[col[i]]:
-                val[i] = 0
-        indices = np.where(dirichlet_fixed)
-        for i in indices[0]:
-            row = np.append(row, i)
-            col = np.append(col, i)
-            val = np.append(val, 1.)
-            rhs[i] = dirichlet_value[i]
+        drf.from_numpy(dirichlet_fixed.astype(np.int32))
+        drv.from_numpy(dirichlet_value.reshape((n_particles * dim)).astype(np.float32))
+        @ti.kernel
+        def add_DBC_to_triplets():
+            for i in range(cnt[None]):
+                r, c = data_row[i], data_col[i]
+                if drf[r // dim] or drf[c // dim]:
+                    data_rhs[r] -= drv[c] * data_val[i]
+                    data_val[i] = 0
+            for i in range(n_particles):
+                if drf[i]:
+                    idx = ti.atomic_add(cnt[None], dim)
+                    for d in ti.static(range(dim)):
+                        data_row[idx + d] = i * dim + d
+                        data_col[idx + d] = i * dim + d
+                        data_val[idx + d] = 1
+                        data_rhs[idx + d] = drv[i * dim + d]
+        add_DBC_to_triplets()
+
+    if cnt[None] >= MAX_LINEAR or n_PP[None] >= MAX_C or n_PE[None] >= MAX_C or n_PT[None] >= MAX_C or n_EE[None] >= MAX_C or n_EEM[None] >= MAX_C or n_PPM[None] >= MAX_C or n_PEM[None] >= MAX_C:
+        print("FATAL ERROR: Array Too Small!")
+
+    with Timer("Taichi to Numpy"):
+        row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
+        rhs = data_rhs.to_numpy()
 
     with Timer("Direct Solve (scipy)"):
         n = n_particles * dim
