@@ -570,32 +570,36 @@ def solve_system():
     row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
     rhs = data_rhs.to_numpy()
 
-    for i in range(cnt[None]):
-        if dirichlet_fixed[col[i]]:
-            rhs[row[i]] -= dirichlet_value[col[i]] * val[i]
-        if dirichlet_fixed[row[i]] or dirichlet_fixed[col[i]]:
-            val[i] = 0
-    indices = np.where(dirichlet_fixed)
-    for i in indices[0]:
-        row = np.append(row, i)
-        col = np.append(col, i)
-        val = np.append(val, 1.)
-        rhs[i] = dirichlet_value[i]
+    with Timer("DBC"):
+        for i in range(cnt[None]):
+            if dirichlet_fixed[col[i]]:
+                rhs[row[i]] -= dirichlet_value[col[i]] * val[i]
+            if dirichlet_fixed[row[i]] or dirichlet_fixed[col[i]]:
+                val[i] = 0
+        indices = np.where(dirichlet_fixed)
+        for i in indices[0]:
+            row = np.append(row, i)
+            col = np.append(col, i)
+            val = np.append(val, 1.)
+            rhs[i] = dirichlet_value[i]
 
-    n = n_particles * dim
-    A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
-    data_x.from_numpy(scipy.sparse.linalg.spsolve(A, rhs))
-    tmp = A.dot(data_x.to_numpy()) - rhs
-    residual = np.linalg.norm(tmp, ord=np.inf)
-    print("Global solve residual = ", residual)
-    after_solve()
-    alpha = compute_filter(xx, x)
-    op0(alpha)
-    # while alpha >= 1e-6 and check_collision() == 1:
-    #     op1()
-    #     alpha /= 2.0
-    # if alpha < 1e-6:
-    #     op2()
+    with Timer("Direct Solve (scipy)"):
+        n = n_particles * dim
+        A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
+        data_x.from_numpy(scipy.sparse.linalg.spsolve(A, rhs))
+        tmp = A.dot(data_x.to_numpy()) - rhs
+        residual = np.linalg.norm(tmp, ord=np.inf)
+        print("Global solve residual = ", residual)
+        after_solve()
+
+    with Timer("Filter Global"):
+        alpha = compute_filter(xx, x)
+        op0(alpha)
+        # while alpha >= 1e-6 and check_collision() == 1:
+        #     op1()
+        #     alpha /= 2.0
+        # if alpha < 1e-6:
+        #     op2()
     return alpha
 
 
@@ -674,7 +678,7 @@ def local_PE():
             if ti.static(dim == 2):
                 alpha = moving_point_edge_ccd(ti.Vector([0.0, 0.0]), ti.Vector([pos[0], pos[1]]), ti.Vector([pos[2], pos[3]]), ti.Vector([0.0, 0.0]), ti.Vector([p[0], p[1]]), ti.Vector([p[2], p[3]]), 0.1)
             else:
-                print("not implemented")
+                print("not implemented", end='')
             pos0 = pos
             E0 = PE_energy(op, extract_vec(pos, list(range(0, dim))), extract_vec(pos, list(range(dim, dim * 2))), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
@@ -1338,7 +1342,7 @@ if __name__ == "__main__":
                     remove_duplicated_constraints()
                     reuse_admm_variables(alpha)
 
-                with Timer("Global Step"):
+                with Timer("Global Build System"):
                     data_row.fill(0)
                     data_col.fill(0)
                     data_val.fill(0)
@@ -1353,6 +1357,7 @@ if __name__ == "__main__":
                         global_EEM()
                         global_PPM()
                         global_PEM()
+                with Timer("Global Solve"):
                     solve_system()
 
                 with Timer("Local Step"):
@@ -1369,6 +1374,7 @@ if __name__ == "__main__":
                 with Timer("Dual Step"):
                     dual_step()
                 print(f, '/', step, ': ', sha1(x.to_numpy()).hexdigest())
+                print('')
 
             # iters = range(len(prs))
             # fig = plt.figure()
