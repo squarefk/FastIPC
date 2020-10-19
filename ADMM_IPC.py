@@ -4,6 +4,7 @@ import taichi as ti
 import taichi_three as t3
 import numpy as np
 import matplotlib.pyplot as plt
+import pickle
 import scipy.sparse
 import scipy.sparse.linalg
 from math_tools import *
@@ -65,8 +66,9 @@ else:
 
 ##############################################################################
 
-directory = 'output/' + '_'.join(sys.argv) + '/'
+directory = 'output/' + '_'.join(sys.argv[:2]) + '/'
 os.makedirs(directory + 'images/', exist_ok=True)
+os.makedirs(directory + 'caches/', exist_ok=True)
 print('output directory:', directory)
 # sys.stdout = open(directory + 'log.txt', 'w')
 # sys.stderr = open(directory + 'err.txt', 'w')
@@ -74,7 +76,7 @@ print('output directory:', directory)
 ##############################################################################
 
 real = ti.f64
-ti.init(arch=ti.cpu, default_fp=real, make_thread_local=False)
+ti.init(arch=ti.cpu, default_fp=real, make_thread_local=False) #, cpu_max_num_threads=1)
 scalar = lambda: ti.var(dt=real)
 vec = lambda: ti.Vector(dim, dt=real)
 mat = lambda: ti.Matrix(dim, dim, dt=real)
@@ -1342,7 +1344,13 @@ if __name__ == "__main__":
     kappa = compute_adaptive_kappa()
     vertices_ = vertices.to_numpy()
     write_image(0)
-    for f in range(360):
+    f_start = 0
+    if len(sys.argv) == 3:
+        f_start = int(sys.argv[2])
+        [x_, v_, dirichlet_fixed, dirichlet_value] = pickle.load(open(directory + f'caches/{f_start:06d}.p', 'rb'))
+        x.from_numpy(x_)
+        v.from_numpy(v_)
+    for f in range(f_start, 360):
         with Timer("Time Step"):
             print("==================== Frame: ", f, " ====================")
             move_nodes(f)
@@ -1411,6 +1419,7 @@ if __name__ == "__main__":
             # TODO: why is visualization so slow?
         with Timer("Visualization"):
             write_image(f + 1)
+        pickle.dump([x.to_numpy(), v.to_numpy(), dirichlet_fixed, dirichlet_value], open(directory + f'caches/{f + 1:06d}.p', 'wb'))
         Timer_Print()
     end = time()
     print("!!!!!!!!!!!!!!!!!!!!!!!! ", end - start)
