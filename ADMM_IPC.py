@@ -260,7 +260,7 @@ def compute_filter(xx: ti.template(), x: ti.template()) -> real:
 
 
 @ti.func
-def compute_T(i):
+def compute_T(i, x: ti.template()):
     if ti.static(dim == 2):
         ab = x[vertices[i, 1]] - x[vertices[i, 0]]
         ac = x[vertices[i, 2]] - x[vertices[i, 0]]
@@ -276,7 +276,7 @@ def compute_T(i):
 def compute_restT_and_m():
     for _ in range(1):
         for i in range(n_elements):
-            restT[i] = compute_T(i)
+            restT[i] = compute_T(i, x)
             mass = restT[i].determinant() / dim / (dim - 1) * density / (dim + 1)
             if mass < 0.0:
                 print("FATAL ERROR : mesh inverted")
@@ -288,15 +288,15 @@ def compute_restT_and_m():
 @ti.kernel
 def initial_guess():
     # set W, u, z
-    for i in range(n_elements):
-        currentT = compute_T(i)
-        W[i] = ti.sqrt(la + mu * 2 / 3) * (restT[i].determinant() / dim / (dim - 1))
-        z[i] = currentT @ restT[i].inverse()
-        u[i] = ti.Matrix.zero(real, dim, dim)
     for i in range(n_particles):
         xn[i] = x[i]
         xTilde[i] = x[i] + dt * v[i]
         xTilde(1)[i] += dt * dt * gravity
+    for i in range(n_elements):
+        currentT = compute_T(i, xTilde)
+        W[i] = ti.sqrt(la + mu * 2 / 3) * (restT[i].determinant() / dim / (dim - 1))
+        z[i] = currentT @ restT[i].inverse()
+        u[i] = ti.Matrix.zero(real, dim, dim)
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
 
 
@@ -313,6 +313,9 @@ def move_nodes(f):
         for i in range(954):
             if dirichlet_fixed[i]:
                 dirichlet_value[i, 0] += speed * dt
+    tmp_fixed = np.stack((dirichlet_fixed,) * dim, axis=-1)
+    return np.where(tmp_fixed.reshape((n_particles * dim)))[0], dirichlet_value.reshape((n_particles * dim))
+
 
 
 @ti.func
@@ -565,9 +568,7 @@ def op1():
 def op2():
     for i in range(n_particles):
         x[i] = xx[i]
-D = np.where(dirichlet_fixed)[0]
-V = dirichlet_value.reshape((n_particles * dim))
-def solve_system():
+def solve_system(D, V):
     before_solve()
 
     if cnt[None] >= MAX_LINEAR or n_PP[None] >= MAX_C or n_PE[None] >= MAX_C or n_PT[None] >= MAX_C or n_EE[None] >= MAX_C or n_EEM[None] >= MAX_C or n_PPM[None] >= MAX_C or n_PEM[None] >= MAX_C:
@@ -608,7 +609,7 @@ def solve_system():
 @ti.kernel
 def local_elasticity():
     for e in range(n_elements):
-        currentT = compute_T(e)
+        currentT = compute_T(e, x)
         Dx_plus_u_mtr = currentT @ restT[e].inverse() + u[e]
         U, sig, V = svd(Dx_plus_u_mtr)
         sigma = ti.Matrix.zero(real, dim)
@@ -897,7 +898,7 @@ def local_PEM():
 @ti.kernel
 def dual_step():
     for i in range(n_elements):
-        currentT = compute_T(i)
+        currentT = compute_T(i, x)
         F = currentT @ restT[i].inverse()
         u[i] += F - z[i]
     for c in range(n_PP[None]):
@@ -1343,10 +1344,10 @@ if __name__ == "__main__":
     for f in range(f_start, 360):
         with Timer("Time Step"):
             print("==================== Frame: ", f, " ====================")
-            move_nodes(f)
-            initial_guess()
-            prs = []
-            drs = []
+            with Timer("Move Nodes"):
+                D, V = move_nodes(f)
+            with Timer("Initialization for xTilde, elasticity"):
+                initial_guess()
             for step in range(20):
                 with Timer("Global Initialization"):
                     alpha = compute_filter(x, xTilde) if step == 0 else 0.0
@@ -1377,7 +1378,7 @@ if __name__ == "__main__":
                         global_PPM()
                         global_PEM()
                 with Timer("Global Solve"):
-                    solve_system()
+                    solve_system(D, V)
 
                 with Timer("Local Step"):
                     local_elasticity()
