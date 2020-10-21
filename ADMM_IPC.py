@@ -565,28 +565,10 @@ def op1():
 def op2():
     for i in range(n_particles):
         x[i] = xx[i]
+D = np.where(dirichlet_fixed)[0]
+V = dirichlet_value.reshape((n_particles * dim))
 def solve_system():
     before_solve()
-
-    with Timer("DBC"):
-        drf.from_numpy(dirichlet_fixed.astype(np.int32))
-        drv.from_numpy(dirichlet_value.reshape((n_particles * dim)).astype(np.float32))
-        @ti.kernel
-        def add_DBC_to_triplets():
-            for i in range(cnt[None]):
-                r, c = data_row[i], data_col[i]
-                if drf[r // dim] or drf[c // dim]:
-                    data_rhs[r] -= drv[c] * data_val[i]
-                    data_val[i] = 0
-            for i in range(n_particles):
-                if drf[i]:
-                    idx = ti.atomic_add(cnt[None], dim)
-                    for d in ti.static(range(dim)):
-                        data_row[idx + d] = i * dim + d
-                        data_col[idx + d] = i * dim + d
-                        data_val[idx + d] = 1
-                        data_rhs[i * dim + d] = drv[i * dim + d]
-        add_DBC_to_triplets()
 
     if cnt[None] >= MAX_LINEAR or n_PP[None] >= MAX_C or n_PE[None] >= MAX_C or n_PT[None] >= MAX_C or n_EE[None] >= MAX_C or n_EEM[None] >= MAX_C or n_PPM[None] >= MAX_C or n_PEM[None] >= MAX_C:
         print("FATAL ERROR: Array Too Small!")
@@ -598,6 +580,14 @@ def solve_system():
     with Timer("Direct Solve (scipy)"):
         n = n_particles * dim
         A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
+        with Timer("DBC"):
+            rhs -= A[:, D].dot(V[D])
+            A = scipy.sparse.lil_matrix(A)
+            A[:, D] = 0
+            A[D, :] = 0
+            A = scipy.sparse.csr_matrix(A)
+            A += scipy.sparse.csr_matrix((np.ones(len(D)), (D, D)), shape=(n, n))
+            rhs[D] = V[D]
         data_x.from_numpy(scipy.sparse.linalg.spsolve(A, rhs))
         tmp = A.dot(data_x.to_numpy()) - rhs
         residual = np.linalg.norm(tmp, ord=np.inf)
