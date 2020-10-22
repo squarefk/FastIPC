@@ -23,7 +23,7 @@ g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfm
             ...
         Timer_Print()
 
-    It will always output average timing for each component. It will compute the compile time automatically calculate with the first round running time.
+    It will always output average timing for each component. It will compute the compile time automatically which is calculated with the first round running time.
 2. `Restart functionality`
 
     Restart is easy to implement with pickle so it is not implemented as a separate file:
