@@ -5,6 +5,17 @@ import numpy as np
 def read(testcase):
     ##################################################### 3D #####################################################
     if testcase == 0:
+        # two tets
+        mesh = meshio.read("input/tet.vtk")
+        mesh_particles = np.vstack((mesh.points + [0, 0, 0], mesh.points + [0.501, -0.5, 0.5]))
+        mesh_elements = np.vstack((mesh.cells[0].data, mesh.cells[0].data + len(mesh_particles) / 2))
+        mesh_scale = 0.6
+        mesh_offset = [0, 0, 0]
+        n_particles = len(mesh_particles)
+        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
+        dirichlet_value = mesh_particles
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 3
+    if testcase == 1:
         # two spheres
         mesh = meshio.read("input/sphere1K.vtk")
         mesh_particles = np.vstack((mesh.points + [-0.51, 0, 0], mesh.points + [0.51, 0, 0]))
@@ -15,7 +26,8 @@ def read(testcase):
         dirichlet_fixed = np.zeros(n_particles, dtype=bool)
         dirichlet_value = mesh_particles
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 3
-    elif testcase == 1:
+    elif testcase == 2:
+        # mat twist
         mesh = meshio.read("input/mat20x20.vtk")
         mesh_particles = mesh.points
         mesh_elements = mesh.cells[0].data
@@ -30,16 +42,22 @@ def read(testcase):
                 print(i, mesh_particles[i][0], mesh_particles[i][1], mesh_particles[i][2])
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 3
     elif testcase == 3:
-        # two tets
-        mesh = meshio.read("input/tet.vtk")
-        mesh_particles = np.vstack((mesh.points + [0, 0, 0], mesh.points + [0.501, -0.5, 0.5]))
-        mesh_elements = np.vstack((mesh.cells[0].data, mesh.cells[0].data + len(mesh_particles) / 2))
-        mesh_scale = 0.6
+        # sphere on mat
+        mesh0 = meshio.read("input/sphere1K.msh")
+        print(mesh0.points)
+        print(mesh0.cells)
+        mesh1 = meshio.read("input/mat40x40.msh")
+        mesh_particles = np.vstack((mesh0.points, mesh1.points + [0, 1, 0]))
+        offset = len(mesh0.points)
+        mesh_elements = np.vstack((mesh0.cells[0].data, mesh1.cells[0].data + offset))
+        mesh_scale = 0.5
         mesh_offset = [0, 0, 0]
         n_particles = len(mesh_particles)
         dirichlet_fixed = np.zeros(n_particles, dtype=bool)
         dirichlet_value = mesh_particles
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 3
+        # for i in [954, 955, 956, 957, 958]:
+        #     dirichlet_fixed[i] = True
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
     ##################################################### 2D #####################################################
     elif testcase == 4:
         # two triangles
