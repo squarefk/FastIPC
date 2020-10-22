@@ -42,7 +42,7 @@ g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfm
         1. `[1, 2, 3]`
         2. `ti.Vector([1, 2, 3])`
         3. variable `a` (assigned by [1, 2, 3])
-        4. variable `a` (assigned by ti.Matrix([1, 2, 3]))
+        4. variable `a` (assigned by ti.Vector([1, 2, 3]))
         
        A good example is in [math_tools.py](https://github.com/penn-graphics-research/FastIPC/blob/master/common/math/math_tools.py):
        
