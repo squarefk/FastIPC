@@ -12,7 +12,8 @@ g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfm
 
 ## Taichi Programming Tips
 1. `Profiling your code`
-    There is a timer implemented in ![timer.py](https://github.com/penn-graphics-research/FastIPC/blob/master/common/utils/timer.py). The usage is like:
+
+    There is a timer implemented in [timer.py](https://github.com/penn-graphics-research/FastIPC/blob/master/common/utils/timer.py). The usage is like:
     
         with Timer("Process 1"):
             ### code snippet 1
@@ -24,6 +25,7 @@ g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfm
 
     It will always output average timing for each component. It will compute the compile time automatically calculate with the first round running time.
 2. `Restart functionality`
+
     Restart is easy to implement with pickle so it is not implemented as a separate file:
 
         # load data
@@ -42,7 +44,7 @@ g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfm
         3. variable `a` (assigned by [1, 2, 3])
         4. variable `a` (assigned by ti.Matrix([1, 2, 3]))
         
-       A good example is in ![math_tools.py](https://github.com/penn-graphics-research/FastIPC/blob/master/common/math/math_tools.py):
+       A good example is in [math_tools.py](https://github.com/penn-graphics-research/FastIPC/blob/master/common/math/math_tools.py):
        
            @ti.func
            def extract_vec(v, idx: ti.template()):
@@ -51,3 +53,6 @@ g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfm
                    vec[i] = v[j]
                return vec
     2. `ti.template()` can be used in @ti.kernel to call with different fields. Official documentation only mentions @ti.kernel can only hold 8 scalar parameters.
+    3. `A.n` and `A.m` can retrieve the dimensions of matrix. `ti.get_runtime().default_fp` can be used to get current precision.
+
+4. [taichi](http://github.com/taichi-dev/taichi) has more complete API than documentation.
