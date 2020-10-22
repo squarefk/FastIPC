@@ -1,5 +1,6 @@
 import taichi as ti
 import ctypes
+import os
 import numpy as np
 
 
@@ -61,7 +62,7 @@ def make_pd(symMtr):
     return symMtr
 
 
-so = ctypes.CDLL("./wrapper/a.so")
+so = ctypes.CDLL(os.path.dirname(os.path.realpath(__file__)) + "/wrapper/a.so")
 
 
 @ti.func

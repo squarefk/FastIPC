@@ -1,6 +1,10 @@
 ## Usage
 
 ```
+export PYTHONPATH=/path/to/FastIPC:$PYTHONPATH
+```
+
+```
 python3 -m pip install taichi
 python3 -m pip install taichi_three
 python3 -m pip install taichi taichi_glsl

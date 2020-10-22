@@ -7,16 +7,16 @@ import matplotlib.pyplot as plt
 import pickle
 import scipy.sparse
 import scipy.sparse.linalg
-from math_tools import *
-from ipc import *
+from common.math.math_tools import *
+from common.math.ipc import *
 from reader import *
-from timer import *
+from common.utils.timer import *
 
 mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, gravity, dim = read(int(sys.argv[1]))
 if dim == 2:
-    from fixed_corotated import *
+    from common.physics.fixed_corotated import *
 else:
-    from fixed_corotated_3d import *
+    from common.physics.fixed_corotated_3d import *
 
 ##############################################################################
 
