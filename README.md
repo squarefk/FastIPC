@@ -1,5 +1,9 @@
 ## Usage
 
+Install [MKL](https://registrationcenter.intel.com/en/products/) (Intel Math Kernel Library)
+
+Add the following into `~/.bashrc` file.
+
 ```
 export PYTHONPATH=/path/to/FastIPC:$PYTHONPATH
 ```
