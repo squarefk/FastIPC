@@ -55,4 +55,4 @@ g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfm
     2. `ti.template()` can be used in @ti.kernel to call with different fields. Official documentation only mentions @ti.kernel can only hold 8 scalar parameters. These are done in compile time. `ti.static()` is just like if-constexpr in C++ which will optimize running time a lot.
     3. `A.n` and `A.m` can retrieve the dimensions of matrix. `ti.get_runtime().default_fp` can be used to get current precision.
 
-4. [taichi](http://github.com/taichi-dev/taichi) has more complete API than documentation.
+4. [taichi](http://github.com/taichi-dev/taichi) repo has more complete API to search for than documentation.
