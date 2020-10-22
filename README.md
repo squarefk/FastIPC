@@ -10,7 +10,10 @@ cd common/math/wrapper
 g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfma -I .
 ```
 
-## Taichi Programming Tips
+## Taichi Programming/Debugging Tips
+0. `Be cautious with type`
+
+    ti.Matrix([[0, 0], [0, 0]]) and ti.Matrix([[0.0, 0.0], [0.0, 0.0]]) have two different types.
 1. `Profiling your code`
 
     There is a timer implemented in [timer.py](https://github.com/penn-graphics-research/FastIPC/blob/master/common/utils/timer.py). The usage is like:
