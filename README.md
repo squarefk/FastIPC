@@ -1,8 +1,8 @@
 ## Usage
 
-Install [MKL](https://registrationcenter.intel.com/en/products/) (Intel Math Kernel Library)
+Install [MKL](https://software.intel.com/content/www/us/en/develop/articles/qualify-for-free-software.html#student) (Intel Math Kernel Library, free tools for students)
 
-Add the following into `~/.bashrc` file.
+Add the following into `~/.bashrc` file
 
 ```
 export PYTHONPATH=/path/to/FastIPC:$PYTHONPATH
