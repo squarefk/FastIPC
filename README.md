@@ -29,12 +29,12 @@ g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfm
     Restart is easy to implement with pickle so it is not implemented as a separate file:
 
         # load data
-        [x_, v_, dirichlet_fixed, dirichlet_value] = pickle.load(open(directory + f'caches/{f_start:06d}.p', 'rb'))
+        [x_, v_, boundary] = pickle.load(open(directory + f'caches/{f_start:06d}.p', 'rb'))
         x.from_numpy(x_)
         v.from_numpy(v_)
 
         # save data
-        pickle.dump([x.to_numpy(), v.to_numpy(), dirichlet_fixed, dirichlet_value], open(directory + f'caches/{f + 1:06d}.p', 'wb'))
+        pickle.dump([x.to_numpy(), v.to_numpy(), boundary], open(directory + f'caches/{f + 1:06d}.p', 'wb'))
         
         
 3. `Use ti.template()`
