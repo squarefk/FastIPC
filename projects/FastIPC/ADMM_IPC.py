@@ -13,10 +13,7 @@ from reader import *
 from common.utils.timer import *
 
 mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, gravity, dim = read(int(sys.argv[1]))
-if dim == 2:
-    from common.physics.fixed_corotated import *
-else:
-    from common.physics.fixed_corotated_3d import *
+from common.physics.fixed_corotated import *
 
 ##############################################################################
 
