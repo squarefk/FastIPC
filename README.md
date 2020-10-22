@@ -59,3 +59,13 @@ g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfm
     3. `A.n` and `A.m` can retrieve the dimensions of matrix. `ti.get_runtime().default_fp` can be used to get current precision.
 
 4. Code in [taichi](http://github.com/taichi-dev/taichi) repo has more complete API to search for than documentation.
+
+## Matrix Derivative Ordering Convention
+
+Column ordering convention for
+
+<img src="http://latex.codecogs.com/gif.latex?\frac{dA}{dX}=\frac{d\mathrm{vec}(A)}{d\mathrm{vec}(X)}" border="0"/>
+
+e.g. in 2d
+
+<img src="http://latex.codecogs.com/gif.latex?\frac{dA}{dX}=\begin{pmatrix}A_{11,11}&A_{11,21}&A_{11,12}&A_{11,22}\\A_{21,11}&A_{21,21}&A_{21,12}&A_{21,22}\\A_{12,11}&A_{12,21}&A_{12,12}&A_{12,22}\\A_{22,11}&A_{22,21}&A_{22,12}&A_{22,22}\\\end{pmatrix}" border="0"/>
