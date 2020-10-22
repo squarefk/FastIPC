@@ -11,18 +11,20 @@ g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfm
 ```
 
 ## Taichi Programming Tips
-1. `Profiling your code.` There is a timer implemented in common/utils/timer.py. The usage is like:
+1. `Profiling your code`
+    There is a timer implemented in ![timer.py](https://github.com/penn-graphics-research/FastIPC/blob/master/common/utils/timer.py). The usage is like:
     
         with Timer("Process 1"):
             ### code snippet 1
             ...
         with Timer("Process 2"):
-            ### code snippet 1
+            ### code snippet 2
             ...
         Timer_Print()
 
     It will always output average timing for each component. It will compute the compile time automatically calculate with the first round running time.
-2. `Restart functionality` Restart is so easy to implement with pickle so it is not implemented as a separate file:
+2. `Restart functionality`
+    Restart is easy to implement with pickle so it is not implemented as a separate file:
 
         # load data
         [x_, v_, dirichlet_fixed, dirichlet_value] = pickle.load(open(directory + f'caches/{f_start:06d}.p', 'rb'))
@@ -40,7 +42,7 @@ g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfm
         3. variable `a` (assigned by [1, 2, 3])
         4. variable `a` (assigned by ti.Matrix([1, 2, 3]))
         
-       A good example is:
+       A good example is in ![math_tools.py](https://github.com/penn-graphics-research/FastIPC/blob/master/common/math/math_tools.py):
        
            @ti.func
            def extract_vec(v, idx: ti.template()):
