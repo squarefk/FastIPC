@@ -1,4 +1,5 @@
 import meshio
+import math
 import numpy as np
 
 
@@ -128,6 +129,40 @@ def read(testcase):
         dirichlet_fixed = np.zeros(n_particles, dtype=bool)
         dirichlet_value = mesh_particles
         for i in range(24):
+            dirichlet_fixed[i] = True
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 3
+    elif testcase == 1007:
+        # card house
+        def rotate(x, y, alpha):
+            xx = math.cos(alpha) * x - math.sin(alpha) * y
+            yy = math.sin(alpha) * x + math.cos(alpha) * y
+            return xx, yy
+        mesh = meshio.read("input/cube.vtk")
+        mesh_particles = np.vstack((mesh.points * 40 + [-20, -40.44, -20], mesh.points * 0.4 + [0.2, 6, -0.2], mesh.points * 0.4 + [0.5, 9, -0.3]))
+        mesh_elements = np.vstack((mesh.cells[0].data, mesh.cells[0].data + len(mesh.points), mesh.cells[0].data + len(mesh.points) * 2))
+        mesh = meshio.read("input/mat20x20.vtk")
+        tmp_particles = mesh.points
+        tmp_elements = mesh.cells[0].data
+        angles = [math.pi / 3, -math.pi / 3, math.pi / 3, -math.pi / 3, 0.0, math.pi / 3, -math.pi / 3]
+        dxs = [0.0, 0.515, 1.03, 1.545, 0.78, 0.515, 1.03]
+        dys = [0.0, 0.0, 0.0, 0.0, 0.445, 0.89, 0.89]
+        for dx, dy, a in zip(dxs, dys, angles):
+            offset = len(mesh_particles)
+            tmp = tmp_particles.copy()
+            if a == 0.0:
+                tmp *= [1.1, 1, 1.1]
+            for i in range(len(tmp)):
+                x, y, z = tmp[i, 0], tmp[i, 1], tmp[i, 2]
+                xx, yy = rotate(x, y, a)
+                tmp[i, 0], tmp[i, 1], tmp[i, 2] = xx, yy, z
+            mesh_particles = np.vstack((mesh_particles, tmp + [dx, dy, 0.0]))
+            mesh_elements = np.vstack((mesh_elements, tmp_elements + offset))
+        mesh_scale = 0.6
+        mesh_offset = [0, -0.3, 0]
+        n_particles = len(mesh_particles)
+        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
+        dirichlet_value = mesh_particles
+        for i in range(8):
             dirichlet_fixed[i] = True
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 3
 
