@@ -1,18 +1,21 @@
+from reader import *
+from common.physics.fixed_corotated import *
+from common.math.math_tools import *
+from common.math.ipc import *
+from common.utils.timer import *
+from common.utils.logger import *
+
 import sys, os, time, math
 import taichi as ti
 import taichi_three as t3
 import numpy as np
-from neo_hookean_3d import *
-from math_tools import *
-from ipc import *
 import meshio
 import scipy.sparse
 import scipy.sparse.linalg
-from reader import *
 
 ##############################################################################
 
-mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, dim = read(int(sys.argv[1]))
+mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, gravity, dim = read(int(sys.argv[1]))
 triangles = set()
 for [p0, p1, p2, p3] in mesh_elements:
     triangles.add((p0, p2, p1))
@@ -39,6 +42,8 @@ for (p0, p1, p2) in triangles:
 
 directory = 'output/' + '_'.join(sys.argv) + '/'
 os.makedirs(directory + 'images/', exist_ok=True)
+os.makedirs(directory + 'caches/', exist_ok=True)
+os.makedirs(directory + 'objs/', exist_ok=True)
 print('output directory:', directory)
 # sys.stdout = open(directory + 'log.txt', 'w')
 # sys.stderr = open(directory + 'err.txt', 'w')
@@ -48,9 +53,9 @@ print('output directory:', directory)
 real = ti.f64
 ti.init(arch=ti.cpu, default_fp=real)
 
-scalar = lambda: ti.var(dt=real)
-vec = lambda: ti.Vector(dim, dt=real)
-mat = lambda: ti.Matrix(dim, dim, dt=real)
+scalar = lambda: ti.field(real)
+vec = lambda: ti.Vector.field(dim, real)
+mat = lambda: ti.Matrix.field(dim, dim, real)
 
 dt = 0.01
 E = 2e4
@@ -67,11 +72,10 @@ n_boundary_triangles = len(boundary_triangles_)
 x, x0, xPrev, xTilde, xn, v, m = vec(), vec(), vec(), vec(), vec(), vec(), scalar()
 zero = vec()
 restT = mat()
-vertices = ti.var(ti.i32)
-boundary_points = ti.var(ti.i32)
-boundary_edges = ti.var(ti.i32)
-boundary_triangles = ti.var(ti.i32)
-dirichlet = ti.var(ti.i32)
+vertices = ti.field(ti.i32)
+boundary_points = ti.field(ti.i32)
+boundary_edges = ti.field(ti.i32)
+boundary_triangles = ti.field(ti.i32)
 ti.root.dense(ti.k, n_particles).place(x, x0, xPrev, xTilde, xn, v, m)
 ti.root.dense(ti.k, n_particles).place(zero)
 ti.root.dense(ti.i, n_elements).place(restT)
@@ -79,29 +83,30 @@ ti.root.dense(ti.ij, (n_elements, dim + 1)).place(vertices)
 ti.root.dense(ti.i, n_boundary_points).place(boundary_points)
 ti.root.dense(ti.ij, (n_boundary_edges, 2)).place(boundary_edges)
 ti.root.dense(ti.ij, (n_boundary_triangles, 3)).place(boundary_triangles)
-ti.root.dense(ti.i, n_particles * dim).place(dirichlet)
 
-data_rhs = ti.var(real, shape=n_particles * dim)
-data_row = ti.var(ti.i32, shape=10000000)
-data_col = ti.var(ti.i32, shape=10000000)
-data_val = ti.var(real, shape=10000000)
-data_sol = ti.var(real, shape=n_particles * dim)
-cnt = ti.var(dt=ti.i32, shape=())
+MAX_LINEAR = 5000000
+data_rhs = ti.field(real, shape=n_particles * dim)
+data_row = ti.field(ti.i32, shape=MAX_LINEAR)
+data_col = ti.field(ti.i32, shape=MAX_LINEAR)
+data_val = ti.field(real, shape=MAX_LINEAR)
+data_sol = ti.field(real, shape=n_particles * dim)
+cnt = ti.field(ti.i32, shape=())
 
-PP = ti.var(ti.i32, shape=(100000, 2))
-n_PP = ti.var(dt=ti.i32, shape=())
-PE = ti.var(ti.i32, shape=(100000, 3))
-n_PE = ti.var(dt=ti.i32, shape=())
-PT = ti.var(ti.i32, shape=(100000, 4))
-n_PT = ti.var(dt=ti.i32, shape=())
-EE = ti.var(ti.i32, shape=(100000, 4))
-n_EE = ti.var(dt=ti.i32, shape=())
-EEM = ti.var(ti.i32, shape=(100000, 4))
-n_EEM = ti.var(dt=ti.i32, shape=())
-PPM = ti.var(ti.i32, shape=(100000, 4))
-n_PPM = ti.var(dt=ti.i32, shape=())
-PEM = ti.var(ti.i32, shape=(100000, 4))
-n_PEM = ti.var(dt=ti.i32, shape=())
+MAX_C = 100000
+PP = ti.field(ti.i32, shape=(MAX_C, 2))
+n_PP = ti.field(ti.i32, shape=())
+PE = ti.field(ti.i32, shape=(MAX_C, 3))
+n_PE = ti.field(ti.i32, shape=())
+PT = ti.field(ti.i32, shape=(MAX_C, 4))
+n_PT = ti.field(ti.i32, shape=())
+EE = ti.field(ti.i32, shape=(MAX_C, 4))
+n_EE = ti.field(ti.i32, shape=())
+EEM = ti.field(ti.i32, shape=(MAX_C, 4))
+n_EEM = ti.field(ti.i32, shape=())
+PPM = ti.field(ti.i32, shape=(MAX_C, 4))
+n_PPM = ti.field(ti.i32, shape=())
+PEM = ti.field(ti.i32, shape=(MAX_C, 4))
+n_PEM = ti.field(ti.i32, shape=())
 
 dHat2 = 1e-5
 dHat = dHat2 ** 0.5
@@ -263,13 +268,13 @@ def compute_intersection_free_step_size() -> real:
                 if moving_edge_edge_ccd_broadphase(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, dHat):
                     dist2 = EE_dist2(x[a0], x[a1], x[b0], x[b1], EE_type(x[a0], x[a1], x[b0], x[b1]))
                     alpha = ti.min(alpha, edge_edge_ccd(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, 0.2, dist2))
-    for i in range(n_elements):
-        a, b, c, d = vertices[i, 0], vertices[i, 1], vertices[i, 2], vertices[i, 3]
-        da = ti.Vector([data_sol[a * dim + 0], data_sol[a * dim + 1], data_sol[a * dim + 2]])
-        db = ti.Vector([data_sol[b * dim + 0], data_sol[b * dim + 1], data_sol[b * dim + 2]])
-        dc = ti.Vector([data_sol[c * dim + 0], data_sol[c * dim + 1], data_sol[c * dim + 2]])
-        dd = ti.Vector([data_sol[d * dim + 0], data_sol[d * dim + 1], data_sol[d * dim + 2]])
-        alpha = ti.min(alpha, get_smallest_positive_real_cubic_root(x[a], x[b], x[c], x[d], da, db, dc, dd, 0.2))
+    # for i in range(n_elements):
+    #     a, b, c, d = vertices[i, 0], vertices[i, 1], vertices[i, 2], vertices[i, 3]
+    #     da = ti.Vector([data_sol[a * dim + 0], data_sol[a * dim + 1], data_sol[a * dim + 2]])
+    #     db = ti.Vector([data_sol[b * dim + 0], data_sol[b * dim + 1], data_sol[b * dim + 2]])
+    #     dc = ti.Vector([data_sol[c * dim + 0], data_sol[c * dim + 1], data_sol[c * dim + 2]])
+    #     dd = ti.Vector([data_sol[d * dim + 0], data_sol[d * dim + 1], data_sol[d * dim + 2]])
+    #     alpha = ti.min(alpha, get_smallest_positive_real_cubic_root(x[a], x[b], x[c], x[d], da, db, dc, dd, 0.2))
     return alpha
 
 
@@ -302,22 +307,42 @@ def compute_xn_and_xTilde():
     for i in range(n_particles):
         xn[i] = x[i]
         xTilde[i] = x[i] + dt * v[i]
-        # xTilde(0)[i] -= dt * dt * 9.8
+        xTilde(0)[i] += dt * dt * gravity
 
 
-@ti.kernel
-def move_nodes():
-    speed = math.pi / 100
+def move_nodes(f):
+    if int(sys.argv[1]) == 1001:
+        @ti.kernel
+        def add_initial_velocity():
+            for i in range(n_particles):
+                v(0)[i] = 1 if i < n_particles / 2 else -1
+        if f == 0:
+            add_initial_velocity()
+    elif int(sys.argv[1]) == 1002:
+        speed = math.pi * 0.4
+        for i in range(n_particles):
+            if dirichlet_fixed[i]:
+                a, b, c = x(0)[i], x(1)[i], x(2)[i]
+                angle = ti.atan2(b, c)
+                if a < 0:
+                    angle += speed * dt
+                else:
+                    angle -= speed * dt
+                radius = ti.sqrt(b * b + c * c)
+                dirichlet_value[i, 0] = a
+                dirichlet_value[i, 1] = radius * ti.sin(angle)
+                dirichlet_value[i, 2] = radius * ti.cos(angle)
+    elif int(sys.argv[1]) == 10:
+        speed = 1
+        for i in range(954):
+            if dirichlet_fixed[i]:
+                dirichlet_value[i, 0] += speed * dt
+    tmp_fixed = np.stack((dirichlet_fixed,) * dim, axis=-1)
     for i in range(n_particles):
-        if dirichlet[i * dim]:
-            a, b, c = x(0)[i], x(1)[i], x(2)[i]
-            angle = ti.atan2(b, c)
-            if a < 0:
-                angle += speed
-            else:
-                angle -= speed
-            radius = ti.sqrt(b * b + c * c)
-            x(1)[i], x(2)[i] = radius * ti.sin(angle), radius * ti.cos(angle)
+        if dirichlet_fixed[i]:
+            for d in range(dim):
+                x(d)[i] = dirichlet_value[i, d]
+    return np.where(tmp_fixed.reshape((n_particles * dim)))[0], np.zeros((n_particles * dim))
 
 
 @ti.kernel
@@ -334,51 +359,31 @@ def compute_energy() -> real:
         total_energy += elasticity_energy(sig, la, mu) * dt * dt * vol0
     # ipc
     for r in range(n_PP[None]):
-        p0, p1 = x[PP[r, 0]], x[PP[r, 1]]
-        dist2 = PP_3D_E(p0, p1)
-        total_energy += barrier_E(dist2, dHat2, kappa)
+        total_energy += PP_energy(x[PP[r, 0]], x[PP[r, 1]], dHat2, kappa)
     for r in range(n_PE[None]):
-        p, e0, e1 = x[PE[r, 0]], x[PE[r, 1]], x[PE[r, 2]]
-        dist2 = PE_3D_E(p, e0, e1)
-        total_energy += barrier_E(dist2, dHat2, kappa)
+        total_energy += PE_energy(x[PE[r, 0]], x[PE[r, 1]], x[PE[r, 2]], dHat2, kappa)
     for r in range(n_PT[None]):
-        p, t0, t1, t2 = x[PT[r, 0]], x[PT[r, 1]], x[PT[r, 2]], x[PT[r, 3]]
-        dist2 = PT_3D_E(p, t0, t1, t2)
-        total_energy += barrier_E(dist2, dHat2, kappa)
+        total_energy += PT_energy(x[PT[r, 0]], x[PT[r, 1]], x[PT[r, 2]], x[PT[r, 3]], dHat2, kappa)
     for r in range(n_EE[None]):
-        a0, a1, b0, b1 = x[EE[r, 0]], x[EE[r, 1]], x[EE[r, 2]], x[EE[r, 3]]
-        dist2 = EE_3D_E(a0, a1, b0, b1)
-        total_energy += barrier_E(dist2, dHat2, kappa)
+        total_energy += EE_energy(x[EE[r, 0]], x[EE[r, 1]], x[EE[r, 2]], x[EE[r, 3]], dHat2, kappa)
     for r in range(n_EEM[None]):
-        a0, a1, b0, b1 = x[EEM[r, 0]], x[EEM[r, 1]], x[EEM[r, 2]], x[EEM[r, 3]]
-        _a0, _a1, _b0, _b1 = x0[EEM[r, 0]], x0[EEM[r, 1]], x0[EEM[r, 2]], x0[EEM[r, 3]]
-        dist2 = EE_3D_E(a0, a1, b0, b1)
-        eps_x = M_threshold(_a0, _a1, _b0, _b1)
-        total_energy += barrier_E(dist2, dHat2, kappa) * M_E(a0, a1, b0, b1, eps_x)
+        total_energy += EEM_energy(x[EEM[r, 0]], x[EEM[r, 1]], x[EEM[r, 2]], x[EEM[r, 3]], x0[EEM[r, 0]], x0[EEM[r, 1]], x0[EEM[r, 2]], x0[EEM[r, 3]], dHat2, kappa)
     for r in range(n_PPM[None]):
-        a0, a1, b0, b1 = x[PPM[r, 0]], x[PPM[r, 1]], x[PPM[r, 2]], x[PPM[r, 3]]
-        _a0, _a1, _b0, _b1 = x0[PPM[r, 0]], x0[PPM[r, 1]], x0[PPM[r, 2]], x0[PPM[r, 3]]
-        dist2 = PP_3D_E(a0, b0)
-        eps_x = M_threshold(_a0, _a1, _b0, _b1)
-        total_energy += barrier_E(dist2, dHat2, kappa) * M_E(a0, a1, b0, b1, eps_x)
+        total_energy += PPM_energy(x[PPM[r, 0]], x[PPM[r, 1]], x[PPM[r, 2]], x[PPM[r, 3]], x0[PPM[r, 0]], x0[PPM[r, 1]], x0[PPM[r, 2]], x0[PPM[r, 3]], dHat2, kappa)
     for r in range(n_PEM[None]):
-        a0, a1, b0, b1 = x[PEM[r, 0]], x[PEM[r, 1]], x[PEM[r, 2]], x[PEM[r, 3]]
-        _a0, _a1, _b0, _b1 = x0[PEM[r, 0]], x0[PEM[r, 1]], x0[PEM[r, 2]], x0[PEM[r, 3]]
-        dist2 = PE_3D_E(a0, b0, b1)
-        eps_x = M_threshold(_a0, _a1, _b0, _b1)
-        total_energy += barrier_E(dist2, dHat2, kappa) * M_E(a0, a1, b0, b1, eps_x)
+        total_energy += PEM_energy(x[PEM[r, 0]], x[PEM[r, 1]], x[PEM[r, 2]], x[PEM[r, 3]], x0[PEM[r, 0]], x0[PEM[r, 1]], x0[PEM[r, 2]], x0[PEM[r, 3]], dHat2, kappa)
     return total_energy
 
 
 @ti.func
-def load_hessian_and_gradient(H, g, idx, c, t: ti.template()):
-    for i in ti.static(range(t)):
+def load_hessian_and_gradient(H, g, idx: ti.template(), c):
+    for i in ti.static(range(idx.n)):
         for d in ti.static(range(dim)):
-            for j in ti.static(range(t)):
+            for j in ti.static(range(idx.n)):
                 for e in ti.static(range(dim)):
                     data_row[c], data_col[c], data_val[c] = idx[i] * dim + d, idx[j] * dim + e, H[i * dim + d, j * dim + e]
                     c += 1
-    for i in ti.static(range(t)):
+    for i in ti.static(range(idx.n)):
         for d in ti.static(range(dim)):
             data_rhs[idx[i] * dim + d] -= g[i * dim + d]
 
@@ -520,100 +525,44 @@ def compute_elasticity():
 @ti.kernel
 def compute_ipc0():
     for r in range(n_PP[None]):
-        p0, p1 = x[PP[r, 0]], x[PP[r, 1]]
-        dist2 = PP_3D_E(p0, p1)
-        dist2g = PP_3D_g(p0, p1)
-        bg = barrier_g(dist2, dHat2, kappa)
-        g = bg * dist2g
-        H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(p0, p1)
-        load_hessian_and_gradient(H, g, ti.Vector([PP[r, 0], PP[r, 1]]), cnt[None] + r * 36, 2)
+        g, H = PP_g_and_H(x[PP[r, 0]], x[PP[r, 1]], dHat2, kappa)
+        load_hessian_and_gradient(H, g, ti.Vector([PP[r, 0], PP[r, 1]]), cnt[None] + r * 36)
     cnt[None] += n_PP[None] * 36
 @ti.kernel
 def compute_ipc1():
     for r in range(n_PE[None]):
-        p, e0, e1 = x[PE[r, 0]], x[PE[r, 1]], x[PE[r, 2]]
-        dist2 = PE_3D_E(p, e0, e1)
-        dist2g = PE_3D_g(p, e0, e1)
-        bg = barrier_g(dist2, dHat2, kappa)
-        g = bg * dist2g
-        H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(p, e0, e1)
-        load_hessian_and_gradient(H, g, ti.Vector([PE[r, 0], PE[r, 1], PE[r, 2]]), cnt[None] + r * 81, 3)
+        g, H = PE_g_and_H(x[PE[r, 0]], x[PE[r, 1]], x[PE[r, 2]], dHat2, kappa)
+        load_hessian_and_gradient(H, g, ti.Vector([PE[r, 0], PE[r, 1], PE[r, 2]]), cnt[None] + r * 81)
     cnt[None] += n_PE[None] * 81
 @ti.kernel
 def compute_ipc2():
     for r in range(n_PT[None]):
-        p, t0, t1, t2 = x[PT[r, 0]], x[PT[r, 1]], x[PT[r, 2]], x[PT[r, 3]]
-        dist2 = PT_3D_E(p, t0, t1, t2)
-        dist2g = PT_3D_g(p, t0, t1, t2)
-        bg = barrier_g(dist2, dHat2, kappa)
-        g = bg * dist2g
-        H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PT_3D_H(p, t0, t1, t2)
-        load_hessian_and_gradient(H, g, ti.Vector([PT[r, 0], PT[r, 1], PT[r, 2], PT[r, 3]]), cnt[None] + r * 144, 4)
+        g, H = PT_g_and_H(x[PT[r, 0]], x[PT[r, 1]], x[PT[r, 2]], x[PT[r, 3]], dHat2, kappa)
+        load_hessian_and_gradient(H, g, ti.Vector([PT[r, 0], PT[r, 1], PT[r, 2], PT[r, 3]]), cnt[None] + r * 144)
     cnt[None] += n_PT[None] * 144
 @ti.kernel
 def compute_ipc3():
     for r in range(n_EE[None]):
-        a0, a1, b0, b1 = x[EE[r, 0]], x[EE[r, 1]], x[EE[r, 2]], x[EE[r, 3]]
-        dist2 = EE_3D_E(a0, a1, b0, b1)
-        dist2g = EE_3D_g(a0, a1, b0, b1)
-        bg = barrier_g(dist2, dHat2, kappa)
-        g = bg * dist2g
-        H = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * EE_3D_H(a0, a1, b0, b1)
-        load_hessian_and_gradient(H, g, ti.Vector([EE[r, 0], EE[r, 1], EE[r, 2], EE[r, 3]]), cnt[None] + r * 144, 4)
+        g, H = EE_g_and_H(x[EE[r, 0]], x[EE[r, 1]], x[EE[r, 2]], x[EE[r, 3]], dHat2, kappa)
+        load_hessian_and_gradient(H, g, ti.Vector([EE[r, 0], EE[r, 1], EE[r, 2], EE[r, 3]]), cnt[None] + r * 144)
     cnt[None] += n_EE[None] * 144
 @ti.kernel
 def compute_ipc4():
     for r in range(n_EEM[None]):
-        a0, a1, b0, b1 = x[EEM[r, 0]], x[EEM[r, 1]], x[EEM[r, 2]], x[EEM[r, 3]]
-        _a0, _a1, _b0, _b1 = x0[EEM[r, 0]], x0[EEM[r, 1]], x0[EEM[r, 2]], x0[EEM[r, 3]]
-        eps_x = M_threshold(_a0, _a1, _b0, _b1)
-        dist2 = EE_3D_E(a0, a1, b0, b1)
-        dist2g = EE_3D_g(a0, a1, b0, b1)
-        b = barrier_E(dist2, dHat2, kappa)
-        bg = barrier_g(dist2, dHat2, kappa)
-        lg = bg * dist2g
-        lH = barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * EE_3D_H(a0, a1, b0, b1)
-        M = M_E(a0, a1, b0, b1, eps_x)
-        Mg = M_g(a0, a1, b0, b1, eps_x)
-        g = lg * M + b * Mg
-        H = lH * M + lg.outer_product(Mg) + Mg.outer_product(lg) + b * M_H(a0, a1, b0, b1, eps_x)
-        load_hessian_and_gradient(H, g, ti.Vector([EEM[r, 0], EEM[r, 1], EEM[r, 2], EEM[r, 3]]), cnt[None] + r * 144, 4)
+        g, H = EEM_g_and_H(x[EEM[r, 0]], x[EEM[r, 1]], x[EEM[r, 2]], x[EEM[r, 3]], x0[EEM[r, 0]], x0[EEM[r, 1]], x0[EEM[r, 2]], x0[EEM[r, 3]], dHat2, kappa)
+        load_hessian_and_gradient(H, g, ti.Vector([EEM[r, 0], EEM[r, 1], EEM[r, 2], EEM[r, 3]]), cnt[None] + r * 144)
     cnt[None] += n_EEM[None] * 144
 @ti.kernel
 def compute_ipc5():
     for r in range(n_PPM[None]):
-        a0, a1, b0, b1 = x[PPM[r, 0]], x[PPM[r, 1]], x[PPM[r, 2]], x[PPM[r, 3]]
-        _a0, _a1, _b0, _b1 = x0[PPM[r, 0]], x0[PPM[r, 1]], x0[PPM[r, 2]], x0[PPM[r, 3]]
-        eps_x = M_threshold(_a0, _a1, _b0, _b1)
-        dist2 = PP_3D_E(a0, b0)
-        dist2g = PP_3D_g(a0, b0)
-        b = barrier_E(dist2, dHat2, kappa)
-        bg = barrier_g(dist2, dHat2, kappa)
-        lg = fill_vec(bg * dist2g, [0, 1, 2, 6, 7, 8])
-        lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PP_3D_H(a0, b0), [0, 1, 2, 6, 7, 8])
-        M = M_E(a0, a1, b0, b1, eps_x)
-        Mg = M_g(a0, a1, b0, b1, eps_x)
-        g = lg * M + b * Mg
-        H = lH * M + lg.outer_product(Mg) + Mg.outer_product(lg) + b * M_H(a0, a1, b0, b1, eps_x)
-        load_hessian_and_gradient(H, g, ti.Vector([PPM[r, 0], PPM[r, 1], PPM[r, 2], PPM[r, 3]]), cnt[None] + r * 144, 4)
+        g, H = PPM_g_and_H(x[PPM[r, 0]], x[PPM[r, 1]], x[PPM[r, 2]], x[PPM[r, 3]], x0[PPM[r, 0]], x0[PPM[r, 1]], x0[PPM[r, 2]], x0[PPM[r, 3]], dHat2, kappa)
+        load_hessian_and_gradient(H, g, ti.Vector([PPM[r, 0], PPM[r, 1], PPM[r, 2], PPM[r, 3]]), cnt[None] + r * 144)
     cnt[None] += n_PPM[None] * 144
 @ti.kernel
 def compute_ipc6():
     for r in range(n_PEM[None]):
-        a0, a1, b0, b1 = x[PEM[r, 0]], x[PEM[r, 1]], x[PEM[r, 2]], x[PEM[r, 3]]
-        _a0, _a1, _b0, _b1 = x0[PEM[r, 0]], x0[PEM[r, 1]], x0[PEM[r, 2]], x0[PEM[r, 3]]
-        eps_x = M_threshold(_a0, _a1, _b0, _b1)
-        dist2 = PE_3D_E(a0, b0, b1)
-        dist2g = PE_3D_g(a0, b0, b1)
-        b = barrier_E(dist2, dHat2, kappa)
-        bg = barrier_g(dist2, dHat2, kappa)
-        lg = fill_vec(bg * dist2g, [0, 1, 2, 6, 7, 8, 9, 10, 11])
-        lH = fill_mat(barrier_H(dist2, dHat2, kappa) * dist2g.outer_product(dist2g) + bg * PE_3D_H(a0, b0, b1), [0, 1, 2, 6, 7, 8, 9, 10, 11])
-        M = M_E(a0, a1, b0, b1, eps_x)
-        Mg = M_g(a0, a1, b0, b1, eps_x)
-        g = lg * M + b * Mg
-        H = lH * M + lg.outer_product(Mg) + Mg.outer_product(lg) + b * M_H(a0, a1, b0, b1, eps_x)
-        load_hessian_and_gradient(H, g, ti.Vector([PEM[r, 0], PEM[r, 1], PEM[r, 2], PEM[r, 3]]), cnt[None] + r * 144, 4)
+        g, H = PEM_g_and_H(x[PEM[r, 0]], x[PEM[r, 1]], x[PEM[r, 2]], x[PEM[r, 3]], x0[PEM[r, 0]], x0[PEM[r, 1]], x0[PEM[r, 2]], x0[PEM[r, 3]], dHat2, kappa)
+        load_hessian_and_gradient(H, g, ti.Vector([PEM[r, 0], PEM[r, 1], PEM[r, 2], PEM[r, 3]]), cnt[None] + r * 144)
     cnt[None] += n_PEM[None] * 144
 
 
@@ -640,41 +589,20 @@ def compute_hessian_and_gradient():
     print("ipc6 done.", end='\n')
 
 
-def solve_system():
+def solve_system(D, V):
+    if cnt[None] >= MAX_LINEAR or max(n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None]) >= MAX_C:
+        print("FATAL ERROR: Array Too Small!")
     print("Total entries: ", cnt[None])
     row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
     rhs = data_rhs.to_numpy()
-    c36 = n_PP[None]
-    c81 = n_PE[None]
-    c144 = n_PT[None] + n_EE[None] + n_EEM[None] + n_PPM[None] + n_PEM[None]
-    for i in range(c36):
-        l = cnt[None] - c36 * 36 - c81 * 81 - c144 * 144 + i * 36
-        r = l + 36
-        val[l:r] = make_semi_positive_definite(val[l:r], 6)
-    for i in range(c81):
-        l = cnt[None] - c81 * 81 - c144 * 144 + i * 81
-        r = l + 81
-        val[l:r] = make_semi_positive_definite(val[l:r], 9)
-    for i in range(c144):
-        l = cnt[None] - c144 * 144 + i * 144
-        r = l + 144
-        val[l:r] = make_semi_positive_definite(val[l:r], 12)
-
-    dirichlet_value.fill(0)
-    for i in range(cnt[None]):
-        if dirichlet_fixed[col[i]]:
-            rhs[row[i]] -= dirichlet_value[col[i]] * val[i]
-        if dirichlet_fixed[row[i]] or dirichlet_fixed[col[i]]:
-            val[i] = 0
-    indices = np.where(dirichlet_fixed)
-    for i in indices[0]:
-        row = np.append(row, i)
-        col = np.append(col, i)
-        val = np.append(val, 1.)
-        rhs[i] = dirichlet_value[i]
-
     n = n_particles * dim
     A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
+    A = scipy.sparse.lil_matrix(A)
+    A[:, D] = 0
+    A[D, :] = 0
+    A = scipy.sparse.csr_matrix(A)
+    A += scipy.sparse.csr_matrix((np.ones(len(D)), (D, D)), shape=(n, n))
+    rhs[D] = V[D]
     data_sol.from_numpy(scipy.sparse.linalg.spsolve(A, rhs))
 
 
@@ -725,8 +653,8 @@ else:
     scene.add_light(light)
     gui = ti.GUI('IPC', camera.res)
 def write_image(f):
-    find_constraints()
     particle_pos = (x.to_numpy() + mesh_offset) * mesh_scale
+    x_ = x.to_numpy()
     vertices_ = vertices.to_numpy()
     if dim == 2:
         for i in range(n_elements):
@@ -742,62 +670,65 @@ def write_image(f):
             gui.circle(particle_pos[PE[i, 0]], radius=3, color=0xFF4444)
         gui.show(directory + f'images/{f:06d}.png')
     else:
-        model.vi.from_numpy(particle_pos.astype(np.float64))
+        model.vi.from_numpy(particle_pos.astype(np.float32))
         model.faces.from_numpy(boundary_triangles_.astype(np.int32))
         camera.from_mouse(gui)
         scene.render()
         gui.set_image(camera.img)
         gui.show(directory + f'images/{f:06d}.png')
-        f = open(f'output/{f:06d}.obj', 'w')
+        f = open(directory + f'objs/{f:06d}.obj', 'w')
         for i in range(n_particles):
-            f.write('v %.6f %.6f %.6f\n' % (particle_pos[i, 0], particle_pos[i, 1], particle_pos[i, 2]))
+            f.write('v %.6f %.6f %.6f\n' % (x_[i, 0], x_[i, 1], x_[i, 2]))
         for [p0, p1, p2] in boundary_triangles_:
             f.write('f %d %d %d\n' % (p0 + 1, p1 + 1, p2 + 1))
         f.close()
 
 
 if __name__ == "__main__":
-    x.from_numpy(mesh_particles.astype(np.float64))
-    v.fill(0)
-    vertices.from_numpy(mesh_elements.astype(np.int32))
-    boundary_points.from_numpy(np.array(list(boundary_points_)).astype(np.int32))
-    boundary_edges.from_numpy(boundary_edges_.astype(np.int32))
-    boundary_triangles.from_numpy(boundary_triangles_.astype(np.int32))
-    dirichlet.from_numpy(dirichlet_fixed.astype(np.int32))
-    compute_restT_and_m()
-    save_x0()
-    zero.fill(0)
-    write_image(0)
-    total_time = 0.0
-    for f in range(120):
-        total_time -= time.time()
-        print("==================== Frame: ", f, " ====================")
-        compute_xn_and_xTilde()
-        move_nodes()
-        find_constraints()
-        while True:
-            data_row.fill(0)
-            data_col.fill(0)
-            data_val.fill(0)
-            data_rhs.fill(0)
-            data_sol.fill(0)
-            compute_hessian_and_gradient()
-            solve_system()
-            if output_residual() < 1e-2 * dt:
-                break
-            E0 = compute_energy()
-            save_xPrev()
-            alpha = compute_intersection_free_step_size()
-            apply_sol(alpha)
-            find_constraints()
-            E = compute_energy()
-            while E > E0:
-                alpha *= 0.5
-                apply_sol(alpha)
-                find_constraints()
-                E = compute_energy()
-            print("!!!!!!!!!!!!!!!!!!!!!", alpha, E)
-        compute_v()
-        total_time += time.time()
-        print("Time : ", total_time)
-        write_image(f + 1)
+    with Logger(directory + f'log.txt'):
+        x.from_numpy(mesh_particles.astype(np.float64))
+        v.fill(0)
+        vertices.from_numpy(mesh_elements.astype(np.int32))
+        boundary_points.from_numpy(np.array(list(boundary_points_)).astype(np.int32))
+        boundary_edges.from_numpy(boundary_edges_.astype(np.int32))
+        boundary_triangles.from_numpy(boundary_triangles_.astype(np.int32))
+        compute_restT_and_m()
+        save_x0()
+        zero.fill(0)
+        write_image(0)
+        for f in range(360):
+            with Timer("Time Step"):
+                print("==================== Frame: ", f, " ====================")
+                compute_xn_and_xTilde()
+                D, V = move_nodes(f)
+                with Timer("Find Constraints"):
+                    find_constraints()
+                while True:
+                    with Timer("Build System"):
+                        data_row.fill(0)
+                        data_col.fill(0)
+                        data_val.fill(0)
+                        data_rhs.fill(0)
+                        data_sol.fill(0)
+                        compute_hessian_and_gradient()
+                    with Timer("Solve System"):
+                        solve_system(D, V)
+                    if output_residual() < 1e-2 * dt:
+                        break
+                    with Timer("Line Search"):
+                        E0 = compute_energy()
+                        save_xPrev()
+                        alpha = compute_intersection_free_step_size()
+                        apply_sol(alpha)
+                        find_constraints()
+                        E = compute_energy()
+                        while E > E0:
+                            alpha *= 0.5
+                            apply_sol(alpha)
+                            find_constraints()
+                            E = compute_energy()
+                        print("!!!!!!!!!!!!!!!!!!!!!", alpha, E)
+                compute_v()
+            with Timer("Visualization"):
+                write_image(f + 1)
+            Timer_Print()
