@@ -330,7 +330,9 @@ def move_nodes(f):
                 else:
                     angle -= speed * dt
                 radius = ti.sqrt(b * b + c * c)
-                x(1)[i], x(2)[i] = radius * ti.sin(angle), radius * ti.cos(angle)
+                dirichlet_value[i, 0] = a
+                dirichlet_value[i, 1] = radius * ti.sin(angle)
+                dirichlet_value[i, 2] = radius * ti.cos(angle)
     elif int(sys.argv[1]) == 10:
         speed = 1
         for i in range(954):
