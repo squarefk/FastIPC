@@ -312,7 +312,7 @@ def initial_guess():
 
 
 def move_nodes(f):
-    if int(sys.argv[1]) == 0:
+    if int(sys.argv[1]) == 1001:
         @ti.kernel
         def add_initial_velocity():
             for i in range(n_particles):
