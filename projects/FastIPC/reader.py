@@ -108,6 +108,29 @@ def read(testcase):
         for i in range(offset, n_particles):
             dirichlet_fixed[i] = True
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 3
+    elif testcase == 1006:
+        # arch
+        mesh = meshio.read("input/cube.vtk")
+        mesh_particles = np.vstack((mesh.points * 200 + [-100, -120, -100], mesh.points * 10 + [-41.0, -11.4, -5.0], mesh.points * 10 + [31, -11.4, -5.0]))
+        mesh_elements = np.vstack((mesh.cells[0].data, mesh.cells[0].data + len(mesh.points), mesh.cells[0].data + len(mesh.points) * 2))
+        for i in range(25):
+            tmp_particles, tmp_elements = read_msh("input/arch/largeArch." + str(i + 1).zfill(2) + ".msh")
+            dx = -1.2 + 0.1 * i
+            dy = -1.2 + 0.1 * i
+            if i >= 12:
+                dy = -dy
+            offset = len(mesh_particles)
+            mesh_particles = np.vstack((mesh_particles, tmp_particles + [dx, dy, 0.0]))
+            mesh_elements = np.vstack((mesh_elements, tmp_elements + offset))
+        mesh_scale = 0.6
+        mesh_offset = [0, -0.3, 0]
+        n_particles = len(mesh_particles)
+        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
+        dirichlet_value = mesh_particles
+        for i in range(24):
+            dirichlet_fixed[i] = True
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 3
+
     ##################################################### 2D #####################################################
     elif testcase == 4:
         # two triangles
