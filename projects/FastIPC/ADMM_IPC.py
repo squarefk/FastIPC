@@ -1,3 +1,10 @@
+from reader import *
+from common.math.ipc import *
+from common.math.math_tools import *
+from common.utils.timer import *
+from common.utils.logger import *
+from common.physics.fixed_corotated import *
+
 from hashlib import sha1
 import sys, os, math
 import taichi as ti
@@ -7,15 +14,9 @@ import matplotlib.pyplot as plt
 import pickle
 import scipy.sparse
 import scipy.sparse.linalg
-from common.math.math_tools import *
-from common.math.ipc import *
-from reader import *
-from common.utils.timer import *
-
-mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, gravity, dim = read(int(sys.argv[1]))
-from common.physics.fixed_corotated import *
 
 ##############################################################################
+mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, gravity, dim = read(int(sys.argv[1]))
 boundary_points_ = set()
 boundary_edges_ = np.zeros(shape=(0, 2), dtype=np.int32)
 boundary_triangles_ = np.zeros(shape=(0, 3), dtype=np.int32)
@@ -1331,95 +1332,96 @@ def write_image(f):
 
 
 if __name__ == "__main__":
-    start = time()
-    x.from_numpy(mesh_particles.astype(np.float64)[:, :dim])
-    v.fill(0)
-    vertices.from_numpy(mesh_elements.astype(np.int32))
-    boundary_points.from_numpy(np.array(list(boundary_points_)).astype(np.int32))
-    boundary_edges.from_numpy(boundary_edges_.astype(np.int32))
-    boundary_triangles.from_numpy(boundary_triangles_.astype(np.int32))
-    compute_restT_and_m()
-    kappa = compute_adaptive_kappa()
-    vertices_ = vertices.to_numpy()
-    write_image(0)
-    f_start = 0
-    if len(sys.argv) == 3:
-        f_start = int(sys.argv[2])
-        [x_, v_, dirichlet_fixed, dirichlet_value] = pickle.load(open(directory + f'caches/{f_start:06d}.p', 'rb'))
-        x.from_numpy(x_)
-        v.from_numpy(v_)
-    for f in range(f_start, 360):
-        with Timer("Time Step"):
-            print("==================== Frame: ", f, " ====================")
-            with Timer("Move Nodes"):
-                D, V = move_nodes(f)
-            with Timer("Initialization for xTilde, elasticity"):
-                initial_guess()
-            for step in range(20):
-                with Timer("Global Initialization"):
-                    alpha = compute_filter(x, xTilde) if step == 0 else 0.0
-                    grid.deactivate_all()
-                    backup_admm_variables()
-                    if dim == 2:
-                        find_constraints_2D_PE()
-                    else:
-                        find_constraints_3D_PT()
+    with Logger(directory + f'log.txt'):
+        start = time()
+        x.from_numpy(mesh_particles.astype(np.float64)[:, :dim])
+        v.fill(0)
+        vertices.from_numpy(mesh_elements.astype(np.int32))
+        boundary_points.from_numpy(np.array(list(boundary_points_)).astype(np.int32))
+        boundary_edges.from_numpy(boundary_edges_.astype(np.int32))
+        boundary_triangles.from_numpy(boundary_triangles_.astype(np.int32))
+        compute_restT_and_m()
+        kappa = compute_adaptive_kappa()
+        vertices_ = vertices.to_numpy()
+        write_image(0)
+        f_start = 0
+        if len(sys.argv) == 3:
+            f_start = int(sys.argv[2])
+            [x_, v_, dirichlet_fixed, dirichlet_value] = pickle.load(open(directory + f'caches/{f_start:06d}.p', 'rb'))
+            x.from_numpy(x_)
+            v.from_numpy(v_)
+        for f in range(f_start, 360):
+            with Timer("Time Step"):
+                print("==================== Frame: ", f, " ====================")
+                with Timer("Move Nodes"):
+                    D, V = move_nodes(f)
+                with Timer("Initialization for xTilde, elasticity"):
+                    initial_guess()
+                for step in range(20):
+                    with Timer("Global Initialization"):
+                        alpha = compute_filter(x, xTilde) if step == 0 else 0.0
                         grid.deactivate_all()
-                        find_constraints_3D_EE()
-                    remove_duplicated_constraints()
-                    reuse_admm_variables(alpha)
+                        backup_admm_variables()
+                        if dim == 2:
+                            find_constraints_2D_PE()
+                        else:
+                            find_constraints_3D_PT()
+                            grid.deactivate_all()
+                            find_constraints_3D_EE()
+                        remove_duplicated_constraints()
+                        reuse_admm_variables(alpha)
 
-                with Timer("Global Build System"):
-                    data_row.fill(0)
-                    data_col.fill(0)
-                    data_val.fill(0)
-                    data_rhs.fill(0)
-                    data_x.fill(0)
-                    global_step()
-                    global_PP()
-                    global_PE()
-                    if dim == 3:
-                        global_PT()
-                        global_EE()
-                        global_EEM()
-                        global_PPM()
-                        global_PEM()
-                with Timer("Global Solve"):
-                    solve_system(D, V)
+                    with Timer("Global Build System"):
+                        data_row.fill(0)
+                        data_col.fill(0)
+                        data_val.fill(0)
+                        data_rhs.fill(0)
+                        data_x.fill(0)
+                        global_step()
+                        global_PP()
+                        global_PE()
+                        if dim == 3:
+                            global_PT()
+                            global_EE()
+                            global_EEM()
+                            global_PPM()
+                            global_PEM()
+                    with Timer("Global Solve"):
+                        solve_system(D, V)
 
-                with Timer("Local Step"):
-                    local_elasticity()
-                    local_PP()
-                    local_PE()
-                    if dim == 3:
-                        local_PT()
-                        local_EE()
-                        local_EEM()
-                        local_PPM()
-                        local_PEM()
+                    with Timer("Local Step"):
+                        local_elasticity()
+                        local_PP()
+                        local_PE()
+                        if dim == 3:
+                            local_PT()
+                            local_EE()
+                            local_EEM()
+                            local_PPM()
+                            local_PEM()
 
-                with Timer("Dual Step"):
-                    dual_step()
-                print(f, '/', step, ': ', sha1(x.to_numpy()).hexdigest())
-                print('')
+                    with Timer("Dual Step"):
+                        dual_step()
+                    print(f, '/', step, ': ', sha1(x.to_numpy()).hexdigest())
+                    print('')
 
-            # iters = range(len(prs))
-            # fig = plt.figure()
-            # plt.plot(iters, prs)
-            # plt.title("log primal")
-            # fig.savefig(directory + str(f) + "_primal.png")
-            # fig = plt.figure()
-            # plt.plot(iters, drs)
-            # plt.title("log dual")
-            # fig.savefig(directory + str(f) + "_dual.png")
+                # iters = range(len(prs))
+                # fig = plt.figure()
+                # plt.plot(iters, prs)
+                # plt.title("log primal")
+                # fig.savefig(directory + str(f) + "_primal.png")
+                # fig = plt.figure()
+                # plt.plot(iters, drs)
+                # plt.title("log dual")
+                # fig.savefig(directory + str(f) + "_dual.png")
 
-            compute_v()
-            # TODO: why is visualization so slow?
-        with Timer("Visualization"):
-            write_image(f + 1)
-        pickle.dump([x.to_numpy(), v.to_numpy(), dirichlet_fixed, dirichlet_value], open(directory + f'caches/{f + 1:06d}.p', 'wb'))
-        Timer_Print()
-    end = time()
-    print("!!!!!!!!!!!!!!!!!!!!!!!! ", end - start)
-    # cmd = 'ffmpeg -framerate 36 -i "' + directory + 'images/%6d.png" -c:v libx264 -profile:v high -crf 10 -pix_fmt yuv420p -threads 20 ' + directory + 'video.mp4'
-    # os.system((cmd))
+                compute_v()
+                # TODO: why is visualization so slow?
+            with Timer("Visualization"):
+                write_image(f + 1)
+            pickle.dump([x.to_numpy(), v.to_numpy(), dirichlet_fixed, dirichlet_value], open(directory + f'caches/{f + 1:06d}.p', 'wb'))
+            Timer_Print()
+        end = time()
+        print("!!!!!!!!!!!!!!!!!!!!!!!! ", end - start)
+        # cmd = 'ffmpeg -framerate 36 -i "' + directory + 'images/%6d.png" -c:v libx264 -profile:v high -crf 10 -pix_fmt yuv420p -threads 20 ' + directory + 'video.mp4'
+        # os.system((cmd))
