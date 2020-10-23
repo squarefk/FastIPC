@@ -67,6 +67,29 @@ def read(testcase):
             if mesh_particles[i][0] < -1.85 or mesh_particles[i][0] > 1.85:
                 dirichlet_fixed[i] = True
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 3
+    elif testcase == 1004:
+        # mat on knife
+        mesh_points, mesh_elements = read_msh("input/mat40x40.msh")
+        mesh_particles = mesh_points * 1.2 + [0.5, 1, 0.1]
+        offset = len(mesh_points)
+        print('!!! offset ', offset)
+        dxs = [0.2, 0.4, 0.6, 0.8, 0.1, 0.3, 0.5, 0.7, 0.9]
+        orients = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        for dx, ori in zip(dxs, orients):
+            dy = -0.1
+            dz = -0.7
+            x = np.array([0.0, 0.0, 0.0]) + np.array([dx, dy, dz])
+            y = np.array([0.0, 0.0, 1.0]) + np.array([dx, dy, dz])
+            z = np.array([0.0, 1.0, ori]) + np.array([dx, dy, dz])
+            mesh_particles = np.vstack((mesh_particles, [x, y, z]))
+        mesh_scale = 0.6
+        mesh_offset = [0, -0.3, 0]
+        n_particles = len(mesh_particles)
+        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
+        dirichlet_value = mesh_particles
+        for i in range(offset, n_particles):
+            dirichlet_fixed[i] = True
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 3
     ##################################################### 2D #####################################################
     elif testcase == 4:
         # two triangles
