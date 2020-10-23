@@ -26,7 +26,7 @@ def read(testcase):
         dirichlet_fixed = np.zeros(n_particles, dtype=bool)
         dirichlet_value = mesh_particles
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 3
-    if testcase == 1:
+    if testcase == 1001:
         # two spheres
         mesh = meshio.read("input/sphere1K.vtk")
         mesh_particles = np.vstack((mesh.points + [-0.51, 0, 0], mesh.points + [0.51, 0, 0]))
