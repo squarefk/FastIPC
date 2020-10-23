@@ -66,6 +66,7 @@ else:
 directory = 'output/' + '_'.join(sys.argv[:2]) + '/'
 os.makedirs(directory + 'images/', exist_ok=True)
 os.makedirs(directory + 'caches/', exist_ok=True)
+os.makedirs(directory + 'objs/', exist_ok=True)
 print('output directory:', directory)
 # sys.stdout = open(directory + 'log.txt', 'w')
 # sys.stderr = open(directory + 'err.txt', 'w')
@@ -1295,6 +1296,7 @@ else:
     gui = ti.GUI('IPC', camera.res)
 def write_image(f):
     particle_pos = x.to_numpy() * mesh_scale + mesh_offset
+    x_ = x.to_numpy()
     vertices_ = vertices.to_numpy()
     if dim == 2:
         for i in range(n_elements):
@@ -1312,9 +1314,9 @@ def write_image(f):
         scene.render()
         gui.set_image(camera.img)
         gui.show(directory + f'images/{f:06d}.png')
-        f = open(f'output/{f:06d}.obj', 'w')
+        f = open(directory + f'objs/{f:06d}.obj', 'w')
         for i in range(n_particles):
-            f.write('v %.6f %.6f %.6f\n' % (particle_pos[i, 0], particle_pos[i, 1], particle_pos[i, 2]))
+            f.write('v %.6f %.6f %.6f\n' % (x_[i, 0], x_[i, 1], x_[i, 2]))
         for [p0, p1, p2] in boundary_triangles_:
             f.write('f %d %d %d\n' % (p0 + 1, p1 + 1, p2 + 1))
         f.close()

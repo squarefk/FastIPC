@@ -2,6 +2,16 @@ import meshio
 import numpy as np
 
 
+def read_msh(fn):
+    f = open(fn, 'r')
+    lines = f.readlines()
+    raw_particles = lines[lines.index('$Nodes\n') + 3:lines.index('$EndNodes\n')]
+    raw_elements = lines[lines.index('$Elements\n') + 3:lines.index('$EndElements\n')]
+    mesh_particles = np.array(list(map(lambda x: list(map(float, x[:-1].split(' ')[1:])), raw_particles)))
+    mesh_elements = np.array(list(map(lambda x: list(map(int, x[:-1].split(' ')[1:])), raw_elements))) - 1
+    return mesh_particles, mesh_elements
+
+
 def read(testcase):
     ##################################################### 3D #####################################################
     if testcase == 0:
@@ -43,21 +53,20 @@ def read(testcase):
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 3
     elif testcase == 3:
         # sphere on mat
-        mesh0 = meshio.read("input/sphere1K.msh")
-        print(mesh0.points)
-        print(mesh0.cells)
-        mesh1 = meshio.read("input/mat40x40.msh")
-        mesh_particles = np.vstack((mesh0.points, mesh1.points + [0, 1, 0]))
-        offset = len(mesh0.points)
-        mesh_elements = np.vstack((mesh0.cells[0].data, mesh1.cells[0].data + offset))
-        mesh_scale = 0.5
-        mesh_offset = [0, 0, 0]
+        mesh_points0, mesh_elements0 = read_msh("input/sphere1K.msh")
+        mesh_points1, mesh_elements1 = read_msh("input/mat40x40.msh")
+        mesh_particles = np.vstack((mesh_points0 + [0, 1, 0], mesh_points1 * 4))
+        offset = len(mesh_points0)
+        mesh_elements = np.vstack((mesh_elements0, mesh_elements1 + offset))
+        mesh_scale = 0.3
+        mesh_offset = [0, -0.3, 0]
         n_particles = len(mesh_particles)
         dirichlet_fixed = np.zeros(n_particles, dtype=bool)
         dirichlet_value = mesh_particles
-        # for i in [954, 955, 956, 957, 958]:
-        #     dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
+        for i in range(n_particles):
+            if mesh_particles[i][0] < -1.85 or mesh_particles[i][0] > 1.85:
+                dirichlet_fixed[i] = True
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 3
     ##################################################### 2D #####################################################
     elif testcase == 4:
         # two triangles
