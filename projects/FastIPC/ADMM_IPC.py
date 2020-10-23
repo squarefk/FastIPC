@@ -31,6 +31,10 @@ if int(sys.argv[1]) == 1004:
         boundary_edges_ = np.vstack((boundary_edges_, [p1, p2]))
         boundary_edges_ = np.vstack((boundary_edges_, [p2, p0]))
         boundary_triangles_ = np.vstack((boundary_triangles_, [p0, p1, p2]))
+elif int(sys.argv[1]) == 1005:
+    for i in range(400):
+        p = 7034 + i
+        boundary_points_.update([p])
 
 if dim == 2:
     edges = set()

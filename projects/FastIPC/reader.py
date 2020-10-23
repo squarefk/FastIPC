@@ -90,6 +90,24 @@ def read(testcase):
         for i in range(offset, n_particles):
             dirichlet_fixed[i] = True
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 3
+    elif testcase == 1005:
+        # sphere on points
+        mesh_points, mesh_elements = read_msh("input/sphere5K.msh")
+        mesh_particles = mesh_points * 3 + [2, 2, 2]
+        offset = len(mesh_points)
+        print('!!! offset ', offset)
+        for i in range(20):
+            for j in range(20):
+                x, y, z = 0.2 * i, 0.0, 0.2 * j
+                mesh_particles = np.vstack((mesh_particles, [x, y, z]))
+        mesh_scale = 0.6
+        mesh_offset = [0, -0.3, 0]
+        n_particles = len(mesh_particles)
+        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
+        dirichlet_value = mesh_particles
+        for i in range(offset, n_particles):
+            dirichlet_fixed[i] = True
+        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 3
     ##################################################### 2D #####################################################
     elif testcase == 4:
         # two triangles
