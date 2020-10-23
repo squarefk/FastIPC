@@ -319,6 +319,18 @@ def move_nodes(f):
                 v(0)[i] = 1 if i < n_particles / 2 else -1
         if f == 0:
             add_initial_velocity()
+    elif int(sys.argv[1]) == 1002:
+        speed = math.pi * 0.4
+        for i in range(n_particles):
+            if dirichlet_fixed[i]:
+                a, b, c = x(0)[i], x(1)[i], x(2)[i]
+                angle = ti.atan2(b, c)
+                if a < 0:
+                    angle += speed * dt
+                else:
+                    angle -= speed * dt
+                radius = ti.sqrt(b * b + c * c)
+                x(1)[i], x(2)[i] = radius * ti.sin(angle), radius * ti.cos(angle)
     elif int(sys.argv[1]) == 10:
         speed = 1
         for i in range(954):

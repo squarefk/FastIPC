@@ -37,7 +37,7 @@ def read(testcase):
         dirichlet_fixed = np.zeros(n_particles, dtype=bool)
         dirichlet_value = mesh_particles
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 3
-    elif testcase == 2:
+    elif testcase == 1002:
         # mat twist
         mesh = meshio.read("input/mat20x20.vtk")
         mesh_particles = mesh.points
@@ -52,7 +52,7 @@ def read(testcase):
                 dirichlet_fixed[i] = True
                 print(i, mesh_particles[i][0], mesh_particles[i][1], mesh_particles[i][2])
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 3
-    elif testcase == 3:
+    elif testcase == 1003:
         # sphere on mat
         mesh_points0, mesh_elements0 = read_msh("input/sphere1K.msh")
         mesh_points1, mesh_elements1 = read_msh("input/mat40x40.msh")
