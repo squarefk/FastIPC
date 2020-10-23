@@ -112,7 +112,7 @@ def read(testcase):
     elif testcase == 1006:
         # arch
         mesh = meshio.read("input/cube.vtk")
-        mesh_particles = np.vstack((mesh.points * 200 + [-100, -120, -100], mesh.points * 10 + [-41.0, -11.4, -5.0], mesh.points * 10 + [31, -11.4, -5.0]))
+        mesh_particles = np.vstack((mesh.points * 200 + [-100, -220, -100], mesh.points * 10 + [-41.0, -11.4, -5.0], mesh.points * 10 + [31, -11.4, -5.0]))
         mesh_elements = np.vstack((mesh.cells[0].data, mesh.cells[0].data + len(mesh.points), mesh.cells[0].data + len(mesh.points) * 2))
         for i in range(25):
             tmp_particles, tmp_elements = read_msh("input/arch/largeArch." + str(i + 1).zfill(2) + ".msh")
