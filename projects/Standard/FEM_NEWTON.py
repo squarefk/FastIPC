@@ -1,52 +1,31 @@
 import sys
-sys.path.insert(0, "../../build")
-from JGSL_WATER import *
 import taichi as ti
 import numpy as np
 import pymesh
-from fixed_corotated_3d import *
-from math_tools import *
+import scipy.sparse
+import scipy.sparse.linalg
+from common.physics.fixed_corotated import *
+from common.math.math_tools import *
 import meshio
 
 ##############################################################################
 
-mesh = meshio.read("input/sphere1K.vtk")
+mesh = meshio.read("../FastIPC/input/Sharkey.obj")
 mesh_particles = mesh.points
 mesh_elements = mesh.cells[0].data
-mesh_scale = 1.0
-mesh_offset = 0.0
-triangles = set()
-for [p0, p1, p2, p3] in mesh_elements:
-    triangles.add((p0, p2, p1))
-    triangles.add((p0, p3, p2))
-    triangles.add((p0, p1, p3))
-    triangles.add((p1, p2, p3))
-boundary_points_ = set()
-boundary_edges_ = np.zeros(shape=(0, 2), dtype=np.int32)
-boundary_triangles_ = np.zeros(shape=(0, 3), dtype=np.int32)
-for (p0, p1, p2) in triangles:
-    if (p0, p2, p1) not in triangles:
-        if (p2, p1, p0) not in triangles:
-            if (p1, p0, p2) not in triangles:
-                boundary_points_.update([p0, p1, p2])
-                if p0 < p1:
-                    boundary_edges_ = np.vstack((boundary_edges_, [p0, p1]))
-                if p1 < p2:
-                    boundary_edges_ = np.vstack((boundary_edges_, [p1, p2]))
-                if p2 < p0:
-                    boundary_edges_ = np.vstack((boundary_edges_, [p2, p0]))
-                boundary_triangles_ = np.vstack((boundary_triangles_, [p0, p1, p2]))
+mesh_scale = 0.6
+mesh_offset = [0.35, 0.3]
 
 ##############################################################################
 
-ti.init(arch=ti.cpu)
+real = ti.f64
+ti.init(arch=ti.cpu, default_fp=real)
 
-real = ti.f32
 scalar = lambda: ti.var(dt=real)
 vec = lambda: ti.Vector(dim, dt=real)
 mat = lambda: ti.Matrix(dim, dim, dt=real)
 
-dim = 3
+dim = 2
 dt = 0.01
 E = 1e4
 nu = 0.4
@@ -66,9 +45,9 @@ ti.root.dense(ti.k, n_particles).place(zero)
 ti.root.dense(ti.i, n_elements).place(restT)
 ti.root.dense(ti.ij, (n_elements, dim + 1)).place(vertices)
 
-data_rhs = ti.var(real, shape=20000)
+data_rhs = ti.var(real, shape=n_particles * dim)
 data_mat = ti.var(real, shape=(3, 2000000))
-data_sol = ti.var(real, shape=20000)
+data_sol = ti.var(real, shape=n_particles * dim)
 
 
 @ti.func
@@ -113,8 +92,8 @@ def compute_energy() -> real:
     for e in range(n_elements):
         F = compute_T(e) @ restT[e].inverse()
         vol0 = restT[e].determinant() / dim / (dim - 1)
-        U, sig, V = ti.svd(F)
-        total_energy += fixed_corotated_energy(sig, la, mu) * dt * dt * vol0
+        U, sig, V = svd(F)
+        total_energy += elasticity_energy(sig, la, mu) * dt * dt * vol0
     return total_energy
 
 
@@ -135,8 +114,8 @@ def compute_hessian_and_gradient():
         F = compute_T(e) @ restT[e].inverse()
         IB = restT[e].inverse()
         vol0 = restT[e].determinant() / dim / (dim - 1)
-        dPdF = fixed_corotated_first_piola_kirchoff_stress_derivative(F, la, mu) * dt * dt * vol0
-        P = fixed_corotated_first_piola_kirchoff_stress(F, la, mu) * dt * dt * vol0
+        dPdF = elasticity_first_piola_kirchoff_stress_derivative(F, la, mu) * dt * dt * vol0
+        P = elasticity_first_piola_kirchoff_stress(F, la, mu) * dt * dt * vol0
         if ti.static(dim == 2):
             intermediate = ti.Matrix([[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
                                       [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]])
@@ -299,7 +278,22 @@ if __name__ == "__main__":
             data_rhs.fill(0)
             data_sol.fill(0)
             compute_hessian_and_gradient()
-            data_sol.from_numpy(solve_linear_system(data_mat.to_numpy(), data_rhs.to_numpy(), n_particles * dim, np.array([i for i in range(12)]), zero.to_numpy(), False, 0, cnt[None]))
+
+            print("Total entries: ", cnt[None])
+            mat = data_mat.to_numpy()
+            row, col, val = mat[0, :cnt[None]], mat[1, :cnt[None]], mat[2, :cnt[None]]
+            rhs = data_rhs.to_numpy()
+            n = n_particles * dim
+            A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
+            A = scipy.sparse.lil_matrix(A)
+            D = np.array([i for i in range(12 * dim)])
+            A[:, D] = 0
+            A[D, :] = 0
+            A = scipy.sparse.csr_matrix(A)
+            A += scipy.sparse.csr_matrix((np.ones(len(D)), (D, D)), shape=(n, n))
+            rhs[D] = 0
+            data_sol.from_numpy(scipy.sparse.linalg.spsolve(A, rhs))
+
             print('residual : ', output_residual())
             if output_residual() < 1e-2 * dt:
                 break
@@ -314,7 +308,7 @@ if __name__ == "__main__":
                 E = compute_energy()
         compute_v()
         # TODO: why is visualization so slow?
-        particle_pos = (x.to_numpy() + mesh_offset) * mesh_scale
+        particle_pos = x.to_numpy() * mesh_scale + mesh_offset
         vertices_ = vertices.to_numpy()
         if dim == 2:
             for i in range(n_elements):
