@@ -307,7 +307,7 @@ def compute_xn_and_xTilde():
     for i in range(n_particles):
         xn[i] = x[i]
         xTilde[i] = x[i] + dt * v[i]
-        xTilde(0)[i] += dt * dt * gravity
+        xTilde(1)[i] += dt * dt * gravity
 
 
 def move_nodes(f):
@@ -342,6 +342,7 @@ def move_nodes(f):
         if dirichlet_fixed[i]:
             for d in range(dim):
                 x(d)[i] = dirichlet_value[i, d]
+                xTilde(d)[i] = dirichlet_value[i, d]
     return np.where(tmp_fixed.reshape((n_particles * dim)))[0], np.zeros((n_particles * dim))
 
 
