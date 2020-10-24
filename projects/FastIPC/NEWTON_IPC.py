@@ -10,37 +10,57 @@ import taichi as ti
 import taichi_three as t3
 import numpy as np
 import meshio
+import pickle
 import scipy.sparse
 import scipy.sparse.linalg
 
 ##############################################################################
 
 mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, gravity, dim = read(int(sys.argv[1]))
-triangles = set()
-for [p0, p1, p2, p3] in mesh_elements:
-    triangles.add((p0, p2, p1))
-    triangles.add((p0, p3, p2))
-    triangles.add((p0, p1, p3))
-    triangles.add((p1, p2, p3))
 boundary_points_ = set()
 boundary_edges_ = np.zeros(shape=(0, 2), dtype=np.int32)
 boundary_triangles_ = np.zeros(shape=(0, 3), dtype=np.int32)
-for (p0, p1, p2) in triangles:
-    if (p0, p2, p1) not in triangles:
-        if (p2, p1, p0) not in triangles:
-            if (p1, p0, p2) not in triangles:
-                boundary_points_.update([p0, p1, p2])
-                if p0 < p1:
-                    boundary_edges_ = np.vstack((boundary_edges_, [p0, p1]))
-                if p1 < p2:
-                    boundary_edges_ = np.vstack((boundary_edges_, [p1, p2]))
-                if p2 < p0:
-                    boundary_edges_ = np.vstack((boundary_edges_, [p2, p0]))
-                boundary_triangles_ = np.vstack((boundary_triangles_, [p0, p1, p2]))
+
+if dim == 2:
+    edges = set()
+    for [i, j, k] in mesh_elements:
+        edges.add((i, j))
+        edges.add((j, k))
+        edges.add((k, i))
+    for [i, j, k] in mesh_elements:
+        if (j, i) not in edges:
+            boundary_points_.update([j, i])
+            boundary_edges_ = np.vstack((boundary_edges_, [j, i]))
+        if (k, j) not in edges:
+            boundary_points_.update([k, j])
+            boundary_edges_ = np.vstack((boundary_edges_, [k, j]))
+        if (i, k) not in edges:
+            boundary_points_.update([i, k])
+            boundary_edges_ = np.vstack((boundary_edges_, [i, k]))
+    boundary_triangles_ = np.vstack((boundary_triangles_, [-1, -1, -1]))
+else:
+    triangles = set()
+    for [p0, p1, p2, p3] in mesh_elements:
+        triangles.add((p0, p2, p1))
+        triangles.add((p0, p3, p2))
+        triangles.add((p0, p1, p3))
+        triangles.add((p1, p2, p3))
+    for (p0, p1, p2) in triangles:
+        if (p0, p2, p1) not in triangles:
+            if (p2, p1, p0) not in triangles:
+                if (p1, p0, p2) not in triangles:
+                    boundary_points_.update([p0, p1, p2])
+                    if p0 < p1:
+                        boundary_edges_ = np.vstack((boundary_edges_, [p0, p1]))
+                    if p1 < p2:
+                        boundary_edges_ = np.vstack((boundary_edges_, [p1, p2]))
+                    if p2 < p0:
+                        boundary_edges_ = np.vstack((boundary_edges_, [p2, p0]))
+                    boundary_triangles_ = np.vstack((boundary_triangles_, [p0, p1, p2]))
 
 ##############################################################################
 
-directory = 'output/' + '_'.join(sys.argv) + '/'
+directory = 'output/' + '_'.join(sys.argv[:2]) + '/'
 os.makedirs(directory + 'images/', exist_ok=True)
 os.makedirs(directory + 'caches/', exist_ok=True)
 os.makedirs(directory + 'objs/', exist_ok=True)
@@ -51,14 +71,14 @@ print('output directory:', directory)
 ##############################################################################
 
 real = ti.f64
-ti.init(arch=ti.cpu, default_fp=real)
+ti.init(arch=ti.cpu, default_fp=real, make_thread_local=False)
 
 scalar = lambda: ti.field(real)
 vec = lambda: ti.Vector.field(dim, real)
 mat = lambda: ti.Matrix.field(dim, dim, real)
 
 dt = 0.01
-E = 2e4
+E = 1e5
 nu = 0.4
 la = E * nu / ((1 + nu) * (1 - 2 * nu))
 mu = E / (2 * (1 + nu))
@@ -112,10 +132,81 @@ dHat2 = 1e-5
 dHat = dHat2 ** 0.5
 kappa = 1e4
 
+pid = ti.field(ti.i32)
+if dim == 2:
+    indices = ti.ij
+else:
+    indices = ti.ijk
+grid_size = 4096
+offset = tuple(-grid_size // 2 for _ in range(dim))
+grid_block_size = 128
+grid = ti.root.pointer(indices, grid_size // grid_block_size)
+if dim == 2:
+    leaf_block_size = 16
+else:
+    leaf_block_size = 8
+block = grid.pointer(indices, grid_block_size // leaf_block_size)
+block.dynamic(ti.indices(dim), 1024 * 1024, chunk_size=leaf_block_size**dim * 8).place(pid, offset=offset + (0, ))
+
 
 @ti.kernel
-def find_constraints():
-    n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
+def find_constraints_2D_PE():
+    for i in boundary_points:
+        p = boundary_points[i]
+        for j in range(n_boundary_edges):
+            e0 = boundary_edges[j, 0]
+            e1 = boundary_edges[j, 1]
+            if p != e0 and p != e1 and point_edge_ccd_broadphase(x[p], x[e0], x[e1], dHat):
+                case = PE_type(x[p], x[e0], x[e1])
+                if case == 0:
+                    if PP_2D_E(x[p], x[e0]) < dHat2:
+                        n = ti.atomic_add(n_PP[None], 1)
+                        PP[n, 0], PP[n, 1] = min(p, e0), max(p, e0)
+                elif case == 1:
+                    if PP_2D_E(x[p], x[e1]) < dHat2:
+                        n = ti.atomic_add(n_PP[None], 1)
+                        PP[n, 0], PP[n, 1] = min(p, e1), max(p, e1)
+                elif case == 2:
+                    if PE_2D_E(x[p], x[e0], x[e1]) < dHat2:
+                        n = ti.atomic_add(n_PE[None], 1)
+                        PE[n, 0], PE[n, 1], PE[n, 2] = p, e0, e1
+    #
+    # inv_dx = 1 / 0.01
+    # for i in range(n_boundary_edges):
+    #     e0 = boundary_edges[i, 0]
+    #     e1 = boundary_edges[i, 1]
+    #     lower = int(ti.floor((ti.min(x[e0], x[e1]) - dHat) * inv_dx)) - ti.Vector(list(offset))
+    #     upper = int(ti.floor((ti.max(x[e0], x[e1]) + dHat) * inv_dx)) + 1 - ti.Vector(list(offset))
+    #     for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]))):
+    #         ti.append(pid.parent(), I, i)
+    # for i in range(n_boundary_points):
+    #     p = boundary_points[i]
+    #     lower = int(ti.floor(x[p] * inv_dx)) - ti.Vector(list(offset))
+    #     upper = int(ti.floor(x[p] * inv_dx)) + 1 - ti.Vector(list(offset))
+    #     for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]))):
+    #         L = ti.length(pid.parent(), I)
+    #         for l in range(L):
+    #             j = pid[I[0], I[1], l]
+    #             e0 = boundary_edges[j, 0]
+    #             e1 = boundary_edges[j, 1]
+    #             if p != e0 and p != e1 and point_edge_ccd_broadphase(x[p], x[e0], x[e1], dHat):
+    #                 case = PE_type(x[p], x[e0], x[e1])
+    #                 if case == 0:
+    #                     if PP_2D_E(x[p], x[e0]) < dHat2:
+    #                         n = ti.atomic_add(n_PP[None], 1)
+    #                         PP[n, 0], PP[n, 1] = min(p, e0), max(p, e0)
+    #                 elif case == 1:
+    #                     if PP_2D_E(x[p], x[e1]) < dHat2:
+    #                         n = ti.atomic_add(n_PP[None], 1)
+    #                         PP[n, 0], PP[n, 1] = min(p, e1), max(p, e1)
+    #                 elif case == 2:
+    #                     if PE_2D_E(x[p], x[e0], x[e1]) < dHat2:
+    #                         n = ti.atomic_add(n_PE[None], 1)
+    #                         PE[n, 0], PE[n, 1], PE[n, 2] = p, e0, e1
+
+
+@ti.kernel
+def find_constraints_3D_PT():
     for i in range(n_boundary_points):
         p = boundary_points[i]
         for j in range(n_boundary_triangles):
@@ -152,6 +243,10 @@ def find_constraints():
                     if PT_3D_E(x[p], x[t0], x[t1], x[t2]) < dHat2:
                         n = ti.atomic_add(n_PT[None], 1)
                         PT[n, 0], PT[n, 1], PT[n, 2], PT[n, 3] = p, t0, t1, t2
+
+
+@ti.kernel
+def find_constraints_3D_EE():
     for i in range(n_boundary_edges):
         a0 = boundary_edges[i, 0]
         a1 = boundary_edges[i, 1]
@@ -234,40 +329,65 @@ def find_constraints():
                         else:
                             n = ti.atomic_add(n_EE[None], 1)
                             EE[n, 0], EE[n, 1], EE[n, 2], EE[n, 3] = a0, a1, b0, b1
+
+
+def find_constraints():
+    n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
+    if dim == 2:
+        grid.deactivate_all()
+        find_constraints_2D_PE()
+    else:
+        grid.deactivate_all()
+        find_constraints_3D_PT()
+        grid.deactivate_all()
+        find_constraints_3D_EE()
     print("Find constraints: ", n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None])
 
 
 @ti.kernel
 def compute_intersection_free_step_size() -> real:
     alpha = 1.0
-    for i in range(n_boundary_points):
-        p = boundary_points[i]
-        for j in range(n_boundary_triangles):
-            t0 = boundary_triangles[j, 0]
-            t1 = boundary_triangles[j, 1]
-            t2 = boundary_triangles[j, 2]
-            if p != t0 and p != t1 and p != t2:
-                dp = ti.Vector([data_sol[p * dim + 0], data_sol[p * dim + 1], data_sol[p * dim + 2]])
-                dt0 = ti.Vector([data_sol[t0 * dim + 0], data_sol[t0 * dim + 1], data_sol[t0 * dim + 2]])
-                dt1 = ti.Vector([data_sol[t1 * dim + 0], data_sol[t1 * dim + 1], data_sol[t1 * dim + 2]])
-                dt2 = ti.Vector([data_sol[t2 * dim + 0], data_sol[t2 * dim + 1], data_sol[t2 * dim + 2]])
-                if moving_point_triangle_ccd_broadphase(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, dHat):
-                    dist2 = PT_dist2(x[p], x[t0], x[t1], x[t2], PT_type(x[p], x[t0], x[t1], x[t2]))
-                    alpha = ti.min(alpha, point_triangle_ccd(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, 0.2, dist2))
-    for i in range(n_boundary_edges):
-        a0 = boundary_edges[i, 0]
-        a1 = boundary_edges[i, 1]
-        for j in range(n_boundary_edges):
-            b0 = boundary_edges[j, 0]
-            b1 = boundary_edges[j, 1]
-            if a0 != b0 and a0 != b1 and a1 != b0 and a1 != b1:
-                da0 = ti.Vector([data_sol[a0 * dim + 0], data_sol[a0 * dim + 1], data_sol[a0 * dim + 2]])
-                da1 = ti.Vector([data_sol[a1 * dim + 0], data_sol[a1 * dim + 1], data_sol[a1 * dim + 2]])
-                db0 = ti.Vector([data_sol[b0 * dim + 0], data_sol[b0 * dim + 1], data_sol[b0 * dim + 2]])
-                db1 = ti.Vector([data_sol[b1 * dim + 0], data_sol[b1 * dim + 1], data_sol[b1 * dim + 2]])
-                if moving_edge_edge_ccd_broadphase(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, dHat):
-                    dist2 = EE_dist2(x[a0], x[a1], x[b0], x[b1], EE_type(x[a0], x[a1], x[b0], x[b1]))
-                    alpha = ti.min(alpha, edge_edge_ccd(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, 0.2, dist2))
+    if ti.static(dim == 2):
+        for i in range(n_boundary_points):
+            p = boundary_points[i]
+            for j in range(n_boundary_edges):
+                e0 = boundary_edges[j, 0]
+                e1 = boundary_edges[j, 1]
+                if p != e0 and p != e1:
+                    dp = ti.Vector([data_sol[p * dim + 0], data_sol[p * dim + 1]])
+                    de0 = ti.Vector([data_sol[e0 * dim + 0], data_sol[e0 * dim + 1]])
+                    de1 = ti.Vector([data_sol[e1 * dim + 0], data_sol[e1 * dim + 1]])
+                    if moving_point_edge_ccd_broadphase(x[p], x[e0], x[e1], dp, de0, de1, dHat):
+                        alpha = ti.min(alpha, moving_point_edge_ccd(x[p], x[e0], x[e1], dp, de0, de1, 0.2))
+    else:
+        for i in range(n_boundary_points):
+            p = boundary_points[i]
+            for j in range(n_boundary_triangles):
+                t0 = boundary_triangles[j, 0]
+                t1 = boundary_triangles[j, 1]
+                t2 = boundary_triangles[j, 2]
+                if p != t0 and p != t1 and p != t2:
+                    dp = ti.Vector([data_sol[p * dim + 0], data_sol[p * dim + 1], data_sol[p * dim + 2]])
+                    dt0 = ti.Vector([data_sol[t0 * dim + 0], data_sol[t0 * dim + 1], data_sol[t0 * dim + 2]])
+                    dt1 = ti.Vector([data_sol[t1 * dim + 0], data_sol[t1 * dim + 1], data_sol[t1 * dim + 2]])
+                    dt2 = ti.Vector([data_sol[t2 * dim + 0], data_sol[t2 * dim + 1], data_sol[t2 * dim + 2]])
+                    if moving_point_triangle_ccd_broadphase(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, dHat):
+                        dist2 = PT_dist2(x[p], x[t0], x[t1], x[t2], PT_type(x[p], x[t0], x[t1], x[t2]))
+                        alpha = ti.min(alpha, point_triangle_ccd(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, 0.2, dist2))
+        for i in range(n_boundary_edges):
+            a0 = boundary_edges[i, 0]
+            a1 = boundary_edges[i, 1]
+            for j in range(n_boundary_edges):
+                b0 = boundary_edges[j, 0]
+                b1 = boundary_edges[j, 1]
+                if a0 != b0 and a0 != b1 and a1 != b0 and a1 != b1:
+                    da0 = ti.Vector([data_sol[a0 * dim + 0], data_sol[a0 * dim + 1], data_sol[a0 * dim + 2]])
+                    da1 = ti.Vector([data_sol[a1 * dim + 0], data_sol[a1 * dim + 1], data_sol[a1 * dim + 2]])
+                    db0 = ti.Vector([data_sol[b0 * dim + 0], data_sol[b0 * dim + 1], data_sol[b0 * dim + 2]])
+                    db1 = ti.Vector([data_sol[b1 * dim + 0], data_sol[b1 * dim + 1], data_sol[b1 * dim + 2]])
+                    if moving_edge_edge_ccd_broadphase(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, dHat):
+                        dist2 = EE_dist2(x[a0], x[a1], x[b0], x[b1], EE_type(x[a0], x[a1], x[b0], x[b1]))
+                        alpha = ti.min(alpha, edge_edge_ccd(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, 0.2, dist2))
     # for i in range(n_elements):
     #     a, b, c, d = vertices[i, 0], vertices[i, 1], vertices[i, 2], vertices[i, 3]
     #     da = ti.Vector([data_sol[a * dim + 0], data_sol[a * dim + 1], data_sol[a * dim + 2]])
@@ -363,16 +483,17 @@ def compute_energy() -> real:
         total_energy += PP_energy(x[PP[r, 0]], x[PP[r, 1]], dHat2, kappa)
     for r in range(n_PE[None]):
         total_energy += PE_energy(x[PE[r, 0]], x[PE[r, 1]], x[PE[r, 2]], dHat2, kappa)
-    for r in range(n_PT[None]):
-        total_energy += PT_energy(x[PT[r, 0]], x[PT[r, 1]], x[PT[r, 2]], x[PT[r, 3]], dHat2, kappa)
-    for r in range(n_EE[None]):
-        total_energy += EE_energy(x[EE[r, 0]], x[EE[r, 1]], x[EE[r, 2]], x[EE[r, 3]], dHat2, kappa)
-    for r in range(n_EEM[None]):
-        total_energy += EEM_energy(x[EEM[r, 0]], x[EEM[r, 1]], x[EEM[r, 2]], x[EEM[r, 3]], x0[EEM[r, 0]], x0[EEM[r, 1]], x0[EEM[r, 2]], x0[EEM[r, 3]], dHat2, kappa)
-    for r in range(n_PPM[None]):
-        total_energy += PPM_energy(x[PPM[r, 0]], x[PPM[r, 1]], x[PPM[r, 2]], x[PPM[r, 3]], x0[PPM[r, 0]], x0[PPM[r, 1]], x0[PPM[r, 2]], x0[PPM[r, 3]], dHat2, kappa)
-    for r in range(n_PEM[None]):
-        total_energy += PEM_energy(x[PEM[r, 0]], x[PEM[r, 1]], x[PEM[r, 2]], x[PEM[r, 3]], x0[PEM[r, 0]], x0[PEM[r, 1]], x0[PEM[r, 2]], x0[PEM[r, 3]], dHat2, kappa)
+    if ti.static(dim == 3):
+        for r in range(n_PT[None]):
+            total_energy += PT_energy(x[PT[r, 0]], x[PT[r, 1]], x[PT[r, 2]], x[PT[r, 3]], dHat2, kappa)
+        for r in range(n_EE[None]):
+            total_energy += EE_energy(x[EE[r, 0]], x[EE[r, 1]], x[EE[r, 2]], x[EE[r, 3]], dHat2, kappa)
+        for r in range(n_EEM[None]):
+            total_energy += EEM_energy(x[EEM[r, 0]], x[EEM[r, 1]], x[EEM[r, 2]], x[EEM[r, 3]], x0[EEM[r, 0]], x0[EEM[r, 1]], x0[EEM[r, 2]], x0[EEM[r, 3]], dHat2, kappa)
+        for r in range(n_PPM[None]):
+            total_energy += PPM_energy(x[PPM[r, 0]], x[PPM[r, 1]], x[PPM[r, 2]], x[PPM[r, 3]], x0[PPM[r, 0]], x0[PPM[r, 1]], x0[PPM[r, 2]], x0[PPM[r, 3]], dHat2, kappa)
+        for r in range(n_PEM[None]):
+            total_energy += PEM_energy(x[PEM[r, 0]], x[PEM[r, 1]], x[PEM[r, 2]], x[PEM[r, 3]], x0[PEM[r, 0]], x0[PEM[r, 1]], x0[PEM[r, 2]], x0[PEM[r, 3]], dHat2, kappa)
     return total_energy
 
 
@@ -527,14 +648,14 @@ def compute_elasticity():
 def compute_ipc0():
     for r in range(n_PP[None]):
         g, H = PP_g_and_H(x[PP[r, 0]], x[PP[r, 1]], dHat2, kappa)
-        load_hessian_and_gradient(H, g, ti.Vector([PP[r, 0], PP[r, 1]]), cnt[None] + r * 36)
-    cnt[None] += n_PP[None] * 36
+        load_hessian_and_gradient(H, g, ti.Vector([PP[r, 0], PP[r, 1]]), cnt[None] + r * dim * dim * 2 * 2)
+    cnt[None] += n_PP[None] * dim * dim * 2 * 2
 @ti.kernel
 def compute_ipc1():
     for r in range(n_PE[None]):
         g, H = PE_g_and_H(x[PE[r, 0]], x[PE[r, 1]], x[PE[r, 2]], dHat2, kappa)
-        load_hessian_and_gradient(H, g, ti.Vector([PE[r, 0], PE[r, 1], PE[r, 2]]), cnt[None] + r * 81)
-    cnt[None] += n_PE[None] * 81
+        load_hessian_and_gradient(H, g, ti.Vector([PE[r, 0], PE[r, 1], PE[r, 2]]), cnt[None] + r * dim * dim * 3 * 3)
+    cnt[None] += n_PE[None] * dim * dim * 3 * 3
 @ti.kernel
 def compute_ipc2():
     for r in range(n_PT[None]):
@@ -577,17 +698,18 @@ def compute_hessian_and_gradient():
     compute_ipc0()
     print("ipc0 done.", end='')
     compute_ipc1()
-    print("ipc1 done.", end='')
-    compute_ipc2()
-    print("ipc2 done.", end='')
-    compute_ipc3()
-    print("ipc3 done.", end='')
-    compute_ipc4()
-    print("ipc4 done.", end='')
-    compute_ipc5()
-    print("ipc5 done.", end='')
-    compute_ipc6()
-    print("ipc6 done.", end='\n')
+    print("ipc1 done.")
+    if dim == 3:
+        compute_ipc2()
+        print("ipc2 done.", end='')
+        compute_ipc3()
+        print("ipc3 done.", end='')
+        compute_ipc4()
+        print("ipc4 done.", end='')
+        compute_ipc5()
+        print("ipc5 done.", end='')
+        compute_ipc6()
+        print("ipc6 done.")
 
 
 def solve_system(D, V):
@@ -643,7 +765,7 @@ def output_residual() -> real:
 
 
 if dim == 2:
-    gui = ti.GUI("IPC", (1024, 1024), background_color=0x112F41)
+    gui = ti.GUI("IPC", (768, 768), background_color=0x112F41)
 else:
     scene = t3.Scene()
     model = t3.Model(f_n=n_boundary_triangles, vi_n=n_particles)
@@ -654,7 +776,7 @@ else:
     scene.add_light(light)
     gui = ti.GUI('IPC', camera.res)
 def write_image(f):
-    particle_pos = (x.to_numpy() + mesh_offset) * mesh_scale
+    particle_pos = x.to_numpy() * mesh_scale + mesh_offset
     x_ = x.to_numpy()
     vertices_ = vertices.to_numpy()
     if dim == 2:
@@ -665,10 +787,6 @@ def write_image(f):
                          (particle_pos[b][0], particle_pos[b][1]),
                          radius=1,
                          color=0x4FB99F)
-        for i in dirichlet:
-            gui.circle(particle_pos[i], radius=3, color=0x44FFFF)
-        for i in range(n_PE[None]):
-            gui.circle(particle_pos[PE[i, 0]], radius=3, color=0xFF4444)
         gui.show(directory + f'images/{f:06d}.png')
     else:
         model.vi.from_numpy(particle_pos.astype(np.float32))
@@ -697,7 +815,13 @@ if __name__ == "__main__":
         save_x0()
         zero.fill(0)
         write_image(0)
-        for f in range(360):
+        f_start = 0
+        if len(sys.argv) == 3:
+            f_start = int(sys.argv[2])
+            [x_, v_, dirichlet_fixed, dirichlet_value] = pickle.load(open(directory + f'caches/{f_start:06d}.p', 'rb'))
+            x.from_numpy(x_)
+            v.from_numpy(v_)
+        for f in range(f_start, 360):
             with Timer("Time Step"):
                 print("==================== Frame: ", f, " ====================")
                 compute_xn_and_xTilde()
@@ -728,8 +852,8 @@ if __name__ == "__main__":
                             apply_sol(alpha)
                             find_constraints()
                             E = compute_energy()
-                        print("!!!!!!!!!!!!!!!!!!!!!", alpha, E)
                 compute_v()
             with Timer("Visualization"):
                 write_image(f + 1)
+            pickle.dump([x.to_numpy(), v.to_numpy(), dirichlet_fixed, dirichlet_value], open(directory + f'caches/{f + 1:06d}.p', 'wb'))
             Timer_Print()
