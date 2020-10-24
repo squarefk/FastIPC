@@ -288,7 +288,9 @@ extern "C" {
                     ret[0] = 1.0;
                 }
             }
-            ret[0] = (REAL)toc;
+            else {
+                ret[0] = (REAL)toc;
+            }
         }
         else {
             ret[0] = 1.0;
@@ -332,7 +334,9 @@ extern "C" {
                     ret[0] = 1.0;
                 }
             }
-            ret[0] = (REAL)toc;
+            else {
+                ret[0] = (REAL)toc;
+            }
         }
         else {
             ret[0] = 1.0;
