@@ -13,6 +13,7 @@ import meshio
 import pickle
 import scipy.sparse
 import scipy.sparse.linalg
+from sksparse.cholmod import *
 
 ##############################################################################
 
@@ -726,7 +727,8 @@ def solve_system(D, V):
     A = scipy.sparse.csr_matrix(A)
     A += scipy.sparse.csr_matrix((np.ones(len(D)), (D, D)), shape=(n, n))
     rhs[D] = V[D]
-    data_sol.from_numpy(scipy.sparse.linalg.spsolve(A, rhs))
+    factor = cholesky(A)
+    data_sol.from_numpy(factor(rhs))
 
 
 @ti.kernel
