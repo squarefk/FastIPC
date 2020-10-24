@@ -85,14 +85,14 @@ def elasticity_first_piola_kirchoff_stress_derivative(F, la, mu):
     if ti.static(F.n == 2):
         U, sig, V = svd(F)
         sigma = ti.Vector([sig[0, 0], sig[1, 1]])
-        dE_div_dsigma = fixed_corotated_gradient(sig, la, mu)
-        d2E_div_dsigma2 = make_pd(fixed_corotated_hessian(sig, la, mu))
+        dE_div_dsigma = elasticity_gradient(sigma, la, mu)
+        d2E_div_dsigma2 = project_pd(elasticity_hessian(sigma, la, mu))
 
         leftCoef = mu - la / 2 * (sigma[0] * sigma[1] - 1)
         rightCoef = dE_div_dsigma[0] + dE_div_dsigma[1]
         sum_sigma = ti.max(sigma[0] + sigma[1], 0.000001)
         rightCoef /= (2 * sum_sigma)
-        B = make_pd(ti.Matrix([[leftCoef + rightCoef, leftCoef - rightCoef], [leftCoef - rightCoef, leftCoef + rightCoef]]))
+        B = project_pd(ti.Matrix([[leftCoef + rightCoef, leftCoef - rightCoef], [leftCoef - rightCoef, leftCoef + rightCoef]]))
 
         M = ti.Matrix([[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]])
         dPdF = ti.Matrix([[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]])
@@ -123,19 +123,19 @@ def elasticity_first_piola_kirchoff_stress_derivative(F, la, mu):
         rightCoef = dE_div_dsigma[0] + dE_div_dsigma[1]
         sum_sigma = ti.max(sigma[0] + sigma[1], 0.000001)
         rightCoef /= (2 * sum_sigma)
-        B0 = make_pd(ti.Matrix([[leftCoef + rightCoef, leftCoef - rightCoef], [leftCoef - rightCoef, leftCoef + rightCoef]]))
+        B0 = project_pd(ti.Matrix([[leftCoef + rightCoef, leftCoef - rightCoef], [leftCoef - rightCoef, leftCoef + rightCoef]]))
 
         leftCoef = mu - la / 2 * sigma[0] * (sigmaProd - 1)
         rightCoef = dE_div_dsigma[1] + dE_div_dsigma[2]
         sum_sigma = ti.max(sigma[1] + sigma[2], 0.000001)
         rightCoef /= (2 * sum_sigma)
-        B1 = make_pd(ti.Matrix([[leftCoef + rightCoef, leftCoef - rightCoef], [leftCoef - rightCoef, leftCoef + rightCoef]]))
+        B1 = project_pd(ti.Matrix([[leftCoef + rightCoef, leftCoef - rightCoef], [leftCoef - rightCoef, leftCoef + rightCoef]]))
 
         leftCoef = mu - la / 2 * sigma[1] * (sigmaProd - 1)
         rightCoef = dE_div_dsigma[2] + dE_div_dsigma[0]
         sum_sigma = ti.max(sigma[2] + sigma[0], 0.000001)
         rightCoef /= (2 * sum_sigma)
-        B2 = make_pd(ti.Matrix([[leftCoef + rightCoef, leftCoef - rightCoef], [leftCoef - rightCoef, leftCoef + rightCoef]]))
+        B2 = project_pd(ti.Matrix([[leftCoef + rightCoef, leftCoef - rightCoef], [leftCoef - rightCoef, leftCoef + rightCoef]]))
 
         Z = ti.Vector([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         M = ti.Matrix.rows([Z, Z, Z, Z, Z, Z, Z, Z, Z])
