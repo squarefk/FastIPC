@@ -1,18 +1,43 @@
-## Usage
+## Build with raw Cholmod
 
-Install [MKL](https://software.intel.com/content/www/us/en/develop/articles/qualify-for-free-software.html#student) (Intel Math Kernel Library, free tools for students)
-
-Add the following into `~/.bashrc` file
-
+1. Install SuiteSparse
 ```
+sudo apt-get install libsuitesparse-dev
+```
+
+2. Configure FastIPC
+```
+## Add the following line into ~/.bashrc
 export PYTHONPATH=/path/to/FastIPC:$PYTHONPATH
-```
 
-```
 pip3 install taichi taichi_three taichi_glsl meshio scipy
 cd common/math/wrapper
 g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfma -I .
 ```
+
+## Build with MKL-Enhanced Cholmod (Not Necessary)
+
+1. Install [MKL](https://software.intel.com/content/www/us/en/develop/articles/qualify-for-free-software.html#student) (Intel Math Kernel Library, free tools for students)
+
+2. Build SuiteSparse from source (with MKL linking flags)
+```
+source /opt/intel/mkl/bin/mklvars.sh intel64
+
+git clone https://github.com/DrTimothyAldenDavis/SuiteSparse.git
+cd SuiteSparse
+vim SuiteSparse_config/SuiteSparse_config.mk
+
+## Modify CUDA_PATH like: CUDA_PATH = /usr/local/cuda-10.1
+## Update CUDA architecture (e.g. remove -gencode=arch=compute_30,code=sm_30 \)
+
+make library BLAS='-lmkl_intel_lp64 -lmkl_core -lmkl_intel_thread -lpthread -lm -lmkl_blacs_intelmpi_lp64 -liomp5' LAPACK='-lmkl_scalapack_lp64' -j 12
+
+## Add the following line into ~/.bashrc
+export LD_PRELOAD=/opt/intel/mkl/lib/intel64/libmkl_def.so:/opt/intel/mkl/lib/intel64/libmkl_avx2.so:/opt/intel/mkl/lib/intel64/libmkl_core.so:/opt/intel/mkl/lib/intel64/libmkl_intel_lp64.so:/opt/intel/mkl/lib/intel64/libmkl_intel_thread.so:/opt/intel/lib/intel64_lin/libiomp5.so
+```
+
+3. Same as step 2 in the previous section 
+
 
 ## Taichi Programming/Debugging Tips
 0. `Be cautious with type`
