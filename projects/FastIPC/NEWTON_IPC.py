@@ -22,6 +22,21 @@ boundary_points_ = set()
 boundary_edges_ = np.zeros(shape=(0, 2), dtype=np.int32)
 boundary_triangles_ = np.zeros(shape=(0, 3), dtype=np.int32)
 
+if int(sys.argv[1]) == 1004:
+    for i in range(9):
+        p0 = 3200 + i * 3
+        p1 = 3200 + i * 3 + 1
+        p2 = 3200 + i * 3 + 2
+        boundary_points_.update([p0, p1, p2])
+        boundary_edges_ = np.vstack((boundary_edges_, [p0, p1]))
+        boundary_edges_ = np.vstack((boundary_edges_, [p1, p2]))
+        boundary_edges_ = np.vstack((boundary_edges_, [p2, p0]))
+        boundary_triangles_ = np.vstack((boundary_triangles_, [p0, p1, p2]))
+elif int(sys.argv[1]) == 1005:
+    for i in range(400):
+        p = 7034 + i
+        boundary_points_.update([p])
+
 if dim == 2:
     edges = set()
     for [i, j, k] in mesh_elements:
