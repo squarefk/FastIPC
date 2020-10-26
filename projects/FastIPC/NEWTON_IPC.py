@@ -717,18 +717,21 @@ def solve_system(D, V):
     if cnt[None] >= MAX_LINEAR or max(n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None]) >= MAX_C:
         print("FATAL ERROR: Array Too Small!")
     print("Total entries: ", cnt[None])
-    row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
-    rhs = data_rhs.to_numpy()
-    n = n_particles * dim
-    A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
-    A = scipy.sparse.lil_matrix(A)
-    A[:, D] = 0
-    A[D, :] = 0
-    A = scipy.sparse.csr_matrix(A)
-    A += scipy.sparse.csr_matrix((np.ones(len(D)), (D, D)), shape=(n, n))
-    rhs[D] = V[D]
-    factor = cholesky(A)
-    data_sol.from_numpy(factor(rhs))
+    with Timer("Taichi to numpy"):
+        row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
+        rhs = data_rhs.to_numpy()
+    with Timer("DBC"):
+        n = n_particles * dim
+        A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
+        A = scipy.sparse.lil_matrix(A)
+        A[:, D] = 0
+        A[D, :] = 0
+        A = scipy.sparse.csr_matrix(A)
+        A += scipy.sparse.csr_matrix((np.ones(len(D)), (D, D)), shape=(n, n))
+        rhs[D] = V[D]
+    with Timer("System Solve"):
+        factor = cholesky(A)
+        data_sol.from_numpy(factor(rhs))
 
 
 @ti.kernel
