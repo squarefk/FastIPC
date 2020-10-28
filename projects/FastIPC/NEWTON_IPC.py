@@ -144,6 +144,8 @@ n_PPM = ti.field(ti.i32, shape=())
 PEM = ti.field(ti.i32, shape=(MAX_C, 4))
 n_PEM = ti.field(ti.i32, shape=())
 
+dfx = ti.field(ti.i32, shape=n_particles * dim)
+
 dHat2 = 1e-5
 dHat = dHat2 ** 0.5
 kappa = 1e4
@@ -737,16 +739,21 @@ def solve_system(D, V):
     if cnt[None] >= MAX_LINEAR or max(n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None]) >= MAX_C:
         print("FATAL ERROR: Array Too Small!")
     print("Total entries: ", cnt[None])
+    with Timer("DBC 0"):
+        tmp_fixed = np.stack((dirichlet_fixed,) * dim, axis=-1).reshape((n_particles * dim))
+        dfx.from_numpy(tmp_fixed.astype(np.int32))
+        @ti.kernel
+        def DBC_set_zeros():
+            for i in range(cnt[None]):
+                if dfx[data_row[i]] or dfx[data_col[i]]:
+                    data_val[i] = 0
+        DBC_set_zeros()
     with Timer("Taichi to numpy"):
         row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
         rhs = data_rhs.to_numpy()
-    with Timer("DBC"):
+    with Timer("DBC 1"):
         n = n_particles * dim
         A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
-        A = scipy.sparse.lil_matrix(A)
-        A[:, D] = 0
-        A[D, :] = 0
-        A = scipy.sparse.csr_matrix(A)
         A += scipy.sparse.csr_matrix((np.ones(len(D)), (D, D)), shape=(n, n))
         rhs[D] = V[D]
     with Timer("System Solve"):
