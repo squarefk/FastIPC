@@ -87,7 +87,7 @@ print('output directory:', directory)
 ##############################################################################
 
 real = ti.f64
-ti.init(arch=ti.cpu, default_fp=real, make_thread_local=False)
+ti.init(arch=ti.cpu, default_fp=real, make_thread_local=False) #, cpu_max_num_threads=1)
 
 scalar = lambda: ti.field(real)
 vec = lambda: ti.Vector.field(dim, real)
@@ -163,6 +163,15 @@ else:
     leaf_block_size = 8
 block = grid.pointer(indices, grid_block_size // leaf_block_size)
 block.dynamic(ti.indices(dim), 1024 * 1024, chunk_size=leaf_block_size**dim * 8).place(pid, offset=offset + (0, ))
+
+
+@ti.kernel
+def compute_adaptive_kappa() -> real:
+    H_b = barrier_H(1.0e-16, dHat2, 1)
+    total_mass = 0.0
+    for i in range(n_particles):
+        total_mass += m[i]
+    return 1.0e13 * total_mass / n_particles / (4.0e-16 * H_b)
 
 
 @ti.kernel
@@ -832,6 +841,8 @@ if __name__ == "__main__":
         boundary_edges.from_numpy(boundary_edges_.astype(np.int32))
         boundary_triangles.from_numpy(boundary_triangles_.astype(np.int32))
         compute_restT_and_m()
+        kappa = compute_adaptive_kappa()
+        print("Adaptive kappa:", kappa)
         save_x0()
         zero.fill(0)
         write_image(0)
