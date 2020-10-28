@@ -554,7 +554,6 @@ def compute_inertia():
     cnt[None] += n_particles * dim
 @ti.kernel
 def compute_elasticity():
-    print("Start Doing!")
     for e in range(n_elements):
         F = compute_T(e) @ restT[e].inverse()
         IB = restT[e].inverse()
@@ -722,26 +721,16 @@ def compute_ipc6():
 
 def compute_hessian_and_gradient():
     cnt[None] = 0
-    print("Start computing H and g.", end='')
     compute_inertia()
-    print("inertia done.", end='')
     compute_elasticity()
-    print("elasticity done")
     compute_ipc0()
-    print("ipc0 done.", end='')
     compute_ipc1()
-    print("ipc1 done.")
     if dim == 3:
         compute_ipc2()
-        print("ipc2 done.", end='')
         compute_ipc3()
-        print("ipc3 done.", end='')
         compute_ipc4()
-        print("ipc4 done.", end='')
         compute_ipc5()
-        print("ipc5 done.", end='')
         compute_ipc6()
-        print("ipc6 done.")
 
 
 def solve_system(D, V):
@@ -762,7 +751,9 @@ def solve_system(D, V):
         rhs[D] = V[D]
     with Timer("System Solve"):
         factor = cholesky(A)
-        data_sol.from_numpy(factor(rhs))
+        sol = factor(rhs)
+    with Timer("Numpy to taichi"):
+        data_sol.from_numpy(sol)
 
 
 @ti.kernel
@@ -798,6 +789,61 @@ def output_residual() -> real:
             residual = ti.max(residual, ti.abs(data_sol[i * dim + d]))
     print("Search Direction Residual : ", residual / dt)
     return residual
+
+
+@ti.kernel
+def output_current_minimal_distance():
+    d = 1999999999.0
+    for r in range(n_PP[None]):
+        d = min(d, PP_2D_E(x[PP[r, 0]], x[PP[r, 1]]))
+    for r in range(n_PE[None]):
+        d = min(d, PE_2D_E(x[PE[r, 0]], x[PE[r, 1]], x[PE[r, 2]]))
+    print("Current minimal distance square", d)
+
+
+# @ti.func
+# def point_inside_triangle(P, A, B, C):
+#     v0 = C - A
+#     v1 = B - A
+#     v2 = P - A
+#     # Compute dot products
+#     dot00 = v0.dot(v0)
+#     dot01 = v0.dot(v1)
+#     dot02 = v0.dot(v2)
+#     dot11 = v1.dot(v1)
+#     dot12 = v1.dot(v2)
+#     # Compute barycentric coordinates
+#     invDenom = 1 / (dot00 * dot11 - dot01 * dot01)
+#     u = (dot11 * dot02 - dot01 * dot12) * invDenom
+#     v = (dot00 * dot12 - dot01 * dot02) * invDenom
+#     # Check if point is in triangle
+#     return u >= 0 and v >= 0 and u + v < 1
+@ti.func
+def point_inside_triangle(P, A, B, C):
+    d1 = (P - B).cross(A - B)
+    d2 = (P - C).cross(B - C)
+    d3 = (P - A).cross(C - A)
+    has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
+    has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
+    return not (has_neg and has_pos)
+vp = ti.field(ti.i32, shape=())
+va = ti.field(ti.i32, shape=())
+vb = ti.field(ti.i32, shape=())
+vc = ti.field(ti.i32, shape=())
+@ti.kernel
+def check_collision() -> ti.i32:
+    result = 0
+    if ti.static(dim == 2):
+        for i in range(n_boundary_points):
+            P = boundary_points[i]
+            for j in range(n_elements):
+                A = vertices[j, 0]
+                B = vertices[j, 1]
+                C = vertices[j, 2]
+                if P != A and P != B and P != C:
+                    if point_inside_triangle(x[P], x[A], x[B], x[C]):
+                        result = 1
+    return result
 
 
 if dim == 2:
@@ -864,10 +910,12 @@ if __name__ == "__main__":
                 print("==================== Frame: ", f, " ====================")
                 compute_xn_and_xTilde()
                 D, V = move_nodes(f)
-                with Timer("Find Constraints"):
-                    find_constraints()
+                newton_iter = 0
                 while True:
+                    newton_iter += 1
+                    print("-------------------- Newton Iteration: ", newton_iter, " --------------------")
                     with Timer("Build System"):
+                        find_constraints()
                         data_row.fill(0)
                         data_col.fill(0)
                         data_val.fill(0)
@@ -882,6 +930,7 @@ if __name__ == "__main__":
                         E0 = compute_energy()
                         save_xPrev()
                         alpha = compute_intersection_free_step_size()
+                        print("[Step size after CCD: ", alpha, check_collision(), "]")
                         apply_sol(alpha)
                         find_constraints()
                         E = compute_energy()
@@ -890,6 +939,7 @@ if __name__ == "__main__":
                             apply_sol(alpha)
                             find_constraints()
                             E = compute_energy()
+                        print("[Step size after line search: ", alpha, "]")
                 compute_v()
             with Timer("Visualization"):
                 write_image(f + 1)
