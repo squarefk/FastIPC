@@ -150,6 +150,7 @@ dHat2 = 1e-5
 dHat = dHat2 ** 0.5
 kappa = 1e4
 
+spatial_hash_inv_dx = 1.0 / 0.01
 pid = ti.field(ti.i32)
 if dim == 2:
     indices = ti.ij
@@ -178,26 +179,6 @@ def compute_adaptive_kappa() -> real:
 
 @ti.kernel
 def find_constraints_2D_PE():
-    for i in boundary_points:
-        p = boundary_points[i]
-        for j in range(n_boundary_edges):
-            e0 = boundary_edges[j, 0]
-            e1 = boundary_edges[j, 1]
-            if p != e0 and p != e1 and point_edge_ccd_broadphase(x[p], x[e0], x[e1], dHat):
-                case = PE_type(x[p], x[e0], x[e1])
-                if case == 0:
-                    if PP_2D_E(x[p], x[e0]) < dHat2:
-                        n = ti.atomic_add(n_PP[None], 1)
-                        PP[n, 0], PP[n, 1] = min(p, e0), max(p, e0)
-                elif case == 1:
-                    if PP_2D_E(x[p], x[e1]) < dHat2:
-                        n = ti.atomic_add(n_PP[None], 1)
-                        PP[n, 0], PP[n, 1] = min(p, e1), max(p, e1)
-                elif case == 2:
-                    if PE_2D_E(x[p], x[e0], x[e1]) < dHat2:
-                        n = ti.atomic_add(n_PE[None], 1)
-                        PE[n, 0], PE[n, 1], PE[n, 2] = p, e0, e1
-    #
     # inv_dx = 1 / 0.01
     # for i in range(n_boundary_edges):
     #     e0 = boundary_edges[i, 0]
@@ -230,6 +211,26 @@ def find_constraints_2D_PE():
     #                     if PE_2D_E(x[p], x[e0], x[e1]) < dHat2:
     #                         n = ti.atomic_add(n_PE[None], 1)
     #                         PE[n, 0], PE[n, 1], PE[n, 2] = p, e0, e1
+    for i in boundary_points:
+        p = boundary_points[i]
+        for j in range(n_boundary_edges):
+            e0 = boundary_edges[j, 0]
+            e1 = boundary_edges[j, 1]
+            if p != e0 and p != e1 and point_edge_ccd_broadphase(x[p], x[e0], x[e1], dHat):
+                case = PE_type(x[p], x[e0], x[e1])
+                if case == 0:
+                    if PP_2D_E(x[p], x[e0]) < dHat2:
+                        n = ti.atomic_add(n_PP[None], 1)
+                        PP[n, 0], PP[n, 1] = min(p, e0), max(p, e0)
+                elif case == 1:
+                    if PP_2D_E(x[p], x[e1]) < dHat2:
+                        n = ti.atomic_add(n_PP[None], 1)
+                        PP[n, 0], PP[n, 1] = min(p, e1), max(p, e1)
+                elif case == 2:
+                    if PE_2D_E(x[p], x[e0], x[e1]) < dHat2:
+                        n = ti.atomic_add(n_PE[None], 1)
+                        PE[n, 0], PE[n, 1], PE[n, 2] = p, e0, e1
+
 
 @ti.func
 def attempt_PT(p, t0, t1, t2):
@@ -265,6 +266,24 @@ def attempt_PT(p, t0, t1, t2):
                 PT[n, 0], PT[n, 1], PT[n, 2], PT[n, 3] = p, t0, t1, t2
 @ti.kernel
 def find_constraints_3D_PT():
+    # for i in range(n_boundary_points):
+    #     p = boundary_points[i]
+    #     lower = int(ti.floor((x[p] - dHat) * spatial_hash_inv_dx)) - ti.Vector(list(offset))
+    #     upper = int(ti.floor((x[p] + dHat) * spatial_hash_inv_dx)) + 1 - ti.Vector(list(offset))
+    #     for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
+    #         ti.append(pid.parent(), I, i)
+    # for i in range(n_boundary_triangles):
+    #     t0 = boundary_triangles[i, 0]
+    #     t1 = boundary_triangles[i, 1]
+    #     t2 = boundary_triangles[i, 2]
+    #     lower = int(ti.floor(ti.min(ti.min(x[t0], x[t1]), x[t2]) * spatial_hash_inv_dx)) - ti.Vector(list(offset))
+    #     upper = int(ti.floor(ti.max(ti.max(x[t0], x[t1]), x[t2]) * spatial_hash_inv_dx)) + 1 - ti.Vector(list(offset))
+    #     for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
+    #         L = ti.length(pid.parent(), I)
+    #         for l in range(L):
+    #             j = pid[I[0], I[1], I[2], l]
+    #             p = boundary_points[j]
+    #             attempt_PT(p, t0, t1, t2)
     for i in range(n_boundary_points):
         p = boundary_points[i]
         for j in range(n_boundary_triangles):
@@ -354,6 +373,26 @@ def attempt_EE(a0, a1, b0, b1):
                     EE[n, 0], EE[n, 1], EE[n, 2], EE[n, 3] = a0, a1, b0, b1
 @ti.kernel
 def find_constraints_3D_EE():
+    # for i in range(n_boundary_edges):
+    #     a0 = boundary_edges[i, 0]
+    #     a1 = boundary_edges[i, 1]
+    #     lower = int(ti.floor(ti.min(x[a0], x[a1]) * spatial_hash_inv_dx)) - ti.Vector(list(offset))
+    #     upper = int(ti.floor(ti.max(x[a0], x[a1]) * spatial_hash_inv_dx)) + 1 - ti.Vector(list(offset))
+    #     for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
+    #         ti.append(pid.parent(), I, i)
+    # for i in range(n_boundary_edges):
+    #     a0 = boundary_edges[i, 0]
+    #     a1 = boundary_edges[i, 1]
+    #     lower = int(ti.floor((ti.min(x[a0], x[a1]) - dHat) * spatial_hash_inv_dx)) - ti.Vector(list(offset))
+    #     upper = int(ti.floor((ti.max(x[a0], x[a1]) + dHat) * spatial_hash_inv_dx)) + 1 - ti.Vector(list(offset))
+    #     for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
+    #         L = ti.length(pid.parent(), I)
+    #         for l in range(L):
+    #             j = pid[I[0], I[1], I[2], l]
+    #             b0 = boundary_edges[j, 0]
+    #             b1 = boundary_edges[j, 1]
+    #             if i < j:
+    #                 attempt_EE(a0, a1, b0, b1)
     for i in range(n_boundary_edges):
         a0 = boundary_edges[i, 0]
         a1 = boundary_edges[i, 1]
@@ -362,6 +401,7 @@ def find_constraints_3D_EE():
             b1 = boundary_edges[j, 1]
             if i < j:
                 attempt_EE(a0, a1, b0, b1)
+
 
 def find_constraints():
     with Timer("Find constraints"):
@@ -381,52 +421,148 @@ def find_constraints():
             tmp = np.unique(xx.to_numpy()[:n_xx[None], :], axis=0)
             n_xx[None] = len(tmp)
             xx.from_numpy(np.resize(tmp, (MAX_C, xx.shape[1])))
+    print("Found constraints:", n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None])
 
 
 @ti.kernel
-def compute_intersection_free_step_size() -> real:
+def compute_filter_2D_PE() -> real:
     alpha = 1.0
-    if ti.static(dim == 2):
-        for i in range(n_boundary_points):
-            p = boundary_points[i]
-            for j in range(n_boundary_edges):
-                e0 = boundary_edges[j, 0]
-                e1 = boundary_edges[j, 1]
-                if p != e0 and p != e1:
-                    dp = ti.Vector([data_sol[p * dim + 0], data_sol[p * dim + 1]])
-                    de0 = ti.Vector([data_sol[e0 * dim + 0], data_sol[e0 * dim + 1]])
-                    de1 = ti.Vector([data_sol[e1 * dim + 0], data_sol[e1 * dim + 1]])
-                    if moving_point_edge_ccd_broadphase(x[p], x[e0], x[e1], dp, de0, de1, dHat):
-                        alpha = ti.min(alpha, moving_point_edge_ccd(x[p], x[e0], x[e1], dp, de0, de1, 0.2))
-    else:
-        for i in range(n_boundary_points):
-            p = boundary_points[i]
-            for j in range(n_boundary_triangles):
-                t0 = boundary_triangles[j, 0]
-                t1 = boundary_triangles[j, 1]
-                t2 = boundary_triangles[j, 2]
-                if p != t0 and p != t1 and p != t2:
-                    dp = ti.Vector([data_sol[p * dim + 0], data_sol[p * dim + 1], data_sol[p * dim + 2]])
-                    dt0 = ti.Vector([data_sol[t0 * dim + 0], data_sol[t0 * dim + 1], data_sol[t0 * dim + 2]])
-                    dt1 = ti.Vector([data_sol[t1 * dim + 0], data_sol[t1 * dim + 1], data_sol[t1 * dim + 2]])
-                    dt2 = ti.Vector([data_sol[t2 * dim + 0], data_sol[t2 * dim + 1], data_sol[t2 * dim + 2]])
-                    if moving_point_triangle_ccd_broadphase(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, dHat):
-                        dist2 = PT_dist2(x[p], x[t0], x[t1], x[t2], PT_type(x[p], x[t0], x[t1], x[t2]))
-                        alpha = ti.min(alpha, point_triangle_ccd(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, 0.2, dist2))
-        for i in range(n_boundary_edges):
-            a0 = boundary_edges[i, 0]
-            a1 = boundary_edges[i, 1]
-            for j in range(n_boundary_edges):
-                b0 = boundary_edges[j, 0]
-                b1 = boundary_edges[j, 1]
-                if a0 != b0 and a0 != b1 and a1 != b0 and a1 != b1:
-                    da0 = ti.Vector([data_sol[a0 * dim + 0], data_sol[a0 * dim + 1], data_sol[a0 * dim + 2]])
-                    da1 = ti.Vector([data_sol[a1 * dim + 0], data_sol[a1 * dim + 1], data_sol[a1 * dim + 2]])
-                    db0 = ti.Vector([data_sol[b0 * dim + 0], data_sol[b0 * dim + 1], data_sol[b0 * dim + 2]])
-                    db1 = ti.Vector([data_sol[b1 * dim + 0], data_sol[b1 * dim + 1], data_sol[b1 * dim + 2]])
-                    if moving_edge_edge_ccd_broadphase(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, dHat):
-                        dist2 = EE_dist2(x[a0], x[a1], x[b0], x[b1], EE_type(x[a0], x[a1], x[b0], x[b1]))
-                        alpha = ti.min(alpha, edge_edge_ccd(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, 0.2, dist2))
+    # for i in range(n_boundary_points):
+    #     p = boundary_points[i]
+    #     dp = ti.Vector([data_sol[p * dim + 0], data_sol[p * dim + 1]])
+    #     lower = int(ti.floor((ti.min(x[p] - dp, x[p] + dp) - dHat) * spatial_hash_inv_dx)) - ti.Vector(list(offset))
+    #     upper = int(ti.floor((ti.max(x[p] - dp, x[p] + dp) + dHat) * spatial_hash_inv_dx)) + 1 - ti.Vector(list(offset))
+    #     for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]))):
+    #         ti.append(pid.parent(), I, i)
+    # for i in range(n_boundary_edges):
+    #     e0 = boundary_edges[i, 0]
+    #     e1 = boundary_edges[i, 1]
+    #     de0 = ti.Vector([data_sol[e0 * dim + 0], data_sol[e0 * dim + 1]])
+    #     de1 = ti.Vector([data_sol[e1 * dim + 0], data_sol[e1 * dim + 1]])
+    #     lower = int(ti.floor(ti.min(ti.min(x[e0] - de0, x[e0] + de0), ti.min(x[e1] - de1, x[e1] + de1)) * spatial_hash_inv_dx)) - ti.Vector(list(offset))
+    #     upper = int(ti.floor(ti.max(ti.max(x[e0] - de0, x[e0] + de0), ti.max(x[e1] - de1, x[e1] + de1)) * spatial_hash_inv_dx)) + 1 - ti.Vector(list(offset))
+    #     for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]))):
+    #         L = ti.length(pid.parent(), I)
+    #         for l in range(L):
+    #             j = pid[I[0], I[1], l]
+    #             p = boundary_points[j]
+    #             dp = ti.Vector([data_sol[p * dim + 0], data_sol[p * dim + 1]])
+    #             if p != e0 and p != e1:
+    #                 dp = ti.Vector([data_sol[p * dim + 0], data_sol[p * dim + 1]])
+    #                 de0 = ti.Vector([data_sol[e0 * dim + 0], data_sol[e0 * dim + 1]])
+    #                 de1 = ti.Vector([data_sol[e1 * dim + 0], data_sol[e1 * dim + 1]])
+    #                 if moving_point_edge_ccd_broadphase(x[p], x[e0], x[e1], dp, de0, de1, dHat):
+    #                     alpha = ti.min(alpha, moving_point_edge_ccd(x[p], x[e0], x[e1], dp, de0, de1, 0.2))
+    for i in range(n_boundary_points):
+        p = boundary_points[i]
+        for j in range(n_boundary_edges):
+            e0 = boundary_edges[j, 0]
+            e1 = boundary_edges[j, 1]
+            if p != e0 and p != e1:
+                dp = ti.Vector([data_sol[p * dim + 0], data_sol[p * dim + 1]])
+                de0 = ti.Vector([data_sol[e0 * dim + 0], data_sol[e0 * dim + 1]])
+                de1 = ti.Vector([data_sol[e1 * dim + 0], data_sol[e1 * dim + 1]])
+                if moving_point_edge_ccd_broadphase(x[p], x[e0], x[e1], dp, de0, de1, dHat):
+                    alpha = ti.min(alpha, moving_point_edge_ccd(x[p], x[e0], x[e1], dp, de0, de1, 0.2))
+    return alpha
+
+
+@ti.kernel
+def compute_filter_3D_PT() -> real:
+    alpha = 1.0
+    # for i in range(n_boundary_points):
+    #     p = boundary_points[i]
+    #     dp = ti.Vector([data_sol[p * dim + 0], data_sol[p * dim + 1], data_sol[p * dim + 2]])
+    #     lower = int(ti.floor((ti.min(x[p], x[p] + dp) - dHat) * spatial_hash_inv_dx)) - ti.Vector(list(offset))
+    #     upper = int(ti.floor((ti.max(x[p], x[p] + dp) + dHat) * spatial_hash_inv_dx)) + 1 - ti.Vector(list(offset))
+    #     for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
+    #         ti.append(pid.parent(), I, i)
+    # for i in range(n_boundary_triangles):
+    #     t0 = boundary_triangles[i, 0]
+    #     t1 = boundary_triangles[i, 1]
+    #     t2 = boundary_triangles[i, 2]
+    #     dt0 = ti.Vector([data_sol[t0 * dim + 0], data_sol[t0 * dim + 1], data_sol[t0 * dim + 2]])
+    #     dt1 = ti.Vector([data_sol[t1 * dim + 0], data_sol[t1 * dim + 1], data_sol[t1 * dim + 2]])
+    #     dt2 = ti.Vector([data_sol[t2 * dim + 0], data_sol[t2 * dim + 1], data_sol[t2 * dim + 2]])
+    #     lower = int(ti.floor(ti.min(ti.min(ti.min(x[t0], x[t0] + dt0), ti.min(x[t1], x[t1] + dt1)), ti.min(x[t2], x[t2] + dt2)) * spatial_hash_inv_dx)) - ti.Vector(list(offset))
+    #     upper = int(ti.floor(ti.max(ti.max(ti.max(x[t0], x[t0] + dt0), ti.max(x[t1], x[t1] + dt1)), ti.max(x[t2], x[t2] + dt2)) * spatial_hash_inv_dx)) + 1 - ti.Vector(list(offset))
+    #     for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
+    #         L = ti.length(pid.parent(), I)
+    #         for l in range(L):
+    #             j = pid[I[0], I[1], I[2], l]
+    #             p = boundary_points[j]
+    #             dp = ti.Vector([data_sol[p * dim + 0], data_sol[p * dim + 1], data_sol[p * dim + 2]])
+    #             attempt_PT(p, t0, t1, t2)
+    #             if moving_point_triangle_ccd_broadphase(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, dHat):
+    #                 dist2 = PT_dist2(x[p], x[t0], x[t1], x[t2], PT_type(x[p], x[t0], x[t1], x[t2]))
+    #                 alpha = ti.min(alpha, point_triangle_ccd(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, 0.2, dist2))
+    for i in range(n_boundary_points):
+        p = boundary_points[i]
+        for j in range(n_boundary_triangles):
+            t0 = boundary_triangles[j, 0]
+            t1 = boundary_triangles[j, 1]
+            t2 = boundary_triangles[j, 2]
+            if p != t0 and p != t1 and p != t2:
+                dp = ti.Vector([data_sol[p * dim + 0], data_sol[p * dim + 1], data_sol[p * dim + 2]])
+                dt0 = ti.Vector([data_sol[t0 * dim + 0], data_sol[t0 * dim + 1], data_sol[t0 * dim + 2]])
+                dt1 = ti.Vector([data_sol[t1 * dim + 0], data_sol[t1 * dim + 1], data_sol[t1 * dim + 2]])
+                dt2 = ti.Vector([data_sol[t2 * dim + 0], data_sol[t2 * dim + 1], data_sol[t2 * dim + 2]])
+                if moving_point_triangle_ccd_broadphase(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, dHat):
+                    dist2 = PT_dist2(x[p], x[t0], x[t1], x[t2], PT_type(x[p], x[t0], x[t1], x[t2]))
+                    alpha = ti.min(alpha, point_triangle_ccd(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, 0.2, dist2))
+    return alpha
+
+
+@ti.kernel
+def compute_filter_3D_EE() -> real:
+    alpha = 1.0
+    # for i in range(n_boundary_edges):
+    #     a0 = boundary_edges[i, 0]
+    #     a1 = boundary_edges[i, 1]
+    #     da0 = ti.Vector([data_sol[a0 * dim + 0], data_sol[a0 * dim + 1], data_sol[a0 * dim + 2]])
+    #     da1 = ti.Vector([data_sol[a1 * dim + 0], data_sol[a1 * dim + 1], data_sol[a1 * dim + 2]])
+    #     lower = int(ti.floor(ti.min(ti.min(x[a0], x[a0] + da0), ti.min(x[a1], x[a1] + da1)) * spatial_hash_inv_dx)) - ti.Vector(list(offset))
+    #     upper = int(ti.floor(ti.max(ti.max(x[a0], x[a0] + da0), ti.max(x[a1], x[a1] + da1)) * spatial_hash_inv_dx)) + 1 - ti.Vector(list(offset))
+    #     for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
+    #         ti.append(pid.parent(), I, i)
+    # for i in range(n_boundary_edges):
+    #     a0 = boundary_edges[i, 0]
+    #     a1 = boundary_edges[i, 1]
+    #     da0 = ti.Vector([data_sol[a0 * dim + 0], data_sol[a0 * dim + 1], data_sol[a0 * dim + 2]])
+    #     da1 = ti.Vector([data_sol[a1 * dim + 0], data_sol[a1 * dim + 1], data_sol[a1 * dim + 2]])
+    #     lower = int(ti.floor((ti.min(ti.min(x[a0], x[a0] + da0), ti.min(x[a1], x[a1] + da1)) - dHat) * spatial_hash_inv_dx)) - ti.Vector(list(offset))
+    #     upper = int(ti.floor((ti.max(ti.max(x[a0], x[a0] + da0), ti.max(x[a1], x[a1] + da1)) + dHat) * spatial_hash_inv_dx)) + 1 - ti.Vector(list(offset))
+    #     for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
+    #         L = ti.length(pid.parent(), I)
+    #         for l in range(L):
+    #             j = pid[I[0], I[1], I[2], l]
+    #             b0 = boundary_edges[j, 0]
+    #             b1 = boundary_edges[j, 1]
+    #             db0 = ti.Vector([data_sol[b0 * dim + 0], data_sol[b0 * dim + 1], data_sol[b0 * dim + 2]])
+    #             db1 = ti.Vector([data_sol[b1 * dim + 0], data_sol[b1 * dim + 1], data_sol[b1 * dim + 2]])
+    #             if i < j and moving_edge_edge_ccd_broadphase(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, dHat):
+    #                 dist2 = EE_dist2(x[a0], x[a1], x[b0], x[b1], EE_type(x[a0], x[a1], x[b0], x[b1]))
+    #                 alpha = ti.min(alpha, edge_edge_ccd(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, 0.2, dist2))
+    for i in range(n_boundary_edges):
+        a0 = boundary_edges[i, 0]
+        a1 = boundary_edges[i, 1]
+        for j in range(n_boundary_edges):
+            b0 = boundary_edges[j, 0]
+            b1 = boundary_edges[j, 1]
+            if a0 != b0 and a0 != b1 and a1 != b0 and a1 != b1:
+                da0 = ti.Vector([data_sol[a0 * dim + 0], data_sol[a0 * dim + 1], data_sol[a0 * dim + 2]])
+                da1 = ti.Vector([data_sol[a1 * dim + 0], data_sol[a1 * dim + 1], data_sol[a1 * dim + 2]])
+                db0 = ti.Vector([data_sol[b0 * dim + 0], data_sol[b0 * dim + 1], data_sol[b0 * dim + 2]])
+                db1 = ti.Vector([data_sol[b1 * dim + 0], data_sol[b1 * dim + 1], data_sol[b1 * dim + 2]])
+                if moving_edge_edge_ccd_broadphase(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, dHat):
+                    dist2 = EE_dist2(x[a0], x[a1], x[b0], x[b1], EE_type(x[a0], x[a1], x[b0], x[b1]))
+                    alpha = ti.min(alpha, edge_edge_ccd(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, 0.2, dist2))
+    return alpha
+
+
+@ti.kernel
+def compute_filter_3D_inversion_free() -> real:
+    alpha = 1.0
     # for i in range(n_elements):
     #     a, b, c, d = vertices[i, 0], vertices[i, 1], vertices[i, 2], vertices[i, 3]
     #     da = ti.Vector([data_sol[a * dim + 0], data_sol[a * dim + 1], data_sol[a * dim + 2]])
@@ -435,6 +571,21 @@ def compute_intersection_free_step_size() -> real:
     #     dd = ti.Vector([data_sol[d * dim + 0], data_sol[d * dim + 1], data_sol[d * dim + 2]])
     #     alpha = ti.min(alpha, get_smallest_positive_real_cubic_root(x[a], x[b], x[c], x[d], da, db, dc, dd, 0.2))
     return alpha
+
+
+def compute_intersection_free_step_size():
+    alpha = 1.0
+    if dim == 2:
+        grid.deactivate_all()
+        alpha = min(alpha, compute_filter_2D_PE())
+    else:
+        grid.deactivate_all()
+        alpha = min(alpha, compute_filter_3D_PT())
+        grid.deactivate_all()
+        alpha = min(alpha, compute_filter_3D_EE())
+        alpha = min(alpha, compute_filter_3D_inversion_free())
+    return alpha
+
 
 
 @ti.func
