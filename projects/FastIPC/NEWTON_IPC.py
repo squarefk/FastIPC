@@ -357,16 +357,23 @@ def find_constraints_3D_EE():
 
 
 def find_constraints():
-    n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
-    if dim == 2:
-        grid.deactivate_all()
-        find_constraints_2D_PE()
-    else:
-        grid.deactivate_all()
-        find_constraints_3D_PT()
-        grid.deactivate_all()
-        find_constraints_3D_EE()
-    print("Find constraints: ", n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None])
+    with Timer("Find constraints"):
+        n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
+        if dim == 2:
+            grid.deactivate_all()
+            find_constraints_2D_PE()
+        else:
+            grid.deactivate_all()
+            find_constraints_3D_PT()
+            grid.deactivate_all()
+            find_constraints_3D_EE()
+    with Timer("Remove duplicated"):
+        xxs = [PP, PE, PT, EE, EEM, PPM, PEM]
+        n_xxs = [n_PP, n_PE, n_PT, n_EE, n_EEM, n_PPM, n_PEM]
+        for xx, n_xx in zip(xxs, n_xxs):
+            tmp = np.unique(xx.to_numpy()[:n_xx[None], :], axis=0)
+            n_xx[None] = len(tmp)
+            xx.from_numpy(np.resize(tmp, (MAX_C, xx.shape[1])))
 
 
 @ti.kernel
