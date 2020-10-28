@@ -259,7 +259,7 @@ extern "C" {
                             REAL dt00, REAL dt01, REAL dt02,
                             REAL dt10, REAL dt11, REAL dt12,
                             REAL dt20, REAL dt21, REAL dt22,
-                            REAL eta, REAL dist2, REAL* ret)
+                            REAL eta, REAL dist2_cur, REAL* ret)
     {
         Eigen::Matrix<double, 3, 1> p, t0, t1, t2, dp, dt0, dt1, dt2;
         p(0) = p0; p(1) = p1; p(2) = p2;
@@ -270,31 +270,23 @@ extern "C" {
         dt0(0) = dt00; dt0(1) = dt01; dt0(2) = dt02;
         dt1(0) = dt10; dt1(1) = dt11; dt1(2) = dt12;
         dt2(0) = dt20; dt2(1) = dt21; dt2(2) = dt22;
-        double toc;
-        if (CTCD::vertexFaceCTCD(p, t0, t1, t2,
-                                 p + dp, t0 + dt0, t1 + dt1, t2 + dt2,
-                                 eta * std::sqrt(dist2), toc))
-        {
-            if (toc < 1.0e-6) {
-                puts("PT CCD tiny!");
+        double toc = 1.0;
+        std::vector<double> dispMag2Vec{dt0.squaredNorm(), dt1.squaredNorm(), dt2.squaredNorm()};
+        double maxDispMag = dp.norm() + std::sqrt(*std::max_element(dispMag2Vec.begin(), dispMag2Vec.end()));
+        if (maxDispMag != 0) {
+            double tocLowerBound = (1 - eta) * (sqrt(dist2_cur)) / maxDispMag;
+            if (tocLowerBound < 1) {
                 if (CTCD::vertexFaceCTCD(p, t0, t1, t2,
                                          p + dp, t0 + dt0, t1 + dt1, t2 + dt2,
-                                         0, toc))
+                                         eta * (std::sqrt(dist2_cur)), toc))
                 {
-                    toc *= (1.0 - eta);
-                    ret[0] = (REAL)toc;
-                }
-                else {
-                    ret[0] = 1.0;
+                    if (toc < tocLowerBound) {
+                        toc = tocLowerBound;
+                    }
                 }
             }
-            else {
-                ret[0] = (REAL)toc;
-            }
         }
-        else {
-            ret[0] = 1.0;
-        }
+        ret[0] = toc;
     }
 
     void edge_edge_ccd(REAL a00, REAL a01, REAL a02,
@@ -305,7 +297,7 @@ extern "C" {
                        REAL da10, REAL da11, REAL da12,
                        REAL db00, REAL db01, REAL db02,
                        REAL db10, REAL db11, REAL db12,
-                       REAL eta, REAL dist2, REAL* ret)
+                       REAL eta, REAL dist2_cur, REAL* ret)
     {
         Eigen::Matrix<double, 3, 1> a0, a1, b0, b1, da0, da1, db0, db1;
         a0(0) = a00; a0(1) = a01; a0(2) = a02;
@@ -316,31 +308,23 @@ extern "C" {
         da1(0) = da10; da1(1) = da11; da1(2) = da12;
         db0(0) = db00; db0(1) = db01; db0(2) = db02;
         db1(0) = db10; db1(1) = db11; db1(2) = db12;
-        double toc;
-        if (CTCD::edgeEdgeCTCD(a0, a1, b0, b1,
-                               a0 + da0, a1 + da1, b0 + db0, b1 + db1,
-                               eta * std::sqrt(dist2), toc))
-        {
-            if (toc < 1.0e-6) {
-                puts("EE CCD tiny!");
+        double toc = 1.0;
+        double maxDispMag = std::sqrt(std::max(da0.squaredNorm(), da1.squaredNorm())) +
+                       std::sqrt(std::max(db0.squaredNorm(), db1.squaredNorm()));
+        if (maxDispMag != 0) {
+            double tocLowerBound = (1 - eta) * (sqrt(dist2_cur)) / maxDispMag;
+            if (tocLowerBound < 1) {
                 if (CTCD::edgeEdgeCTCD(a0, a1, b0, b1,
                                        a0 + da0, a1 + da1, b0 + db0, b1 + db1,
-                                       0, toc))
+                                       eta * (std::sqrt(dist2_cur)), toc))
                 {
-                    toc *= (1.0 - eta);
-                    ret[0] = (REAL)toc;
-                }
-                else {
-                    ret[0] = 1.0;
+                    if (toc < tocLowerBound) {
+                        toc = tocLowerBound;
+                    }
                 }
             }
-            else {
-                ret[0] = (REAL)toc;
-            }
         }
-        else {
-            ret[0] = 1.0;
-        }
+        ret[0] = toc;
     }
 
 
