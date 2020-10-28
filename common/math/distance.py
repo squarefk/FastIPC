@@ -1806,3 +1806,15 @@ def EE_dist2(a0, a1, b0, b1, case):
     elif case == 8:
         dist2 = EE_3D_E(a0, a1, b0, b1)
     return dist2
+
+
+@ti.func
+def PE_dist2(p, e0, e1, case):
+    dist2 = 0.0
+    if case == 0:
+        dist2 = PP_2D_E(p, e0)
+    elif case == 1:
+        dist2 = PP_2D_E(p, e1)
+    elif case == 2:
+        dist2 = PE_2D_E(p, e0, e1)
+    return dist2

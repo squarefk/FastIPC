@@ -393,7 +393,7 @@ def check_overlap(x0, x1, x2, d0, d1, d2, root):
 
 
 @ti.func
-def moving_point_edge_ccd(x0, x1, x2, d0, d1, d2, eta):
+def point_edge_ccd(x0, x1, x2, d0, d1, d2, eta):
     toc = 1.0
     a = d0[0] * (d2[1] - d1[1]) + d0[1] * (d1[0] - d2[0]) + d2[0] * d1[1] - d2[1] * d1[0]
     b = x0[0] * (d2[1] - d1[1]) + d0[0] * (x2[1] - x1[1]) + d0[1] * (x1[0] - x2[0]) + x0[1] * (d1[0] - d2[0]) + d1[1] * x2[0] + d2[0] * x1[1] - d1[0] * x2[1] - d2[1] * x1[0]
@@ -440,4 +440,17 @@ def moving_point_edge_ccd(x0, x1, x2, d0, d1, d2, eta):
                     if root > 0 and root <= 1:
                         if check_overlap(x0, x1, x2, d0, d1, d2, root):
                             toc = ti.min(toc, root * (1 - eta))
+    return toc
+
+
+@ti.func
+def moving_point_edge_ccd(x0, x1, x2, d0, d1, d2, eta):
+    dist2_cur = PE_dist2(x0, x1, x2, PE_type(x0, x1, x2))
+    maxDispMag2 = max(d0.norm_sqr(), d1.norm_sqr(), d2.norm_sqr())
+    toc = 1.0
+    if maxDispMag2 > 0:
+        tocLowerBound = (1 - eta) * ti.sqrt(dist2_cur) / (2 * ti.sqrt(maxDispMag2))
+        if tocLowerBound <= 1:
+            toc = point_edge_ccd(x0, x1, x2, d0, d1, d2, eta)
+            toc = max(toc, tocLowerBound)
     return toc
