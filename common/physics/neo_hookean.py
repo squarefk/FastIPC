@@ -3,11 +3,13 @@ from common.math.math_tools import *
 
 
 @ti.func
-def elasticity_energy(sig, la, mu):
+def elasticity_energy(sig: ti.template(), la, mu):
     if ti.static(sig.n == 2):
         print('ERROR, not implemented')
     else:
-        sigma = ti.Vector([sig[0, 0], sig[1, 1], sig[2, 2]])
+        sigma = ti.Matrix.zero(ti.get_runtime().default_fp, sig.n, 1)
+        for i in ti.static(range(sig.n)):
+            sigma[i] = sig[i, 0 if ti.static(sig.m == 1) else i]
         sigma2Sum = sigma.norm_sqr()
         sigmaProd = sigma[0] * sigma[1] * sigma[2]
         log_sigmaProd = ti.log(sigmaProd)
@@ -15,11 +17,13 @@ def elasticity_energy(sig, la, mu):
 
 
 @ti.func
-def elasticity_gradient(sig, la, mu):
+def elasticity_gradient(sig: ti.template(), la, mu):
     if ti.static(sig.n == 2):
         print('ERROR, not implemented')
     else:
-        sigma = ti.Vector([sig[0, 0], sig[1, 1], sig[2, 2]])
+        sigma = ti.Matrix.zero(ti.get_runtime().default_fp, sig.n, 1)
+        for i in ti.static(range(sig.n)):
+            sigma[i] = sig[i, 0 if ti.static(sig.m == 1) else i]
         sigmaProd = sigma[0] * sigma[1] * sigma[2]
         log_sigmaProd = ti.log(sigmaProd)
         inv0 = 1.0 / sigma[0]
@@ -31,11 +35,13 @@ def elasticity_gradient(sig, la, mu):
 
 
 @ti.func
-def elasticity_hessian(sig, la, mu):
+def elasticity_hessian(sig: ti.template(), la, mu):
     if ti.static(sig.n == 2):
         print('ERROR, not implemented')
     else:
-        sigma = ti.Vector([sig[0, 0], sig[1, 1], sig[2, 2]])
+        sigma = ti.Matrix.zero(ti.get_runtime().default_fp, sig.n, 1)
+        for i in ti.static(range(sig.n)):
+            sigma[i] = sig[i, 0 if ti.static(sig.m == 1) else i]
         sigmaProd = sigma[0] * sigma[1] * sigma[2]
         log_sigmaProd = ti.log(sigmaProd)
         inv2_0 = 1.0 / sigma[0] / sigma[0]
@@ -63,7 +69,7 @@ def elasticity_first_piola_kirchoff_stress(F, la, mu):
 
 @ti.func
 def elasticity_first_piola_kirchoff_stress_derivative(F, la, mu):
-    if ti.static(sig.n == 2):
+    if ti.static(F.n == 2):
         print('ERROR, not implemented')
     else:
         U, sig, V = ti.svd(F)
@@ -71,7 +77,7 @@ def elasticity_first_piola_kirchoff_stress_derivative(F, la, mu):
         sigmaProd = sigma[0] * sigma[1] * sigma[2]
         middle = mu - la * ti.log(sigmaProd)
         dE_div_dsigma = elasticity_gradient(sig, la, mu)
-        d2E_div_dsigma2 = project_pd_3(elasticity_hessian(sig, la, mu))
+        d2E_div_dsigma2 = project_pd(elasticity_hessian(sig, la, mu))
 
         leftCoef = (mu + middle / sigma[0] / sigma[1]) / 2.0
         rightCoef = dE_div_dsigma[0] + dE_div_dsigma[1]
