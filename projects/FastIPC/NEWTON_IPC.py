@@ -174,7 +174,19 @@ def compute_adaptive_kappa() -> real:
     total_mass = 0.0
     for i in range(n_particles):
         total_mass += m[i]
-    return 1.0e13 * total_mass / n_particles / (4.0e-16 * H_b)
+    result = 1.0e13 * total_mass / n_particles / (4.0e-16 * H_b)
+    print("Adaptive kappa:", result)
+    return result
+
+
+@ti.kernel
+def compute_mean_of_boundary_edges() -> real:
+    total = 0.0
+    for i in range(n_boundary_edges):
+        total += (x[boundary_edges[i, 0]] - x[boundary_edges[i, 1]]).norm()
+    result = total / ti.cast(n_boundary_edges, real)
+    print("Mean of boundary edges:", result)
+    return result
 
 
 @ti.kernel
@@ -1058,7 +1070,7 @@ if __name__ == "__main__":
         boundary_triangles.from_numpy(boundary_triangles_.astype(np.int32))
         compute_restT_and_m()
         kappa = compute_adaptive_kappa()
-        print("Adaptive kappa:", kappa)
+        spatial_hash_inv_dx = 1.0 / compute_mean_of_boundary_edges()
         save_x0()
         zero.fill(0)
         write_image(0)
