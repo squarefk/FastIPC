@@ -94,11 +94,6 @@ vec = lambda: ti.Vector.field(dim, real)
 mat = lambda: ti.Matrix.field(dim, dim, real)
 
 dt = 0.01
-E = 1e5
-nu = 0.4
-la = E * nu / ((1 + nu) * (1 - 2 * nu))
-mu = E / (2 * (1 + nu))
-density = 1000
 n_particles = len(mesh_particles)
 n_elements = len(mesh_elements)
 n_boundary_points = len(boundary_points_)
@@ -107,13 +102,15 @@ n_boundary_triangles = len(boundary_triangles_)
 
 x, x0, xPrev, xTilde, xn, v, m = vec(), vec(), vec(), vec(), vec(), vec(), scalar()
 zero = vec()
+la, mu = scalar(), scalar()
 restT = mat()
 vertices = ti.field(ti.i32)
 boundary_points = ti.field(ti.i32)
 boundary_edges = ti.field(ti.i32)
 boundary_triangles = ti.field(ti.i32)
-ti.root.dense(ti.k, n_particles).place(x, x0, xPrev, xTilde, xn, v, m)
-ti.root.dense(ti.k, n_particles).place(zero)
+ti.root.dense(ti.i, n_particles).place(x, x0, xPrev, xTilde, xn, v, m)
+ti.root.dense(ti.i, n_particles).place(zero)
+ti.root.dense(ti.i, n_elements).place(la, mu)
 ti.root.dense(ti.i, n_elements).place(restT)
 ti.root.dense(ti.ij, (n_elements, dim + 1)).place(vertices)
 ti.root.dense(ti.i, n_boundary_points).place(boundary_points)
@@ -146,7 +143,7 @@ n_PEM = ti.field(ti.i32, shape=())
 
 dfx = ti.field(ti.i32, shape=n_particles * dim)
 
-dHat2 = 1e-5
+dHat2 = 1e-6
 dHat = dHat2 ** 0.5
 kappa = 1e4
 
@@ -187,6 +184,18 @@ def compute_mean_of_boundary_edges() -> real:
     result = total / ti.cast(n_boundary_edges, real)
     print("Mean of boundary edges:", result)
     return result
+
+
+@ti.func
+def compute_density(i):
+    return 2000.0 if i < 1760 else 1000.0
+
+
+@ti.func
+def compute_lame_parameters(i):
+    E = 1.e8 if i < 6851 else 1.e6
+    nu = 0.4
+    return E * nu / ((1 + nu) * (1 - 2 * nu)), E / (2 * (1 + nu))
 
 
 @ti.kernel
@@ -617,11 +626,12 @@ def compute_T(i):
 def compute_restT_and_m():
     for i in range(n_elements):
         restT[i] = compute_T(i)
-        mass = restT[i].determinant() / dim / (dim - 1) * density / (dim + 1)
+        mass = restT[i].determinant() / dim / (dim - 1) * compute_density(i) / (dim + 1)
         if mass < 0.0:
             print("FATAL ERROR : mesh inverted")
         for d in ti.static(range(dim + 1)):
             m[vertices[i, d]] += mass
+        la[i], mu[i] = compute_lame_parameters(i)
 
 
 @ti.kernel
@@ -679,7 +689,7 @@ def compute_energy() -> real:
         F = compute_T(e) @ restT[e].inverse()
         vol0 = restT[e].determinant() / dim / (dim - 1)
         U, sig, V = ti.svd(F)
-        total_energy += elasticity_energy(sig, la, mu) * dt * dt * vol0
+        total_energy += elasticity_energy(sig, la[e], mu[e]) * dt * dt * vol0
     # ipc
     for r in range(n_PP[None]):
         total_energy += PP_energy(x[PP[r, 0]], x[PP[r, 1]], dHat2, kappa)
@@ -728,8 +738,9 @@ def compute_elasticity():
         F = compute_T(e) @ restT[e].inverse()
         IB = restT[e].inverse()
         vol0 = restT[e].determinant() / dim / (dim - 1)
-        dPdF = elasticity_first_piola_kirchoff_stress_derivative(F, la, mu) * dt * dt * vol0
-        P = elasticity_first_piola_kirchoff_stress(F, la, mu) * dt * dt * vol0
+        _la, _mu = la[e], mu[e]
+        dPdF = elasticity_first_piola_kirchoff_stress_derivative(F, _la, _mu) * dt * dt * vol0
+        P = elasticity_first_piola_kirchoff_stress(F, _la, _mu) * dt * dt * vol0
         if ti.static(dim == 2):
             intermediate = ti.Matrix([[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
                                       [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]])
@@ -1080,6 +1091,7 @@ if __name__ == "__main__":
             [x_, v_, dirichlet_fixed, dirichlet_value] = pickle.load(open(directory + f'caches/{f_start:06d}.p', 'rb'))
             x.from_numpy(x_)
             v.from_numpy(v_)
+        newton_iter_total = 0
         for f in range(f_start, 360):
             with Timer("Time Step"):
                 print("==================== Frame: ", f, " ====================")
@@ -1116,6 +1128,8 @@ if __name__ == "__main__":
                             E = compute_energy()
                         print("[Step size after line search: ", alpha, "]")
                 compute_v()
+                newton_iter_total += newton_iter
+                print("Avg Newton iter: ", newton_iter_total / (f + 1))
             with Timer("Visualization"):
                 write_image(f + 1)
             pickle.dump([x.to_numpy(), v.to_numpy(), dirichlet_fixed, dirichlet_value], open(directory + f'caches/{f + 1:06d}.p', 'wb'))
