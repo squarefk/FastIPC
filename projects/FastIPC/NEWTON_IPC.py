@@ -1,5 +1,5 @@
 from reader import *
-from common.physics.fixed_corotated import *
+from common.physics.neo_hookean import *
 from common.math.math_tools import *
 from common.math.ipc import *
 from common.utils.timer import *
@@ -934,7 +934,7 @@ def solve_system(D, V):
         n = n_particles * dim
         A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
         A += scipy.sparse.csr_matrix((np.ones(len(D)), (D, D)), shape=(n, n))
-        rhs[D] = V[D]
+        rhs[D] = 0
     with Timer("System Solve"):
         factor = cholesky(A)
         sol = factor(rhs)
