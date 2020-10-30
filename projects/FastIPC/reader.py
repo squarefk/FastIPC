@@ -39,10 +39,8 @@ def read(testcase):
         return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 3
     elif testcase == 1002:
         # mat twist
-        mesh = meshio.read("input/mat20x20.vtk")
-        mesh_particles = mesh.points
-        mesh_elements = mesh.cells[0].data
-        mesh_scale = 0.8
+        mesh_particles, mesh_elements = read_msh("input/mat150x150t40.msh")
+        mesh_scale = 1.6
         mesh_offset = [0, 0, 0]
         n_particles = len(mesh_particles)
         dirichlet_fixed = np.zeros(n_particles, dtype=bool)
