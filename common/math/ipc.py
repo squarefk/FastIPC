@@ -1,7 +1,29 @@
 import taichi as ti
 from common.math.distance import *
 from common.math.math_tools import *
+from common.math.external_func import *
 
+
+###########################################
+# PP_{energy, gradient, hessian}
+# PE_{energy, gradient, hessian}
+# PT_{energy, gradient, hessian}
+# EE_{energy, gradient, hessian}
+# EEM_{energy, gradient, hessian}
+# PPM_{energy, gradient, hessian}
+# PEM_{energy, gradient, hessian}
+# point_triangle_ccd_broadphase
+# moving_point_triangle_ccd_broadphase
+# edge_edge_ccd_broadphase
+# moving_edge_edge_ccd_broadphase
+# point_edge_ccd_broadphase
+# moving_point_edge_ccd_broadphase
+# point_triangle_ccd
+# edge_edge_ccd
+# point_edge_ccd
+# point_inside_triangle
+# segment_intersect_triangle
+###########################################
 
 @ti.func
 def PP_energy(p0, p1, dHat2, kappa):
@@ -383,6 +405,38 @@ def moving_point_edge_ccd_broadphase(x0, x1, x2, d0, d1, d2, dHat):
 
 
 @ti.func
+def point_triangle_ccd(p, t0, t1, t2, dp, dt0, dt1, dt2, eta, dist2):
+    toc = 0.0
+    ti.external_func_call(func=so.point_triangle_ccd,
+                          args=(p[0], p[1], p[2],
+                                t0[0], t0[1], t0[2],
+                                t1[0], t1[1], t1[2],
+                                t2[0], t2[1], t2[2],
+                                dp[0], dp[1], dp[2],
+                                dt0[0], dt0[1], dt0[2],
+                                dt1[0], dt1[1], dt1[2],
+                                dt2[0], dt2[1], dt2[2], eta, dist2),
+                          outputs=(toc,))
+    return toc
+
+
+@ti.func
+def edge_edge_ccd(a0, a1, b0, b1, da0, da1, db0, db1, eta, dist2):
+    toc = 0.0
+    ti.external_func_call(func=so.edge_edge_ccd,
+                          args=(a0[0], a0[1], a0[2],
+                                a1[0], a1[1], a1[2],
+                                b0[0], b0[1], b0[2],
+                                b1[0], b1[1], b1[2],
+                                da0[0], da0[1], da0[2],
+                                da1[0], da1[1], da1[2],
+                                db0[0], db0[1], db0[2],
+                                db1[0], db1[1], db1[2], eta, dist2),
+                          outputs=(toc,))
+    return toc
+
+
+@ti.func
 def check_overlap(x0, x1, x2, d0, d1, d2, root):
     p0 = x0 + d0 * root
     e0 = x1 + d1 * root
@@ -390,10 +444,8 @@ def check_overlap(x0, x1, x2, d0, d1, d2, root):
     e = e1 - e0
     ratio = e.dot(p0 - e0) / e.norm_sqr()
     return 0 <= ratio and ratio <= 1
-
-
 @ti.func
-def point_edge_ccd(x0, x1, x2, d0, d1, d2, eta):
+def point_edge_ccd_impl(x0, x1, x2, d0, d1, d2, eta):
     toc = 1.0
     a = d0[0] * (d2[1] - d1[1]) + d0[1] * (d1[0] - d2[0]) + d2[0] * d1[1] - d2[1] * d1[0]
     b = x0[0] * (d2[1] - d1[1]) + d0[0] * (x2[1] - x1[1]) + d0[1] * (x1[0] - x2[0]) + x0[1] * (d1[0] - d2[0]) + d1[1] * x2[0] + d2[0] * x1[1] - d1[0] * x2[1] - d2[1] * x1[0]
@@ -441,16 +493,59 @@ def point_edge_ccd(x0, x1, x2, d0, d1, d2, eta):
                         if check_overlap(x0, x1, x2, d0, d1, d2, root):
                             toc = ti.min(toc, root * (1 - eta))
     return toc
-
-
 @ti.func
-def moving_point_edge_ccd(x0, x1, x2, d0, d1, d2, eta):
+def point_edge_ccd(x0, x1, x2, d0, d1, d2, eta):
     dist2_cur = PE_dist2(x0, x1, x2, PE_type(x0, x1, x2))
     maxDispMag2 = max(d0.norm_sqr(), d1.norm_sqr(), d2.norm_sqr())
     toc = 1.0
     if maxDispMag2 > 0:
         tocLowerBound = (1 - eta) * ti.sqrt(dist2_cur) / (2 * ti.sqrt(maxDispMag2))
         if tocLowerBound <= 1:
-            toc = point_edge_ccd(x0, x1, x2, d0, d1, d2, eta)
+            toc = point_edge_ccd_impl(x0, x1, x2, d0, d1, d2, eta)
             toc = max(toc, tocLowerBound)
     return toc
+
+
+# @ti.func
+# def point_inside_triangle(P, A, B, C):
+#     v0 = C - A
+#     v1 = B - A
+#     v2 = P - A
+#     # Compute dot products
+#     dot00 = v0.dot(v0)
+#     dot01 = v0.dot(v1)
+#     dot02 = v0.dot(v2)
+#     dot11 = v1.dot(v1)
+#     dot12 = v1.dot(v2)
+#     # Compute barycentric coordinates
+#     invDenom = 1 / (dot00 * dot11 - dot01 * dot01)
+#     u = (dot11 * dot02 - dot01 * dot12) * invDenom
+#     v = (dot00 * dot12 - dot01 * dot02) * invDenom
+#     # Check if point is in triangle
+#     return u >= 0 and v >= 0 and u + v < 1
+@ti.func
+def point_inside_triangle(P, A, B, C):
+    d1 = (P - B).cross(A - B)
+    d2 = (P - C).cross(B - C)
+    d3 = (P - A).cross(C - A)
+    has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
+    has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
+    return not (has_neg and has_pos)
+
+
+@ti.func
+def segment_intersect_triangle(P, Q, A, B, C):
+    RLen = (Q - P).norm()
+    RDir = (Q - P) / RLen
+    ROrigin = P
+    E1 = B - A
+    E2 = C - A
+    N = E1.cross(E2)
+    det = -RDir.dot(N)
+    invdet = 1.0 / det
+    AO  = ROrigin - A
+    DAO = AO.cross(RDir)
+    u = E2.dot(DAO) * invdet
+    v = -E1.dot(DAO) * invdet
+    t = AO.dot(N) * invdet
+    return det >= 1e-12 and t >= 0.0 and u >= 0.0 and v >= 0.0 and (u+v) <= 1.0 and t <= RLen

@@ -1,12 +1,5 @@
 import taichi as ti
-import ctypes
-import os
-import numpy as np
-
-
-def make_semi_positive_definite(mat, n):
-    w, v = np.linalg.eig(mat.reshape((n, n)))
-    return (v @ np.diag(np.maximum(w, 0)) @ v.transpose()).reshape((n * n))
+from common.math.external_func import *
 
 
 @ti.func
@@ -60,9 +53,6 @@ def make_pd(symMtr):
                 symMtr[1, 0] = b * L1md_div_L1
                 symMtr[1, 1] = b2 / L1
     return symMtr
-
-
-so = ctypes.CDLL(os.path.dirname(os.path.realpath(__file__)) + "/wrapper/a.so")
 
 
 @ti.func
@@ -157,6 +147,7 @@ def solve(F, rhs):
         ti.external_func_call(func=so.solve_9, args=(in_0, in_1, in_2, in_3, in_4, in_5, in_6, in_7, in_8, in_9, in_10, in_11, in_12, in_13, in_14, in_15, in_16, in_17, in_18, in_19, in_20, in_21, in_22, in_23, in_24, in_25, in_26, in_27, in_28, in_29, in_30, in_31, in_32, in_33, in_34, in_35, in_36, in_37, in_38, in_39, in_40, in_41, in_42, in_43, in_44, in_45, in_46, in_47, in_48, in_49, in_50, in_51, in_52, in_53, in_54, in_55, in_56, in_57, in_58, in_59, in_60, in_61, in_62, in_63, in_64, in_65, in_66, in_67, in_68, in_69, in_70, in_71, in_72, in_73, in_74, in_75, in_76, in_77, in_78, in_79, in_80, in_81, in_82, in_83, in_84, in_85, in_86, in_87, in_88, in_89), outputs=(out_0, out_1, out_2, out_3, out_4, out_5, out_6, out_7, out_8))
         return ti.Vector([out_0, out_1, out_2, out_3, out_4, out_5, out_6, out_7, out_8])
 
+
 @ti.func
 def get_smallest_positive_real_cubic_root(x1, x2, x3, x4, p1, p2, p3, p4, eta):
     v01 = x2 - x1
@@ -179,35 +170,3 @@ def get_smallest_positive_real_cubic_root(x1, x2, x3, x4, p1, p2, p3, p4, eta):
                           outputs=(ret,))
     ret = 1.0 if ret < 0.0 else ret * (1.0 - eta)
     return ret
-
-
-@ti.func
-def point_triangle_ccd(p, t0, t1, t2, dp, dt0, dt1, dt2, eta, dist2):
-    toc = 0.0
-    ti.external_func_call(func=so.point_triangle_ccd,
-                          args=(p[0], p[1], p[2],
-                                t0[0], t0[1], t0[2],
-                                t1[0], t1[1], t1[2],
-                                t2[0], t2[1], t2[2],
-                                dp[0], dp[1], dp[2],
-                                dt0[0], dt0[1], dt0[2],
-                                dt1[0], dt1[1], dt1[2],
-                                dt2[0], dt2[1], dt2[2], eta, dist2),
-                          outputs=(toc,))
-    return toc
-
-
-@ti.func
-def edge_edge_ccd(a0, a1, b0, b1, da0, da1, db0, db1, eta, dist2):
-    toc = 0.0
-    ti.external_func_call(func=so.edge_edge_ccd,
-                          args=(a0[0], a0[1], a0[2],
-                                a1[0], a1[1], a1[2],
-                                b0[0], b0[1], b0[2],
-                                b1[0], b1[1], b1[2],
-                                da0[0], da0[1], da0[2],
-                                da1[0], da1[1], da1[2],
-                                db0[0], db0[1], db0[2],
-                                db1[0], db1[1], db1[2], eta, dist2),
-                          outputs=(toc,))
-    return toc

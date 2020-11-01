@@ -13,6 +13,9 @@ import taichi as ti
 # PT_type
 # EE_type
 # PE_type
+# PT_dist2
+# EE_dist2
+# PE_dist2
 ###########################################
 
 @ti.func
