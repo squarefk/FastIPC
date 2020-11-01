@@ -17,12 +17,13 @@ from sksparse.cholmod import *
 
 ##############################################################################
 
-mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, gravity, dim = read(int(sys.argv[1]))
+testcase = int(sys.argv[1])
+mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, gravity, dim = read(testcase)
 boundary_points_ = set()
 boundary_edges_ = np.zeros(shape=(0, 2), dtype=np.int32)
 boundary_triangles_ = np.zeros(shape=(0, 3), dtype=np.int32)
 
-if int(sys.argv[1]) == 1004:
+if testcase == 1004:
     for i in range(9):
         p0 = 3200 + i * 3
         p1 = 3200 + i * 3 + 1
@@ -32,7 +33,7 @@ if int(sys.argv[1]) == 1004:
         boundary_edges_ = np.vstack((boundary_edges_, [p1, p2]))
         boundary_edges_ = np.vstack((boundary_edges_, [p2, p0]))
         boundary_triangles_ = np.vstack((boundary_triangles_, [p0, p1, p2]))
-elif int(sys.argv[1]) == 1005:
+elif testcase == 1005:
     for i in range(400):
         p = 7034 + i
         boundary_points_.update([p])
@@ -93,7 +94,7 @@ scalar = lambda: ti.field(real)
 vec = lambda: ti.Vector.field(dim, real)
 mat = lambda: ti.Matrix.field(dim, dim, real)
 
-dt = 0.01
+dt = 0.04
 n_particles = len(mesh_particles)
 n_elements = len(mesh_elements)
 n_boundary_points = len(boundary_points_)
@@ -117,7 +118,7 @@ ti.root.dense(ti.i, n_boundary_points).place(boundary_points)
 ti.root.dense(ti.ij, (n_boundary_edges, 2)).place(boundary_edges)
 ti.root.dense(ti.ij, (n_boundary_triangles, 3)).place(boundary_triangles)
 
-MAX_LINEAR = 5000000
+MAX_LINEAR = 50000000
 data_rhs = ti.field(real, shape=n_particles * dim)
 data_row = ti.field(ti.i32, shape=MAX_LINEAR)
 data_col = ti.field(ti.i32, shape=MAX_LINEAR)
@@ -189,12 +190,21 @@ def compute_mean_of_boundary_edges() -> real:
 
 @ti.func
 def compute_density(i):
-    return 2000.0 if i < 1760 else 1000.0
+    if ti.static(testcase == 1003):
+        return 2000.0 if i < 1760 else 1000.0
+    else:
+        return 1000.0
 
 
 @ti.func
 def compute_lame_parameters(i):
-    E = 1.e8 if i < 6851 else 1.e6
+    E = 0.0
+    if ti.static(testcase == 1002):
+        E = 2.e4
+    elif ti.static(testcase == 1003):
+        E = 1.e8 if i < 6851 else 1.e6
+    else:
+        E = 2.e4
     nu = 0.4
     return E * nu / ((1 + nu) * (1 - 2 * nu)), E / (2 * (1 + nu))
 
@@ -505,7 +515,8 @@ def compute_intersection_free_step_size():
         alpha = min(alpha, compute_filter_3D_PT())
         grid.deactivate_all()
         alpha = min(alpha, compute_filter_3D_EE())
-        alpha = min(alpha, compute_filter_3D_inversion_free())
+        if 'common.physics.neo_hookean' in sys.modules:
+            alpha = min(alpha, compute_filter_3D_inversion_free())
     return alpha
 
 
@@ -544,14 +555,14 @@ def compute_xn_and_xTilde():
 
 
 def move_nodes(f):
-    if int(sys.argv[1]) == 1001:
+    if testcase == 1001:
         @ti.kernel
         def add_initial_velocity():
             for i in range(n_particles):
                 v(0)[i] = 1 if i < n_particles / 2 else -1
         if f == 0:
             add_initial_velocity()
-    elif int(sys.argv[1]) == 1002:
+    elif testcase == 1002:
         speed = math.pi * 0.4
         for i in range(n_particles):
             if dirichlet_fixed[i]:
@@ -565,7 +576,7 @@ def move_nodes(f):
                 dirichlet_value[i, 0] = a
                 dirichlet_value[i, 1] = radius * ti.sin(angle)
                 dirichlet_value[i, 2] = radius * ti.cos(angle)
-    elif int(sys.argv[1]) == 10:
+    elif testcase == 10:
         speed = 1
         for i in range(954):
             if dirichlet_fixed[i]:
@@ -1035,7 +1046,7 @@ if __name__ == "__main__":
             x.from_numpy(x_)
             v.from_numpy(v_)
         newton_iter_total = 0
-        for f in range(f_start, 360):
+        for f in range(f_start, 10000):
             with Timer("Time Step"):
                 print("==================== Frame: ", f, " ====================")
                 compute_xn_and_xTilde()
@@ -1060,8 +1071,11 @@ if __name__ == "__main__":
                         E0 = compute_energy()
                         save_xPrev()
                         alpha = compute_intersection_free_step_size()
-                        print("[Step size after CCD: ", alpha, check_collision(), "]")
+                        print("[Step size after CCD: ", alpha, "]")
                         apply_sol(alpha)
+                        while check_collision():
+                            alpha /= 2.0
+                            apply_sol(alpha)
                         find_constraints()
                         E = compute_energy()
                         while E > E0:
@@ -1069,6 +1083,9 @@ if __name__ == "__main__":
                             apply_sol(alpha)
                             find_constraints()
                             E = compute_energy()
+                        while check_collision():
+                            alpha /= 2.0
+                            apply_sol(alpha)
                         print("[Step size after line search: ", alpha, "]")
                 compute_v()
                 newton_iter_total += newton_iter
