@@ -425,7 +425,7 @@ def compute_filter_2D_PE() -> real:
                 de0 = ti.Vector([data_sol[e0 * dim + 0], data_sol[e0 * dim + 1]])
                 de1 = ti.Vector([data_sol[e1 * dim + 0], data_sol[e1 * dim + 1]])
                 if moving_point_edge_ccd_broadphase(x[p], x[e0], x[e1], dp, de0, de1, dHat):
-                    alpha = ti.min(alpha, moving_point_edge_ccd(x[p], x[e0], x[e1], dp, de0, de1, 0.2))
+                    alpha = min(alpha, moving_point_edge_ccd(x[p], x[e0], x[e1], dp, de0, de1, 0.2))
     return alpha
 
 
@@ -457,7 +457,7 @@ def compute_filter_3D_PT() -> real:
                 if p != t0 and p != t1 and p != t2:
                     if moving_point_triangle_ccd_broadphase(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, dHat):
                         dist2 = PT_dist2(x[p], x[t0], x[t1], x[t2], PT_type(x[p], x[t0], x[t1], x[t2]))
-                        alpha = ti.min(alpha, point_triangle_ccd(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, 0.2, dist2))
+                        alpha = min(alpha, point_triangle_ccd(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, 0.2, dist2))
     return alpha
 
 
@@ -491,7 +491,7 @@ def compute_filter_3D_EE() -> real:
                 if i < j and a0 != b0 and a0 != b1 and a1 != b0 and a1 != b1:
                     if moving_edge_edge_ccd_broadphase(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, dHat):
                         dist2 = EE_dist2(x[a0], x[a1], x[b0], x[b1], EE_type(x[a0], x[a1], x[b0], x[b1]))
-                        alpha = ti.min(alpha, edge_edge_ccd(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, 0.2, dist2))
+                        alpha = min(alpha, edge_edge_ccd(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, 0.2, dist2))
     return alpha
 
 
@@ -504,7 +504,7 @@ def compute_filter_3D_inversion_free() -> real:
         db = ti.Vector([data_sol[b * dim + 0], data_sol[b * dim + 1], data_sol[b * dim + 2]])
         dc = ti.Vector([data_sol[c * dim + 0], data_sol[c * dim + 1], data_sol[c * dim + 2]])
         dd = ti.Vector([data_sol[d * dim + 0], data_sol[d * dim + 1], data_sol[d * dim + 2]])
-        alpha = ti.min(alpha, get_smallest_positive_real_cubic_root(x[a], x[b], x[c], x[d], da, db, dc, dd, 0.2))
+        alpha = min(alpha, get_smallest_positive_real_cubic_root(x[a], x[b], x[c], x[d], da, db, dc, dd, 0.2))
     return alpha
 
 
@@ -888,7 +888,7 @@ def output_residual() -> real:
     residual = 0.0
     for i in range(n_particles):
         for d in ti.static(range(dim)):
-            residual = ti.max(residual, ti.abs(data_sol[i * dim + d]))
+            residual = max(residual, ti.abs(data_sol[i * dim + d]))
     print("Search Direction Residual : ", residual / dt)
     return residual
 

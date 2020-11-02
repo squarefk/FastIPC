@@ -1011,8 +1011,8 @@ def find_constraints_2D_PE():
     for i in range(n_boundary_edges):
         e0 = boundary_edges[i, 0]
         e1 = boundary_edges[i, 1]
-        lower = int(ti.floor((ti.min(x[e0], x[e1]) - dHat) * inv_dx)) - ti.Vector(list(offset))
-        upper = int(ti.floor((ti.max(x[e0], x[e1]) + dHat) * inv_dx)) + 1 - ti.Vector(list(offset))
+        lower = int(ti.floor((min(x[e0], x[e1]) - dHat) * inv_dx)) - ti.Vector(list(offset))
+        upper = int(ti.floor((max(x[e0], x[e1]) + dHat) * inv_dx)) + 1 - ti.Vector(list(offset))
         for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]))):
             ti.append(pid.parent(), I, i)
     for i in range(n_boundary_points):
