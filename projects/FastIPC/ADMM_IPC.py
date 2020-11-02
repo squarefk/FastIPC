@@ -240,7 +240,7 @@ def compute_filter(xx: ti.template(), x: ti.template()) -> real:
                     de0 = x[e0] - xx[e0]
                     de1 = x[e1] - xx[e1]
                     if moving_point_edge_ccd_broadphase(xx[p], xx[e0], xx[e1], dp, de0, de1, dHat):
-                        alpha = ti.min(alpha, moving_point_edge_ccd(xx[p], xx[e0], xx[e1], dp, de0, de1, 0.2))
+                        alpha = ti.min(alpha, point_edge_ccd(xx[p], xx[e0], xx[e1], dp, de0, de1, 0.2))
     else:
         for i in range(n_boundary_points):
             p = boundary_points[i]
@@ -709,7 +709,7 @@ def local_PE():
             p = -solve(P, g)
             alpha = 1.0
             if ti.static(dim == 2):
-                alpha = moving_point_edge_ccd(ti.Vector([0.0, 0.0]), ti.Vector([pos[0], pos[1]]), ti.Vector([pos[2], pos[3]]), ti.Vector([0.0, 0.0]), ti.Vector([p[0], p[1]]), ti.Vector([p[2], p[3]]), 0.1)
+                alpha = point_edge_ccd(ti.Vector([0.0, 0.0]), ti.Vector([pos[0], pos[1]]), ti.Vector([pos[2], pos[3]]), ti.Vector([0.0, 0.0]), ti.Vector([p[0], p[1]]), ti.Vector([p[2], p[3]]), 0.1)
             else:
                 print("not implemented", end='')
             pos0 = pos
