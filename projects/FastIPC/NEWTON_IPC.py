@@ -899,47 +899,6 @@ def output_current_minimal_distance():
     print("Current minimal distance square", d)
 
 
-# @ti.func
-# def point_inside_triangle(P, A, B, C):
-#     v0 = C - A
-#     v1 = B - A
-#     v2 = P - A
-#     # Compute dot products
-#     dot00 = v0.dot(v0)
-#     dot01 = v0.dot(v1)
-#     dot02 = v0.dot(v2)
-#     dot11 = v1.dot(v1)
-#     dot12 = v1.dot(v2)
-#     # Compute barycentric coordinates
-#     invDenom = 1 / (dot00 * dot11 - dot01 * dot01)
-#     u = (dot11 * dot02 - dot01 * dot12) * invDenom
-#     v = (dot00 * dot12 - dot01 * dot02) * invDenom
-#     # Check if point is in triangle
-#     return u >= 0 and v >= 0 and u + v < 1
-@ti.func
-def point_inside_triangle(P, A, B, C):
-    d1 = (P - B).cross(A - B)
-    d2 = (P - C).cross(B - C)
-    d3 = (P - A).cross(C - A)
-    has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
-    has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
-    return not (has_neg and has_pos)
-@ti.func
-def segment_intersect_triangle(P, Q, A, B, C):
-    RLen = (Q - P).norm()
-    RDir = (Q - P) / RLen
-    ROrigin = P
-    E1 = B - A
-    E2 = C - A
-    N = E1.cross(E2)
-    det = -RDir.dot(N)
-    invdet = 1.0 / det
-    AO  = ROrigin - A
-    DAO = AO.cross(RDir)
-    u = E2.dot(DAO) * invdet
-    v = -E1.dot(DAO) * invdet
-    t = AO.dot(N) * invdet
-    return det >= 1e-12 and t >= 0.0 and u >= 0.0 and v >= 0.0 and (u+v) <= 1.0 and t <= RLen
 @ti.kernel
 def check_collision_2D() -> ti.i32:
     result = 0
