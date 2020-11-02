@@ -16,9 +16,12 @@ import scipy.sparse.linalg
 from sksparse.cholmod import *
 
 ##############################################################################
-
 testcase = int(sys.argv[1])
-mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, gravity, dim = read(testcase)
+settings = read(testcase)
+mesh_particles = settings['mesh_particles']
+mesh_elements = settings['mesh_elements']
+dim = settings['dim']
+gravity = settings['gravity']
 boundary_points_ = set()
 boundary_edges_ = np.zeros(shape=(0, 2), dtype=np.int32)
 boundary_triangles_ = np.zeros(shape=(0, 3), dtype=np.int32)
@@ -554,40 +557,39 @@ def compute_xn_and_xTilde():
         xTilde(1)[i] += dt * dt * gravity
 
 
-def move_nodes(f):
-    if testcase == 1001:
-        @ti.kernel
-        def add_initial_velocity():
-            for i in range(n_particles):
-                v(0)[i] = 1 if i < n_particles / 2 else -1
-        if f == 0:
-            add_initial_velocity()
-    elif testcase == 1002:
-        speed = math.pi * 0.4
-        for i in range(n_particles):
-            if dirichlet_fixed[i]:
-                a, b, c = x(0)[i], x(1)[i], x(2)[i]
-                angle = ti.atan2(b, c)
-                if a < 0:
-                    angle += speed * dt
-                else:
-                    angle -= speed * dt
-                radius = ti.sqrt(b * b + c * c)
-                dirichlet_value[i, 0] = a
-                dirichlet_value[i, 1] = radius * ti.sin(angle)
-                dirichlet_value[i, 2] = radius * ti.cos(angle)
-    elif testcase == 10:
-        speed = 1
-        for i in range(954):
-            if dirichlet_fixed[i]:
-                dirichlet_value[i, 0] += speed * dt
-    tmp_fixed = np.stack((dirichlet_fixed,) * dim, axis=-1)
+def move_nodes(current_time):
+    # if testcase == 1001:
+    #     @ti.kernel
+    #     def add_initial_velocity():
+    #         for i in range(n_particles):
+    #             v(0)[i] = 1 if i < n_particles / 2 else -1
+    #     if f == 0:
+    #         add_initial_velocity()
+    # elif testcase == 1002:
+    #     speed = math.pi * 0.4
+    #     for i in range(n_particles):
+    #         if dirichlet_fixed[i]:
+    #             a, b, c = x(0)[i], x(1)[i], x(2)[i]
+    #             angle = ti.atan2(b, c)
+    #             if a < 0:
+    #                 angle += speed * dt
+    #             else:
+    #                 angle -= speed * dt
+    #             radius = ti.sqrt(b * b + c * c)
+    #             dirichlet_value[i, 0] = a
+    #             dirichlet_value[i, 1] = radius * ti.sin(angle)
+    #             dirichlet_value[i, 2] = radius * ti.cos(angle)
+    # elif testcase == 10:
+    #     speed = 1
+    #     for i in range(954):
+    #         if dirichlet_fixed[i]:
+    #             dirichlet_value[i, 0] += speed * dt
+    dirichlet_fixed, dirichlet_value = settings['dirichlet_generator'](current_time)
     for i in range(n_particles):
         if dirichlet_fixed[i]:
             for d in range(dim):
                 x(d)[i] = dirichlet_value[i, d]
                 xTilde(d)[i] = dirichlet_value[i, d]
-    return np.where(tmp_fixed.reshape((n_particles * dim)))[0], np.zeros((n_particles * dim))
 
 
 @ti.kernel
@@ -826,13 +828,14 @@ def compute_hessian_and_gradient():
         compute_ipc6()
 
 
-def solve_system(D, V):
+def solve_system(current_time):
+    dirichlet_fixed, dirichlet_value = settings['dirichlet_generator'](current_time)
+    D, V = np.stack((dirichlet_fixed,) * dim, axis=-1).reshape((n_particles * dim)), np.zeros((n_particles * dim))
     if cnt[None] >= MAX_LINEAR or max(n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None]) >= MAX_C:
         print("FATAL ERROR: Array Too Small!")
     print("Total entries: ", cnt[None])
     with Timer("DBC 0"):
-        tmp_fixed = np.stack((dirichlet_fixed,) * dim, axis=-1).reshape((n_particles * dim))
-        dfx.from_numpy(tmp_fixed.astype(np.int32))
+        dfx.from_numpy(D.astype(np.int32))
         @ti.kernel
         def DBC_set_zeros():
             for i in range(cnt[None]):
@@ -845,6 +848,7 @@ def solve_system(D, V):
     with Timer("DBC 1"):
         n = n_particles * dim
         A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
+        D = np.where(D)[0]
         A += scipy.sparse.csr_matrix((np.ones(len(D)), (D, D)), shape=(n, n))
         rhs[D] = 0
     with Timer("System Solve"):
@@ -957,7 +961,7 @@ else:
     scene.add_light(light)
     gui = ti.GUI('IPC', camera.res)
 def write_image(f):
-    particle_pos = x.to_numpy() * mesh_scale + mesh_offset
+    particle_pos = x.to_numpy() * settings['mesh_scale'] + settings['mesh_offset']
     x_ = x.to_numpy()
     vertices_ = vertices.to_numpy()
     if dim == 2:
@@ -1001,7 +1005,7 @@ if __name__ == "__main__":
         f_start = 0
         if len(sys.argv) == 3:
             f_start = int(sys.argv[2])
-            [x_, v_, dirichlet_fixed, dirichlet_value] = pickle.load(open(directory + f'caches/{f_start:06d}.p', 'rb'))
+            [x_, v_] = pickle.load(open(directory + f'caches/{f_start:06d}.p', 'rb'))
             x.from_numpy(x_)
             v.from_numpy(v_)
         newton_iter_total = 0
@@ -1009,7 +1013,7 @@ if __name__ == "__main__":
             with Timer("Time Step"):
                 print("==================== Frame: ", f, " ====================")
                 compute_xn_and_xTilde()
-                D, V = move_nodes(f)
+                move_nodes(f * dt)
                 newton_iter = 0
                 while True:
                     newton_iter += 1
@@ -1023,7 +1027,7 @@ if __name__ == "__main__":
                         data_sol.fill(0)
                         compute_hessian_and_gradient()
                     with Timer("Solve System"):
-                        solve_system(D, V)
+                        solve_system(f * dt)
                     if output_residual() < 1e-2 * dt:
                         break
                     with Timer("Line Search"):
@@ -1051,5 +1055,5 @@ if __name__ == "__main__":
                 print("Avg Newton iter: ", newton_iter_total / (f + 1))
             with Timer("Visualization"):
                 write_image(f + 1)
-            pickle.dump([x.to_numpy(), v.to_numpy(), dirichlet_fixed, dirichlet_value], open(directory + f'caches/{f + 1:06d}.p', 'wb'))
+            pickle.dump([x.to_numpy(), v.to_numpy()], open(directory + f'caches/{f + 1:06d}.p', 'wb'))
             Timer_Print()

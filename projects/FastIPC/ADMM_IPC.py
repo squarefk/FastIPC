@@ -16,12 +16,17 @@ import scipy.sparse
 import scipy.sparse.linalg
 
 ##############################################################################
-mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, gravity, dim = read(int(sys.argv[1]))
+testcase = int(sys.argv[1])
+settings = read(testcase)
+mesh_particles = settings['mesh_particles']
+mesh_elements = settings['mesh_elements']
+dim = settings['dim']
+gravity = settings['gravity']
 boundary_points_ = set()
 boundary_edges_ = np.zeros(shape=(0, 2), dtype=np.int32)
 boundary_triangles_ = np.zeros(shape=(0, 3), dtype=np.int32)
 
-if int(sys.argv[1]) == 1004:
+if testcase == 1004:
     for i in range(9):
         p0 = 3200 + i * 3
         p1 = 3200 + i * 3 + 1
@@ -31,7 +36,7 @@ if int(sys.argv[1]) == 1004:
         boundary_edges_ = np.vstack((boundary_edges_, [p1, p2]))
         boundary_edges_ = np.vstack((boundary_edges_, [p2, p0]))
         boundary_triangles_ = np.vstack((boundary_triangles_, [p0, p1, p2]))
-elif int(sys.argv[1]) == 1005:
+elif testcase == 1005:
     for i in range(400):
         p = 7034 + i
         boundary_points_.update([p])
@@ -311,35 +316,33 @@ def initial_guess():
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
 
 
-def move_nodes(f):
-    if int(sys.argv[1]) == 1001:
-        @ti.kernel
-        def add_initial_velocity():
-            for i in range(n_particles):
-                v(0)[i] = 1 if i < n_particles / 2 else -1
-        if f == 0:
-            add_initial_velocity()
-    elif int(sys.argv[1]) == 1002:
-        speed = math.pi * 0.4
-        for i in range(n_particles):
-            if dirichlet_fixed[i]:
-                a, b, c = x(0)[i], x(1)[i], x(2)[i]
-                angle = ti.atan2(b, c)
-                if a < 0:
-                    angle += speed * dt
-                else:
-                    angle -= speed * dt
-                radius = ti.sqrt(b * b + c * c)
-                dirichlet_value[i, 0] = a
-                dirichlet_value[i, 1] = radius * ti.sin(angle)
-                dirichlet_value[i, 2] = radius * ti.cos(angle)
-    elif int(sys.argv[1]) == 10:
-        speed = 1
-        for i in range(954):
-            if dirichlet_fixed[i]:
-                dirichlet_value[i, 0] += speed * dt
-    tmp_fixed = np.stack((dirichlet_fixed,) * dim, axis=-1)
-    return np.where(tmp_fixed.reshape((n_particles * dim)))[0], dirichlet_value.reshape((n_particles * dim))
+def move_nodes(current_time):
+    # if testcase == 1001:
+    #     @ti.kernel
+    #     def add_initial_velocity():
+    #         for i in range(n_particles):
+    #             v(0)[i] = 1 if i < n_particles / 2 else -1
+    #     if f == 0:
+    #         add_initial_velocity()
+    # elif testcase == 1002:
+    #     speed = math.pi * 0.4
+    #     for i in range(n_particles):
+    #         if dirichlet_fixed[i]:
+    #             a, b, c = x(0)[i], x(1)[i], x(2)[i]
+    #             angle = ti.atan2(b, c)
+    #             if a < 0:
+    #                 angle += speed * dt
+    #             else:
+    #                 angle -= speed * dt
+    #             radius = ti.sqrt(b * b + c * c)
+    #             dirichlet_value[i, 0] = a
+    #             dirichlet_value[i, 1] = radius * ti.sin(angle)
+    #             dirichlet_value[i, 2] = radius * ti.cos(angle)
+    # elif testcase == 10:
+    #     speed = 1
+    #     for i in range(954):
+    #         if dirichlet_fixed[i]:
+    #             dirichlet_value[i, 0] += speed * dt
 
 
 
@@ -593,7 +596,9 @@ def op1():
 def op2():
     for i in range(n_particles):
         x[i] = xx[i]
-def solve_system(D, V):
+def solve_system(current_time):
+    dirichlet_fixed, dirichlet_value = settings['dirichlet_generator'](current_time)
+    D, V = np.where(np.stack((dirichlet_fixed,) * dim, axis=-1).reshape((n_particles * dim)))[0], dirichlet_value.reshape((n_particles * dim))
     before_solve()
 
     if cnt[None] >= MAX_LINEAR or n_PP[None] >= MAX_C or n_PE[None] >= MAX_C or n_PT[None] >= MAX_C or n_EE[None] >= MAX_C or n_EEM[None] >= MAX_C or n_PPM[None] >= MAX_C or n_PEM[None] >= MAX_C:
@@ -1322,7 +1327,7 @@ else:
     scene.add_light(light)
     gui = ti.GUI('IPC', camera.res)
 def write_image(f):
-    particle_pos = x.to_numpy() * mesh_scale + mesh_offset
+    particle_pos = x.to_numpy() * settings['mesh_scale'] + settings['mesh_offset']
     x_ = x.to_numpy()
     vertices_ = vertices.to_numpy()
     if dim == 2:
@@ -1365,14 +1370,12 @@ if __name__ == "__main__":
         f_start = 0
         if len(sys.argv) == 3:
             f_start = int(sys.argv[2])
-            [x_, v_, dirichlet_fixed, dirichlet_value] = pickle.load(open(directory + f'caches/{f_start:06d}.p', 'rb'))
+            [x_, v_] = pickle.load(open(directory + f'caches/{f_start:06d}.p', 'rb'))
             x.from_numpy(x_)
             v.from_numpy(v_)
         for f in range(f_start, 360):
             with Timer("Time Step"):
                 print("==================== Frame: ", f, " ====================")
-                with Timer("Move Nodes"):
-                    D, V = move_nodes(f)
                 with Timer("Initialization for xTilde, elasticity"):
                     initial_guess()
                 for step in range(20):
@@ -1405,7 +1408,7 @@ if __name__ == "__main__":
                             global_PPM()
                             global_PEM()
                     with Timer("Global Solve"):
-                        solve_system(D, V)
+                        solve_system(f * dt)
 
                     with Timer("Local Step"):
                         local_elasticity()
@@ -1437,7 +1440,7 @@ if __name__ == "__main__":
                 # TODO: why is visualization so slow?
             with Timer("Visualization"):
                 write_image(f + 1)
-            pickle.dump([x.to_numpy(), v.to_numpy(), dirichlet_fixed, dirichlet_value], open(directory + f'caches/{f + 1:06d}.p', 'wb'))
+            pickle.dump([x.to_numpy(), v.to_numpy()], open(directory + f'caches/{f + 1:06d}.p', 'wb'))
             Timer_Print()
         end = time()
         print("!!!!!!!!!!!!!!!!!!!!!!!! ", end - start)
