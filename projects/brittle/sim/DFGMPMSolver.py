@@ -176,12 +176,10 @@ class DFGMPMSolver:
             self.particleAF[I] = [-1, -1, -1, -1, -1, -1, -1, -1, -1]
 
         #Sort particles into backGrid
-        #TODO: PPB (this one was already confirmed as a parallel bug though)
-        for serial in range(1): #serialize this to maintain neighbor order... (it has a parallelism bug and idk why)
-            for p in range(self.numParticles):
-                cell = self.backGridIdx(self.x[p]) #grab cell idx (vector of ints)
-                offs = ti.atomic_add(self.gridNumParticles[cell], 1) #atomically add one to our grid cell's particle count NOTE: returns the OLD value before add
-                self.backGrid[cell, offs] = p #place particle idx into the grid cell bucket at the correct place in the cell's neighbor list (using offs)
+        for p in range(self.numParticles):
+            cell = self.backGridIdx(self.x[p]) #grab cell idx (vector of ints)
+            offs = ti.atomic_add(self.gridNumParticles[cell], 1) #atomically add one to our grid cell's particle count NOTE: returns the OLD value before add
+            self.backGrid[cell, offs] = p #place particle idx into the grid cell bucket at the correct place in the cell's neighbor list (using offs)
 
         #Sort into particle neighbor lists
         #See https://github.com/taichi-dev/taichi/blob/master/examples/pbf2d.py for reference
@@ -216,97 +214,89 @@ class DFGMPMSolver:
 
         #Compute DG for all particles and for all grid nodes 
         # NOTE: grid node DG is based on max of mapped particle DGs, in this loop we simply create a list of candidates, then we will take max after
-        #TODO: PPB
-        for serial in range(1):
-            for p in range(self.numParticles):
-                pos = self.x[p]
-                DandS = ti.Vector([0.0, 0.0]) #hold D and S in here (no temporary atomic scalar variables in taichi...)
-                nablaD = ti.Vector([0.0, 0.0])
-                nablaS = ti.Vector([0.0, 0.0])
-                for i in range(self.particleNumNeighbors[p]): #iterate over neighbors of particle p
+        for p in range(self.numParticles):
+            pos = self.x[p]
+            DandS = ti.Vector([0.0, 0.0]) #hold D and S in here (no temporary atomic scalar variables in taichi...)
+            nablaD = ti.Vector([0.0, 0.0])
+            nablaS = ti.Vector([0.0, 0.0])
+            for i in range(self.particleNumNeighbors[p]): #iterate over neighbors of particle p
 
-                    xp_i = self.particleNeighbors[p, i] #index of curr neighbor
-                    xp = self.x[xp_i] #grab neighbor position
-                    rBar = self.computeRBar(pos, xp)
-                    rBarGrad = self.computeRBarGrad(pos, xp)
-                    omega = self.computeOmega(rBar)
-                    omegaPrime = self.computeOmegaPrime(rBar)
+                xp_i = self.particleNeighbors[p, i] #index of curr neighbor
+                xp = self.x[xp_i] #grab neighbor position
+                rBar = self.computeRBar(pos, xp)
+                rBarGrad = self.computeRBarGrad(pos, xp)
+                omega = self.computeOmega(rBar)
+                omegaPrime = self.computeOmegaPrime(rBar)
 
-                    #Add onto the sums for D, S, nablaD, nablaS
-                    maxD = max(self.Dp[xp_i], self.sp[xp_i])
-                    deltaDS = ti.Vector([(maxD * omega), omega])
-                    DandS += deltaDS
-                    nablaD += (maxD * omegaPrime * rBarGrad)
-                    nablaS += (omegaPrime * rBarGrad)
+                #Add onto the sums for D, S, nablaD, nablaS
+                maxD = max(self.Dp[xp_i], self.sp[xp_i])
+                deltaDS = ti.Vector([(maxD * omega), omega])
+                DandS += deltaDS
+                nablaD += (maxD * omegaPrime * rBarGrad)
+                nablaS += (omegaPrime * rBarGrad)
 
-                nablaDBar = (nablaD * DandS[1] - DandS[0] * nablaS) / (DandS[1]**2) #final particle DG
-                self.particleDG[p] = nablaDBar #store particle DG
+            nablaDBar = (nablaD * DandS[1] - DandS[0] * nablaS) / (DandS[1]**2) #final particle DG
+            self.particleDG[p] = nablaDBar #store particle DG
 
-                #Now iterate over the grid nodes particle p maps to to set Di!
-                base = (pos * self.invDx - 0.5).cast(int)
-                for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
-                    offset = ti.Vector([i, j])
-                    gridIdx = base + offset
-                    currGridDG = self.gridDG[gridIdx] # grab current grid Di
+            #Now iterate over the grid nodes particle p maps to to set Di!
+            base = (pos * self.invDx - 0.5).cast(int)
+            for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
+                offset = ti.Vector([i, j])
+                gridIdx = base + offset
+                currGridDG = self.gridDG[gridIdx] # grab current grid Di
 
-                    if(nablaDBar.norm() > currGridDG.norm()): #save this particle's index as a potential candidate for new maximum
-                        offs = ti.atomic_add(self.maxHelperCount[gridIdx], 1) #this lets us keep a dynamically sized list by tracking the index
-                        self.maxHelper[gridIdx, offs] = p #add this particle index to the list!
+                if(nablaDBar.norm() > currGridDG.norm()): #save this particle's index as a potential candidate for new maximum
+                    offs = ti.atomic_add(self.maxHelperCount[gridIdx], 1) #this lets us keep a dynamically sized list by tracking the index
+                    self.maxHelper[gridIdx, offs] = p #add this particle index to the list!
 
         #Now iterate over all active grid nodes and compute the maximum of candidate DGs
-        #TODO: PPB
-        for serial in range(1):
-            for i in range(self.nGrid):
-                for j in range(self.nGrid):
-        #for i, j in self.maxHelperCount:
-                    currMaxDG = self.gridDG[i,j] # grab current grid Di
-                    currMaxNorm = currMaxDG.norm()
+        for i, j in self.maxHelperCount:
+            currMaxDG = self.gridDG[i,j] # grab current grid Di
+            currMaxNorm = currMaxDG.norm()
 
-                    for k in range(self.maxHelperCount[i,j]):
-                        p_i = self.maxHelper[i,j,k] #grab particle index
-                        candidateDG = self.particleDG[p_i]
-                        if(candidateDG.norm() > currMaxNorm):
-                            currMaxNorm = candidateDG.norm()
-                            currMaxDG = candidateDG
+            for k in range(self.maxHelperCount[i,j]):
+                p_i = self.maxHelper[i,j,k] #grab particle index
+                candidateDG = self.particleDG[p_i]
+                if(candidateDG.norm() > currMaxNorm):
+                    currMaxNorm = candidateDG.norm()
+                    currMaxDG = candidateDG
 
-                    self.gridDG[i,j] = currMaxDG #set to be the max we found
+            self.gridDG[i,j] = currMaxDG #set to be the max we found
 
         # P2G for mass, set active fields, and compute separability conditions
-        #TODO: PPB, this one was 1/3 to make parallel runs equal
-        for serial in range(1):
-            for p in range(self.numParticles): 
-                
-                #for particle p, compute base index
-                base = (self.x[p] * self.invDx - 0.5).cast(int)
-                fx = self.x[p] * self.invDx - base.cast(float)
-                
-                # Quadratic kernels  [http://mpm.graphics   Eqn. 123, with x=fx, fx-1,fx-2]
-                w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2]
+        for p in range(self.numParticles): 
+            
+            #for particle p, compute base index
+            base = (self.x[p] * self.invDx - 0.5).cast(int)
+            fx = self.x[p] * self.invDx - base.cast(float)
+            
+            # Quadratic kernels  [http://mpm.graphics   Eqn. 123, with x=fx, fx-1,fx-2]
+            w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2]
 
-                #P2G for mass, set active fields, and compute separability conditions
-                for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
-                    offset = ti.Vector([i, j])
-                    gridIdx = base + offset
-                    dpos = (offset.cast(float) - fx) * self.dx
-                    weight = w[i][0] * w[j][1]
+            #P2G for mass, set active fields, and compute separability conditions
+            for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
+                offset = ti.Vector([i, j])
+                gridIdx = base + offset
+                dpos = (offset.cast(float) - fx) * self.dx
+                weight = w[i][0] * w[j][1]
 
-                    maxD = max(self.Dp[p], self.sp[p]) #use max of damage and surface particle markers so we detect green case correctly
+                maxD = max(self.Dp[p], self.sp[p]) #use max of damage and surface particle markers so we detect green case correctly
 
-                    #Set Active Fields for each grid node! 
-                    if self.particleDG[p].dot(self.gridDG[gridIdx]) >= 0:
-                        offs = ti.atomic_add(self.activeFieldsCount[gridIdx, 0], 1) #this lets us keep a dynamically sized list by tracking the index
-                        self.activeFields[gridIdx, 0, offs] = p #add this particle index to the list!
-                        self.grid_m[gridIdx][0] += weight * self.pMass #add mass to active field for this particle
-                        self.gridSeparability[gridIdx][0] += weight * maxD * self.pMass #numerator, field 1
-                        self.gridSeparability[gridIdx][2] += weight * self.pMass #denom, field 1
-                        self.particleAF[p][i*3 + j] = 0 #set this particle's AF to 0 for this grid node
-                    else:
-                        offs = ti.atomic_add(self.activeFieldsCount[gridIdx, 1], 1)
-                        self.activeFields[gridIdx, 1, offs] = p
-                        self.grid_m[gridIdx][1] += weight * self.pMass #add mass to active field for this particle
-                        self.gridSeparability[gridIdx][1] += weight * maxD * self.pMass #numerator, field 2
-                        self.gridSeparability[gridIdx][3] += weight * self.pMass #denom, field 2
-                        self.particleAF[p][i*3 + j] = 1 #set this particle's AF to 1 for this grid node
+                #Set Active Fields for each grid node! 
+                if self.particleDG[p].dot(self.gridDG[gridIdx]) >= 0:
+                    offs = ti.atomic_add(self.activeFieldsCount[gridIdx, 0], 1) #this lets us keep a dynamically sized list by tracking the index
+                    self.activeFields[gridIdx, 0, offs] = p #add this particle index to the list!
+                    self.grid_m[gridIdx][0] += weight * self.pMass #add mass to active field for this particle
+                    self.gridSeparability[gridIdx][0] += weight * maxD * self.pMass #numerator, field 1
+                    self.gridSeparability[gridIdx][2] += weight * self.pMass #denom, field 1
+                    self.particleAF[p][i*3 + j] = 0 #set this particle's AF to 0 for this grid node
+                else:
+                    offs = ti.atomic_add(self.activeFieldsCount[gridIdx, 1], 1)
+                    self.activeFields[gridIdx, 1, offs] = p
+                    self.grid_m[gridIdx][1] += weight * self.pMass #add mass to active field for this particle
+                    self.gridSeparability[gridIdx][1] += weight * maxD * self.pMass #numerator, field 2
+                    self.gridSeparability[gridIdx][3] += weight * self.pMass #denom, field 2
+                    self.particleAF[p][i*3 + j] = 1 #set this particle's AF to 1 for this grid node
 
         #Iterate grid nodes to compute separability condition and maxDamage (both for each field)
         for i, j in self.gridSeparability:
@@ -344,62 +334,60 @@ class DFGMPMSolver:
                     self.separable[i,j] = 0
             
         # P2G and Internal Grid Forces
-        #TODO: PPB, 2/3 for making parallel runs equal
-        for serial in range(1):
-            for p in range(self.numParticles):
+        for p in range(self.numParticles):
+            
+            #for particle p, compute base index
+            base = (self.x[p] * self.invDx - 0.5).cast(int)
+            fx = self.x[p] * self.invDx - base.cast(float)
+            
+            # Quadratic kernels  [http://mpm.graphics   Eqn. 123, with x=fx, fx-1,fx-2]
+            w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2]
+            dw = [fx - 1.5, -2.0 * (fx - 1), fx - 0.5]
+
+            U, sig, V = ti.svd(self.F[p])
+            J = 1.0
+
+            for d in ti.static(range(2)):
+                new_sig = sig[d, d]
+                self.Jp[p] *= sig[d, d] / new_sig
+                sig[d, d] = new_sig
+                J *= new_sig
+            
+            #Compute Kirchoff Stress
+            kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, self.mu, self.la)
+
+            #P2G for velocity, force update, and update velocity
+            for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
+                offset = ti.Vector([i, j])
+                gridIdx = base + offset
+                dpos = (offset.cast(float) - fx) * self.dx
+                weight = w[i][0] * w[j][1]
                 
-                #for particle p, compute base index
-                base = (self.x[p] * self.invDx - 0.5).cast(int)
-                fx = self.x[p] * self.invDx - base.cast(float)
-                
-                # Quadratic kernels  [http://mpm.graphics   Eqn. 123, with x=fx, fx-1,fx-2]
-                w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2]
-                dw = [fx - 1.5, -2.0 * (fx - 1), fx - 0.5]
+                dweight = ti.Vector.zero(float,2)
+                dweight[0] = self.invDx * dw[i][0] * w[j][1]
+                dweight[1] = self.invDx * w[i][0] * dw[j][1]
 
-                U, sig, V = ti.svd(self.F[p])
-                J = 1.0
+                force = -self.pVol * kirchoff @ dweight
 
-                for d in ti.static(range(2)):
-                    new_sig = sig[d, d]
-                    self.Jp[p] *= sig[d, d] / new_sig
-                    sig[d, d] = new_sig
-                    J *= new_sig
-                
-                #Compute Kirchoff Stress
-                kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, self.mu, self.la)
-
-                #P2G for velocity, force update, and update velocity
-                for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
-                    offset = ti.Vector([i, j])
-                    gridIdx = base + offset
-                    dpos = (offset.cast(float) - fx) * self.dx
-                    weight = w[i][0] * w[j][1]
-                    
-                    dweight = ti.Vector.zero(float,2)
-                    dweight[0] = self.invDx * dw[i][0] * w[j][1]
-                    dweight[1] = self.invDx * w[i][0] * dw[j][1]
-
-                    force = -self.pVol * kirchoff @ dweight
-
-                    if self.separable[gridIdx] == -1: 
-                        #treat node as one field
-                        if(self.useAPIC):
-                            self.grid_v[gridIdx, 0] += self.pMass * weight * (self.v[p] + self.C[p] @ dpos) #momentum transfer (APIC)
-                        else:
-                            self.grid_v[gridIdx, 0] += self.pMass * weight * self.v[p] #momentum transfer (PIC)
-
-                        self.grid_v[gridIdx, 0] += self.dt * force #add force to update velocity, don't divide by mass bc this is actually updating MOMENTUM
+                if self.separable[gridIdx] == -1: 
+                    #treat node as one field
+                    if(self.useAPIC):
+                        self.grid_v[gridIdx, 0] += self.pMass * weight * (self.v[p] + self.C[p] @ dpos) #momentum transfer (APIC)
                     else:
-                        #treat node as having two fields
-                        fieldIdx = self.particleAF[p][i*3 + j] #grab the field that this particle is in for this node
-                        
-                        if(self.useAPIC):
-                            self.grid_v[gridIdx, fieldIdx] += self.pMass * weight * (self.v[p] + self.C[p] @ dpos) #momentum transfer (APIC)
-                        else:
-                            self.grid_v[gridIdx, fieldIdx] += self.pMass * weight * self.v[p] #momentum transfer (PIC)
-                        
-                        self.grid_v[gridIdx, fieldIdx] += self.dt * force #add force to update velocity, don't divide by mass bc this is actually updating MOMENTUM
-                        self.grid_n[gridIdx, fieldIdx] += dweight * self.pMass #add to the normal for this field at this grid node, remember we need to normalize it later!
+                        self.grid_v[gridIdx, 0] += self.pMass * weight * self.v[p] #momentum transfer (PIC)
+
+                    self.grid_v[gridIdx, 0] += self.dt * force #add force to update velocity, don't divide by mass bc this is actually updating MOMENTUM
+                else:
+                    #treat node as having two fields
+                    fieldIdx = self.particleAF[p][i*3 + j] #grab the field that this particle is in for this node
+                    
+                    if(self.useAPIC):
+                        self.grid_v[gridIdx, fieldIdx] += self.pMass * weight * (self.v[p] + self.C[p] @ dpos) #momentum transfer (APIC)
+                    else:
+                        self.grid_v[gridIdx, fieldIdx] += self.pMass * weight * self.v[p] #momentum transfer (PIC)
+                    
+                    self.grid_v[gridIdx, fieldIdx] += self.dt * force #add force to update velocity, don't divide by mass bc this is actually updating MOMENTUM
+                    self.grid_n[gridIdx, fieldIdx] += dweight * self.pMass #add to the normal for this field at this grid node, remember we need to normalize it later!
 
         #Add Gravity
         for i, j in self.grid_m:
