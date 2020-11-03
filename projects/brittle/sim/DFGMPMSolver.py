@@ -48,7 +48,7 @@ class DFGMPMSolver:
         self.rp = (3*(dx**2))**0.5 if self.dim == 3 else (2*(dx**2))**0.5 #set rp based on dx (this changes if dx != dy)
         self.maxParticlesInfluencingGridNode = self.ppc * self.maxPPC #2d = 4*ppc, 3d = 8*ppc
         self.dMin = 0.25
-        self.fricCoeff = 0.0
+        self.fricCoeff = 0.2
         self.epsilon_m = 0.0001
         self.surfaceThreshold = surfaceThreshold 
         
@@ -616,9 +616,9 @@ class DFGMPMSolver:
             self.C[i] = ti.Matrix.zero(float, 2, 2)
             self.Dp[i] = 0
             self.sp[i] = 0
-            if (self.x[i][0] > 0.495) and (self.x[i][0] < 0.503): #put damaged particles as a band in the center
-                self.Dp[i] = 1
-                self.material[i] = 1
+            # if (self.x[i][0] > 0.495) and (self.x[i][0] < 0.503): #put damaged particles as a band in the center
+            #     self.Dp[i] = 1
+            #     self.material[i] = 1
         
         for serial in range(1):
             idx = 0
