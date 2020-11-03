@@ -260,36 +260,6 @@ def initial_guess():
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
 
 
-def move_nodes(current_time):
-    # if testcase == 1001:
-    #     @ti.kernel
-    #     def add_initial_velocity():
-    #         for i in range(n_particles):
-    #             v(0)[i] = 1 if i < n_particles / 2 else -1
-    #     if f == 0:
-    #         add_initial_velocity()
-    # elif testcase == 1002:
-    #     speed = math.pi * 0.4
-    #     for i in range(n_particles):
-    #         if dirichlet_fixed[i]:
-    #             a, b, c = x(0)[i], x(1)[i], x(2)[i]
-    #             angle = ti.atan2(b, c)
-    #             if a < 0:
-    #                 angle += speed * dt
-    #             else:
-    #                 angle -= speed * dt
-    #             radius = ti.sqrt(b * b + c * c)
-    #             dirichlet_value[i, 0] = a
-    #             dirichlet_value[i, 1] = radius * ti.sin(angle)
-    #             dirichlet_value[i, 2] = radius * ti.cos(angle)
-    # elif testcase == 10:
-    #     speed = 1
-    #     for i in range(954):
-    #         if dirichlet_fixed[i]:
-    #             dirichlet_value[i, 0] += speed * dt
-
-
-
 @ti.func
 def X2F(p: ti.template(), q: ti.template(), i: ti.template(), j: ti.template(), A):
     val = 0.0
