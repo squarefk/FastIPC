@@ -1,5 +1,5 @@
 from reader import *
-from common.physics.neo_hookean import *
+from common.physics.fixed_corotated import *
 from common.math.math_tools import *
 from common.math.ipc import *
 from common.utils.timer import *
@@ -22,64 +22,9 @@ mesh_particles = settings['mesh_particles']
 mesh_elements = settings['mesh_elements']
 dim = settings['dim']
 gravity = settings['gravity']
-boundary_points_ = set()
-boundary_edges_ = np.zeros(shape=(0, 2), dtype=np.int32)
-boundary_triangles_ = np.zeros(shape=(0, 3), dtype=np.int32)
-
-if testcase == 1004:
-    for i in range(9):
-        p0 = 3200 + i * 3
-        p1 = 3200 + i * 3 + 1
-        p2 = 3200 + i * 3 + 2
-        boundary_points_.update([p0, p1, p2])
-        boundary_edges_ = np.vstack((boundary_edges_, [p0, p1]))
-        boundary_edges_ = np.vstack((boundary_edges_, [p1, p2]))
-        boundary_edges_ = np.vstack((boundary_edges_, [p2, p0]))
-        boundary_triangles_ = np.vstack((boundary_triangles_, [p0, p1, p2]))
-elif testcase == 1005:
-    for i in range(400):
-        p = 7034 + i
-        boundary_points_.update([p])
-
-if dim == 2:
-    edges = set()
-    for [i, j, k] in mesh_elements:
-        edges.add((i, j))
-        edges.add((j, k))
-        edges.add((k, i))
-    for [i, j, k] in mesh_elements:
-        if (j, i) not in edges:
-            boundary_points_.update([j, i])
-            boundary_edges_ = np.vstack((boundary_edges_, [j, i]))
-        if (k, j) not in edges:
-            boundary_points_.update([k, j])
-            boundary_edges_ = np.vstack((boundary_edges_, [k, j]))
-        if (i, k) not in edges:
-            boundary_points_.update([i, k])
-            boundary_edges_ = np.vstack((boundary_edges_, [i, k]))
-    boundary_triangles_ = np.vstack((boundary_triangles_, [-1, -1, -1]))
-else:
-    triangles = set()
-    for [p0, p1, p2, p3] in mesh_elements:
-        triangles.add((p0, p2, p1))
-        triangles.add((p0, p3, p2))
-        triangles.add((p0, p1, p3))
-        triangles.add((p1, p2, p3))
-    for (p0, p1, p2) in triangles:
-        if (p0, p2, p1) not in triangles:
-            if (p2, p1, p0) not in triangles:
-                if (p1, p0, p2) not in triangles:
-                    boundary_points_.update([p0, p1, p2])
-                    if p0 < p1:
-                        boundary_edges_ = np.vstack((boundary_edges_, [p0, p1]))
-                    if p1 < p2:
-                        boundary_edges_ = np.vstack((boundary_edges_, [p1, p2]))
-                    if p2 < p0:
-                        boundary_edges_ = np.vstack((boundary_edges_, [p2, p0]))
-                    boundary_triangles_ = np.vstack((boundary_triangles_, [p0, p1, p2]))
+boundary_points_, boundary_edges_, boundary_triangles_ = settings['boundary']
 
 ##############################################################################
-
 directory = 'output/' + '_'.join(sys.argv[:2]) + '/'
 os.makedirs(directory + 'images/', exist_ok=True)
 os.makedirs(directory + 'caches/', exist_ok=True)
@@ -89,7 +34,6 @@ print('output directory:', directory)
 # sys.stderr = open(directory + 'err.txt', 'w')
 
 ##############################################################################
-
 real = ti.f64
 ti.init(arch=ti.cpu, default_fp=real, make_thread_local=False) #, cpu_max_num_threads=1)
 
@@ -121,7 +65,7 @@ ti.root.dense(ti.i, n_boundary_points).place(boundary_points)
 ti.root.dense(ti.ij, (n_boundary_edges, 2)).place(boundary_edges)
 ti.root.dense(ti.ij, (n_boundary_triangles, 3)).place(boundary_triangles)
 
-MAX_LINEAR = 50000000
+MAX_LINEAR = 50000000 if dim == 3 else 5000000
 data_rhs = ti.field(real, shape=n_particles * dim)
 data_row = ti.field(ti.i32, shape=MAX_LINEAR)
 data_col = ti.field(ti.i32, shape=MAX_LINEAR)
@@ -425,7 +369,7 @@ def compute_filter_2D_PE() -> real:
                 de0 = ti.Vector([data_sol[e0 * dim + 0], data_sol[e0 * dim + 1]])
                 de1 = ti.Vector([data_sol[e1 * dim + 0], data_sol[e1 * dim + 1]])
                 if moving_point_edge_ccd_broadphase(x[p], x[e0], x[e1], dp, de0, de1, dHat):
-                    alpha = min(alpha, moving_point_edge_ccd(x[p], x[e0], x[e1], dp, de0, de1, 0.2))
+                    alpha = min(alpha, point_edge_ccd(x[p], x[e0], x[e1], dp, de0, de1, 0.2))
     return alpha
 
 
@@ -558,33 +502,7 @@ def compute_xn_and_xTilde():
 
 
 def move_nodes(current_time):
-    # if testcase == 1001:
-    #     @ti.kernel
-    #     def add_initial_velocity():
-    #         for i in range(n_particles):
-    #             v(0)[i] = 1 if i < n_particles / 2 else -1
-    #     if f == 0:
-    #         add_initial_velocity()
-    # elif testcase == 1002:
-    #     speed = math.pi * 0.4
-    #     for i in range(n_particles):
-    #         if dirichlet_fixed[i]:
-    #             a, b, c = x(0)[i], x(1)[i], x(2)[i]
-    #             angle = ti.atan2(b, c)
-    #             if a < 0:
-    #                 angle += speed * dt
-    #             else:
-    #                 angle -= speed * dt
-    #             radius = ti.sqrt(b * b + c * c)
-    #             dirichlet_value[i, 0] = a
-    #             dirichlet_value[i, 1] = radius * ti.sin(angle)
-    #             dirichlet_value[i, 2] = radius * ti.cos(angle)
-    # elif testcase == 10:
-    #     speed = 1
-    #     for i in range(954):
-    #         if dirichlet_fixed[i]:
-    #             dirichlet_value[i, 0] += speed * dt
-    dirichlet_fixed, dirichlet_value = settings['dirichlet_generator'](current_time)
+    dirichlet_fixed, dirichlet_value = settings['dirichlet'](current_time)
     for i in range(n_particles):
         if dirichlet_fixed[i]:
             for d in range(dim):
@@ -829,7 +747,7 @@ def compute_hessian_and_gradient():
 
 
 def solve_system(current_time):
-    dirichlet_fixed, dirichlet_value = settings['dirichlet_generator'](current_time)
+    dirichlet_fixed, dirichlet_value = settings['dirichlet'](current_time)
     D, V = np.stack((dirichlet_fixed,) * dim, axis=-1).reshape((n_particles * dim)), np.zeros((n_particles * dim))
     if cnt[None] >= MAX_LINEAR or max(n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None]) >= MAX_C:
         print("FATAL ERROR: Array Too Small!")

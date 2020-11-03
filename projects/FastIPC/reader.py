@@ -1,6 +1,7 @@
 import meshio
 import math
 import numpy as np
+from common.math.graph_tools import *
 from scipy.spatial.transform import Rotation
 
 
@@ -22,18 +23,21 @@ def init(dim):
     settings['mesh_particles'] = np.zeros((0, dim), dtype=np.float64)
     settings['mesh_elements'] = np.zeros((0, dim + 1), dtype=np.int32)
     settings['mesh_scale'] = 1.
-    settings['mesh_offset'] = [0., 0., 0.]
+    settings['mesh_offset'] = [0., 0.] if dim == 2 else [0., 0., 0.]
 
 
 def add_object(filename, translation=None, rotation=None, scale=None):
     translation = np.zeros(settings['dim']) if translation is None else np.array(translation)
-    rotation = np.zeros(settings['dim']) if rotation is None else np.array(rotation)
+    if settings['dim'] == 2:
+        rotation = 0. if rotation is None else rotation
+    else:
+        rotation = np.zeros(settings['dim'] * 2 - 3) if rotation is None else np.array(rotation)
     scale = np.ones(settings['dim']) if scale is None else np.array(scale)
     if filename[-4:] == '.msh':
         new_particles, new_elements = read_msh(filename)
     else:
         mesh = meshio.read(filename)
-        new_particles = mesh.points
+        new_particles = mesh.points[:, :settings['dim']]
         new_elements = mesh.cells[0].data
     if settings['dim'] == 2:
         rotation *= np.pi / 180.
@@ -45,44 +49,74 @@ def add_object(filename, translation=None, rotation=None, scale=None):
     n_particles = len(new_particles)
     for i in range(n_particles):
         p = new_particles[i, :]
-        new_particles[i, :] = (p * scale) @ rotation_matrix + translation
+        new_particles[i, :] = rotation_matrix @ (p * scale) + translation
     old_particles = settings['mesh_particles']
     old_elements = settings['mesh_elements']
     settings['mesh_particles'] = np.vstack((old_particles, new_particles))
     settings['mesh_elements'] = np.vstack((old_elements, new_elements + len(old_particles)))
 
 
+def add_boundary(positions):
+    old_particles = settings['mesh_particles']
+    settings['mesh_particles'] = np.vstack((old_particles, positions))
+    offset = len(old_particles)
+    if 'boundary' not in settings:
+        print('Please do find_boundary first')
+    boundary_points, boundary_edges, boundary_triangles = settings['boundary']
+    if len(positions) == 1:
+        boundary_points.update([offset])
+    elif len(positions) == 2:
+        boundary_points.update([offset, offset + 1])
+        boundary_edges = np.vstack((boundary_edges, [offset, offset + 1]))
+    else:
+        boundary_points.update([offset, offset + 1, offset + 2])
+        boundary_edges = np.vstack((boundary_edges, [offset, offset + 1]))
+        boundary_edges = np.vstack((boundary_edges, [offset + 1, offset + 2]))
+        boundary_edges = np.vstack((boundary_edges, [offset + 2, offset]))
+        boundary_triangles = np.vstack((boundary_triangles, [offset, offset + 1, offset + 2]))
+    settings['boundary'] = (boundary_points, boundary_edges, boundary_triangles)
+
+
 def set_size(absolute_scale):
     mesh_particles = settings['mesh_particles']
     lower = np.amin(mesh_particles, axis=0)
-    upper = np.amax(mesh_particles, axis=1)
+    upper = np.amax(mesh_particles, axis=0)
     relative_scale = (upper - lower).max()
     settings['mesh_particles'] = mesh_particles / relative_scale * absolute_scale
 
 
+def adjust_camera():
+    mesh_particles = settings['mesh_particles']
+    dim = settings['dim']
+    lower = np.amin(mesh_particles, axis=0)
+    upper = np.amax(mesh_particles, axis=0)
+    if dim == 2:
+        settings['mesh_scale'] = 0.8 / (upper - lower).max()
+        settings['mesh_offset'] = [0.5, 0.5] - ((upper + lower) * 0.5) * settings['mesh_scale']
+    else:
+        settings['mesh_scale'] = 1.6 / (upper - lower).max()
+        settings['mesh_offset'] = - ((upper + lower) * 0.5) * settings['mesh_scale']
+
+
 def read(testcase):
     ##################################################### 3D #####################################################
-    if testcase == 0:
-        # two tets
-        init(3)
-        add_object('input/tet.vtk')
-        add_object('input/tet.vtk', [0.501, -0.5, 0.5])
-        settings['gravity'] = 0.
-        settings['dirichlet_generator'] = lambda t: (np.zeros(len(settings['mesh_particles']), dtype=bool), settings['mesh_particles'])
-        return settings
     if testcase == 1001:
         # two spheres
         init(3)
+        settings['gravity'] = 0.
         add_object('input/sphere1K.vtk', [-0.51, 0, 0])
         add_object('input/sphere1K.vtk', [0.51, 0, 0])
-        settings['gravity'] = 0.
-        settings['dirichlet_generator'] = lambda t: (np.zeros(len(settings['mesh_particles']), dtype=bool), settings['mesh_particles'])
+        settings['boundary'] = find_boundary(settings['mesh_elements'])
+        settings['dirichlet'] = lambda t: (np.zeros(len(settings['mesh_particles']), dtype=bool), settings['mesh_particles'])
         return settings
     elif testcase == 1002:
         # mat twist
         init(3)
+        settings['gravity'] = 0.
         # add_object('input/mat150x150t40.msh')
         add_object('input/mat20x20.vtk', scale=[1., 4., 1.])
+        settings['boundary'] = find_boundary(settings['mesh_elements'])
+
         def dirichlet_generator(t):
             speed = math.pi * 0.4
             dirichlet_fixed = np.zeros(len(settings['mesh_particles']), dtype=bool)
@@ -99,14 +133,16 @@ def read(testcase):
                     dirichlet_value[i, 1] = radius * math.sin(angle)
                     dirichlet_value[i, 2] = radius * math.cos(angle)
             return dirichlet_fixed, dirichlet_value
-        settings['gravity'] = 0.
-        settings['dirichlet_generator'] = dirichlet_generator
+        settings['dirichlet'] = dirichlet_generator
         return settings
     elif testcase == 1003:
         # sphere on mat
         init(3)
+        settings['gravity'] = -9.8
         add_object('input/sphere1K.msh', translation=[0., 1., 0.])
         add_object('input/mat40x40.msh', scale=[4., 4., 4.])
+        settings['boundary'] = find_boundary(settings['mesh_elements'])
+
         def dirichlet_generator(t):
             dirichlet_fixed = np.zeros(len(settings['mesh_particles']), dtype=bool)
             dirichlet_value = settings['mesh_particles'].copy()
@@ -115,15 +151,15 @@ def read(testcase):
                 if dirichlet_value[i, 0] < -1.85 or dirichlet_value[i, 0] > 1.85:
                     dirichlet_fixed[i] = True
             return dirichlet_fixed, dirichlet_value
-        settings['gravity'] = -9.8
-        settings['dirichlet_generator'] = dirichlet_generator
+        settings['dirichlet'] = dirichlet_generator
         return settings
     elif testcase == 1004:
         # mat on knife
-        mesh_points, mesh_elements = read_msh("input/mat40x40.msh")
-        mesh_particles = mesh_points * 1.2 + [0.5, 1, 0.1]
-        offset = len(mesh_points)
-        print('!!! offset ', offset)
+        init(3)
+        settings['gravity'] = -9.8
+        add_object('input/mat40x40.msh', translation=[0.5, 1, 0.1], scale=[1.2, 1.2, 1.2])
+
+        settings['boundary'] = find_boundary(settings['mesh_elements'])
         dxs = [0.2, 0.4, 0.6, 0.8, 0.1, 0.3, 0.5, 0.7, 0.9]
         orients = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
         for dx, ori in zip(dxs, orients):
@@ -132,250 +168,139 @@ def read(testcase):
             x = np.array([0.0, 0.0, 0.0]) + np.array([dx, dy, dz])
             y = np.array([0.0, 0.0, 1.0]) + np.array([dx, dy, dz])
             z = np.array([0.0, 1.0, ori]) + np.array([dx, dy, dz])
-            mesh_particles = np.vstack((mesh_particles, [x, y, z]))
-        mesh_scale = 0.6
-        mesh_offset = [0, -0.3, 0]
-        n_particles = len(mesh_particles)
-        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
-        dirichlet_value = mesh_particles
-        for i in range(offset, n_particles):
-            dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 3
+            add_boundary([x, y, z])
+
+        settings['dirichlet'] = lambda t: (np.concatenate(([False] * (len(settings['mesh_particles']) - 27), [True] * 27)), settings['mesh_particles'])
+        adjust_camera()
+        return settings
     elif testcase == 1005:
         # sphere on points
-        mesh_points, mesh_elements = read_msh("input/sphere5K.msh")
-        mesh_particles = mesh_points * 3 + [2, 2, 2]
-        offset = len(mesh_points)
-        print('!!! offset ', offset)
+        init(3)
+        settings['gravity'] = -9.8
+        add_object('input/sphere5K.msh', translation=[2., 2., 2.], scale=[3., 3., 3.])
+
+        settings['boundary'] = find_boundary(settings['mesh_elements'])
         for i in range(20):
             for j in range(20):
                 x, y, z = 0.2 * i, 0.0, 0.2 * j
-                mesh_particles = np.vstack((mesh_particles, [x, y, z]))
-        mesh_scale = 0.6
-        mesh_offset = [0, -0.3, 0]
-        n_particles = len(mesh_particles)
-        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
-        dirichlet_value = mesh_particles
-        for i in range(offset, n_particles):
-            dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 3
+                add_boundary([[x, y, z]])
+
+        settings['dirichlet'] = lambda t: (np.concatenate(([False] * (len(settings['mesh_particles']) - 400), [True] * 400)), settings['mesh_particles'])
+        adjust_camera()
+        return settings
     elif testcase == 1006:
         # arch
-        mesh = meshio.read("input/cube.vtk")
-        mesh_particles = np.vstack((mesh.points * 200 + [-100, -220, -100], mesh.points * 10 + [-41.0, -11.4, -5.0],
-                                    mesh.points * 10 + [31, -11.4, -5.0]))
-        mesh_elements = np.vstack(
-            (mesh.cells[0].data, mesh.cells[0].data + len(mesh.points), mesh.cells[0].data + len(mesh.points) * 2))
+        init(3)
+        settings['gravity'] = -9.8
         for i in range(25):
-            tmp_particles, tmp_elements = read_msh("input/arch/largeArch." + str(i + 1).zfill(2) + ".msh")
             dx = -1.2 + 0.1 * i
             dy = -1.2 + 0.1 * i
             if i >= 12:
                 dy = -dy
-            offset = len(mesh_particles)
-            mesh_particles = np.vstack((mesh_particles, tmp_particles + [dx, dy, 0.0]))
-            mesh_elements = np.vstack((mesh_elements, tmp_elements + offset))
-        mesh_scale = 0.6
-        mesh_offset = [0, -0.3, 0]
-        n_particles = len(mesh_particles)
-        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
-        dirichlet_value = mesh_particles
-        for i in range(24):
-            dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 3
+            add_object('input/arch/largeArch.' + str(i + 1).zfill(2) + '.msh', translation=[dx, dy, 0.])
+        add_object('input/cube.vtk', translation=[-100., -21., -100.], scale=[200., 1., 200.])
+        add_object('input/cube.vtk', translation=[-41.0, -11.4, -5.0], scale=[10., 10., 10.])
+        add_object('input/cube.vtk', translation=[31, -11.4, -5.0], scale=[10., 10., 10.])
+        settings['boundary'] = find_boundary(settings['mesh_elements'])
+        settings['dirichlet'] = lambda t: (np.concatenate(([False] * (len(settings['mesh_particles']) - 24), [True] * 24)), settings['mesh_particles'])
+        adjust_camera()
+        return settings
     elif testcase == 1007:
         # card house
-        def rotate(x, y, alpha):
-            xx = math.cos(alpha) * x - math.sin(alpha) * y
-            yy = math.sin(alpha) * x + math.cos(alpha) * y
-            return xx, yy
+        init(3)
+        settings['gravity'] = -9.8
 
-        mesh = meshio.read("input/cube.vtk")
-        mesh_particles = np.vstack((mesh.points * 40 + [-20, -40.44, -20], mesh.points * 0.4 + [0.2, 6, -0.2],
-                                    mesh.points * 0.4 + [0.5, 9, -0.3]))
-        mesh_elements = np.vstack(
-            (mesh.cells[0].data, mesh.cells[0].data + len(mesh.points), mesh.cells[0].data + len(mesh.points) * 2))
-        mesh = meshio.read("input/mat20x20.vtk")
-        tmp_particles = mesh.points
-        tmp_elements = mesh.cells[0].data
-        angles = [math.pi / 3, -math.pi / 3, math.pi / 3, -math.pi / 3, 0.0, math.pi / 3, -math.pi / 3]
+        angles = [60., -60, 60., -60., 0., 60., -60.]
         dxs = [0.0, 0.515, 1.03, 1.545, 0.78, 0.515, 1.03]
         dys = [0.0, 0.0, 0.0, 0.0, 0.445, 0.89, 0.89]
         for dx, dy, a in zip(dxs, dys, angles):
-            offset = len(mesh_particles)
-            tmp = tmp_particles.copy()
+            scale = [1., 1., 1.]
             if a == 0.0:
-                tmp *= [1.1, 1, 1.1]
-            for i in range(len(tmp)):
-                x, y, z = tmp[i, 0], tmp[i, 1], tmp[i, 2]
-                xx, yy = rotate(x, y, a)
-                tmp[i, 0], tmp[i, 1], tmp[i, 2] = xx, yy, z
-            mesh_particles = np.vstack((mesh_particles, tmp + [dx, dy, 0.0]))
-            mesh_elements = np.vstack((mesh_elements, tmp_elements + offset))
-        mesh_scale = 0.6
-        mesh_offset = [0, -0.3, 0]
-        n_particles = len(mesh_particles)
-        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
-        dirichlet_value = mesh_particles
-        for i in range(8):
-            dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 3
+                scale = [1.1, 1, 1.1]
+            add_object('input/mat20x20.vtk', translation=[dx, dy, 0.], rotation=[0., 0., a], scale=scale)
+        add_object('input/cube.vtk', translation=[0.2, 6, -0.2], scale=[0.4, 0.4, 0.4])
+        add_object('input/cube.vtk', translation=[0.5, 9, -0.3], scale=[0.4, 0.4, 0.4])
+        add_object('input/cube.vtk', translation=[-4, -1.44, -4], scale=[8., 1., 8.])
+        settings['boundary'] = find_boundary(settings['mesh_elements'])
+        settings['dirichlet'] = lambda t: (np.concatenate(([False] * (len(settings['mesh_particles']) - 8), [True] * 8)), settings['mesh_particles'])
+        adjust_camera()
+        return settings
 
     ##################################################### 2D #####################################################
+    elif testcase == 1:
+        # hang sharkey
+        init(2)
+        settings['gravity'] = -9.8
+        add_object('input/Sharkey.obj')
+        settings['boundary'] = find_boundary(settings['mesh_elements'])
+        settings['dirichlet'] = lambda t: (np.concatenate(([True] * 12, [False] * (len(settings['mesh_particles']) - 12))), settings['mesh_particles'])
+        adjust_camera()
+        return settings
+    elif testcase == 2:
+        # one sharkey
+        init(2)
+        settings['gravity'] = -9.8
+        add_object('input/Sharkey.obj')
+        settings['boundary'] = find_boundary(settings['mesh_elements'])
+        add_boundary([[-0.5, -0.1], [1.1, -0.1]])
+        settings['dirichlet'] = lambda t: (np.concatenate(([False] * (len(settings['mesh_particles']) - 2), [True] * 2)), settings['mesh_particles'])
+        adjust_camera()
+        return settings
+    elif testcase == 3:
+        # two sharkey
+        init(2)
+        settings['gravity'] = -9.8
+        add_object('input/Sharkey.obj')
+        add_object('input/Sharkey.obj', translation=[0., 1.])
+        settings['boundary'] = find_boundary(settings['mesh_elements'])
+        add_boundary([[-0.5, 0.6], [0.3, -0.3]])
+        add_boundary([[0.3, -0.3], [1.1, 0.6]])
+        settings['dirichlet'] = lambda t: (np.concatenate(([False] * (len(settings['mesh_particles']) - 4), [True] * 4)), settings['mesh_particles'])
+        adjust_camera()
+        return settings
     elif testcase == 4:
-        # two triangles
-        mesh = meshio.read("input/cubes.obj")
-        mesh_particles = np.vstack((mesh.points + [0, 0, 0], mesh.points + [1, -0.5, 0]))
-        mesh_elements = np.vstack((mesh.cells[0].data, mesh.cells[0].data + len(mesh_particles) / 2))
-        mesh_scale = 0.2
-        mesh_offset = [0.4, 0.5]
-        n_particles = len(mesh_particles)
-        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
-        dirichlet_value = mesh_particles[:, :2]
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 2
+        # pull sharkey
+        init(2)
+        settings['gravity'] = 0
+        add_object('input/Sharkey.obj')
+        settings['boundary'] = find_boundary(settings['mesh_elements'])
+
+        thickness = 0.1
+        add_boundary([[0.5, 0.95], [1.1, 0.6 + thickness * 0.5]])
+        add_boundary([[1.1, 0.6 + thickness * 0.5], [2.1, 0.6 + thickness * 0.5]])
+        add_boundary([[2.1, 0.6 + thickness * 0.5], [2.7, 0.95]])
+        add_boundary([[0.5, 0.25], [1.1, 0.6 - thickness * 0.5]])
+        add_boundary([[1.1, 0.6 - thickness * 0.5], [2.1, 0.6 - thickness * 0.5]])
+        add_boundary([[2.1, 0.6 - thickness * 0.5], [2.7, 0.25]])
+
+        def dirichlet_generator(t):
+            dirichlet_fixed = np.zeros(len(settings['mesh_particles']), dtype=bool)
+            dirichlet_value = settings['mesh_particles'].copy()
+            dirichlet_fixed[-12:] = True
+            n_particles = len(dirichlet_value)
+            for i in range(n_particles - 12):
+                if dirichlet_value[i][0] > 0.745:
+                    dirichlet_fixed[i] = True
+                    dirichlet_value[i, 0] += t
+            return dirichlet_fixed, dirichlet_value
+        settings['dirichlet'] = dirichlet_generator
+        adjust_camera()
+        return settings
     elif testcase == 5:
-        # two spheres
-        mesh = meshio.read("input/sphere.obj")
-        mesh_particles = np.vstack((mesh.points + [0, 0, 0], mesh.points + [0.5, 0, 0]))
-        mesh_elements = np.vstack((mesh.cells[0].data, mesh.cells[0].data + len(mesh_particles) / 2))
-        mesh_scale = 0.8
-        mesh_offset = [0.4, 0.5]
-        n_particles = len(mesh_particles)
-        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
-        dirichlet_value = mesh_particles[:, :2]
-        for i in range(2):
-            dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 2
+        # noodles
+        init(2)
+        settings['gravity'] = -9.8
+        add_object('input/noodles.obj')
+        settings['boundary'] = find_boundary(settings['mesh_elements'])
+        settings['dirichlet'] = lambda t: (np.concatenate(([False] * (len(settings['mesh_particles']) - 8), [True] * 8)), settings['mesh_particles'])
+        return settings
     elif testcase == 6:
-        # two spheres
-        mesh = meshio.read("input/Sharkey.obj")
-        mesh_particles = mesh.points
-        mesh_elements = mesh.cells[0].data
-        mesh_scale = 0.6
-        mesh_offset = [0.35, 0.3]
-        n_particles = len(mesh_particles)
-        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
-        dirichlet_value = mesh_particles[:, :2]
-        for i in range(12):
-            dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
-    elif testcase == 7:
-        # two spheres
-        mesh = meshio.read("input/Sharkey_floor.obj")
-        mesh_particles = mesh.points
-        mesh_elements = mesh.cells[0].data
-        mesh_scale = 0.6
-        mesh_offset = [0.32, 0.3]
-        n_particles = len(mesh_particles)
-        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
-        dirichlet_value = mesh_particles[:, :2]
-        for i in [954, 955, 956, 957]:
-            dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
-    elif testcase == 8:
-        # two spheres
-        mesh = meshio.read("input/Sharkey_valley.obj")
-        mesh_particles = mesh.points
-        mesh_elements = mesh.cells[0].data
-        mesh_scale = 0.6
-        mesh_offset = [0.32, 0.3]
-        n_particles = len(mesh_particles)
-        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
-        dirichlet_value = mesh_particles[:, :2]
-        for i in [954, 955, 956, 957, 958]:
-            dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
-    elif testcase == 9:
-        # two spheres
-        mesh0 = meshio.read("input/Sharkey_valley.obj")
-        mesh1 = meshio.read("input/Sharkey.obj")
-        mesh_particles = np.vstack((mesh0.points, mesh1.points + [0, 1, 0]))
-        offset = len(mesh0.points)
-        mesh_elements = np.vstack((mesh0.cells[0].data, mesh1.cells[0].data + offset))
-        mesh_scale = 0.4
-        mesh_offset = [0.38, 0.2]
-        n_particles = len(mesh_particles)
-        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
-        dirichlet_value = mesh_particles[:, :2]
-        for i in [954, 955, 956, 957, 958]:
-            dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
-    elif testcase == 10:
-        # two spheres
-        mesh = meshio.read("input/Sharkey.obj")
-        mesh_particles = np.vstack((mesh.points, [
-            [1.1, 0.65, 0], [2.1, 0.65, 0], [0.5, 0.95, 0], [2.7, 0.95, 0],
-            [0.5, 0.25, 0], [2.7, 0.25, 0], [1.1, 0.55, 0], [2.1, 0.55, 0]
-        ]))
-        offset = len(mesh.points)
-        mesh_elements = np.vstack((mesh.cells[0].data, [
-            [offset, offset + 1, offset + 2],
-            [offset + 2, offset + 1, offset + 3],
-            [offset + 4, offset + 5, offset + 6],
-            [offset + 6, offset + 5, offset + 7]
-        ]))
-        mesh_scale = 0.3
-        mesh_offset = [0.02, 0.3]
-        n_particles = len(mesh_particles)
-        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
-        dirichlet_value = mesh_particles[:, :2]
-        print("!!!! offset : ", offset)
-        for i in range(len(mesh_particles)):
-            if mesh_particles[i, 0] > 0.745 and i < offset:
-                dirichlet_fixed[i] = True
-        for i in range(offset, offset + 8):
-            dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, 0.0, 2
-    elif testcase == 11:
-        mesh = meshio.read("input/noodles.obj")
-        mesh_particles = mesh.points
-        mesh_elements = mesh.cells[0].data
-        mesh_scale = 0.6
-        mesh_offset = [0.32, 0.3]
-        n_particles = len(mesh_particles)
-        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
-        dirichlet_value = mesh_particles[:, :2]
-        for i in [4000, 4001, 4004, 4005]:
-            dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
-    elif testcase == 12:
-        mesh = meshio.read("input/fluffy.obj")
-        mesh_particles = np.vstack((mesh.points, [
-            [-1, -0.8, 0], [1, -0.8, 0], [1, -0.7, 0], [-1, -0.7, 0]
-        ]))
-        offset = len(mesh.points)
-        mesh_elements = np.vstack((mesh.cells[0].data, [
-            [offset, offset + 1, offset + 2],
-            [offset + 0, offset + 2, offset + 3]
-        ]))
-        mesh_scale = 0.5
-        mesh_offset = [0.5, 0.6]
-        n_particles = len(mesh_particles)
-        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
-        dirichlet_value = mesh_particles[:, :2]
-        for i in range(offset, offset + 4):
-            dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
-    elif testcase == 13:
-        # two spheres
-        mesh = meshio.read("input/items.obj")
-        mesh_particles = np.vstack((mesh.points, [
-            [-0.5, -0.3, 0],
-            [0.3, -0.3, 0],
-            [-0.5, 0.6, 0],
-            [1.1, -0.3, 0],
-            [1.1, 0.6, 0]
-        ]))
-        offset = len(mesh.points)
-        mesh_elements = np.vstack((mesh.cells[0].data, [
-            [offset, offset + 1, offset + 2],
-            [offset + 1, offset + 3, offset + 4]
-        ]))
-        mesh_scale = 0.4
-        mesh_offset = [0.38, 0.2]
-        n_particles = len(mesh_particles)
-        dirichlet_fixed = np.zeros(n_particles, dtype=bool)
-        dirichlet_value = mesh_particles[:, :2]
-        for i in range(offset, offset + 5):
-            dirichlet_fixed[i] = True
-        return mesh_particles, mesh_elements, mesh_scale, mesh_offset, dirichlet_fixed, dirichlet_value, -9.8, 2
+        # fluffy
+        init(2)
+        settings['gravity'] = -9.8
+        add_object('input/fluffy.obj')
+        settings['boundary'] = find_boundary(settings['mesh_elements'])
+        add_boundary([[-1, -0.7], [1, -0.7]])
+        settings['dirichlet'] = lambda t: (np.concatenate(([False] * (len(settings['mesh_particles']) - 2), [True] * 2)), settings['mesh_particles'])
+        adjust_camera()
+        return settings
