@@ -1,6 +1,6 @@
 import taichi as ti
 import numpy as np
-from utils.timer import *
+from common.utils.timer import *
 
 @ti.data_oriented
 class DFGMPMSolver:

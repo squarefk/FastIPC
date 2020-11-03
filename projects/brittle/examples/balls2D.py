@@ -1,8 +1,8 @@
-from sim.DFGMPMSolver import *
 import taichi as ti
 import numpy as np
-from utils.particleSampling import *
-from cfl import suggestedDt
+from common.utils.particleSampling import *
+from common.utils.cfl import *
+from projects.brittle.DFGMPMSolver import *
 import math
 
 ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
@@ -10,8 +10,8 @@ ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 #ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10.0
-outputPath = "output/balls2D/brittle.ply"
-outputPath2 = "output/balls2D/brittle_nodes.ply"
+outputPath = "../output/balls2D/brittle.ply"
+outputPath2 = "../output/balls2D/brittle_nodes.ply"
 fps = 24
 endFrame = fps * 10
 ppc = 9
