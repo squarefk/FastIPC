@@ -35,7 +35,7 @@ print('output directory:', directory)
 
 ##############################################################################
 real = ti.f64
-ti.init(arch=ti.cpu, default_fp=real, make_thread_local=False) #, cpu_max_num_threads=1)
+ti.init(arch=ti.cpu, default_fp=real, async_mode=True) #, cpu_max_num_threads=1)
 
 scalar = lambda: ti.field(real)
 vec = lambda: ti.Vector.field(dim, real)
