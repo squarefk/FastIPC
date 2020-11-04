@@ -6,12 +6,13 @@ from projects.brittle.DFGMPMSolver import *
 from projects.brittle.HalfSpace import *
 import math
 
-ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+#ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10
 outputPath = "../output/slipperySlope2D/brittle.ply"
 outputPath2 = "../output/slipperySlope2D/brittle_nodes.ply"
-fps = 24
+fps = 60
 endFrame = fps * 10
 ppc = 9
 rho = 10
@@ -37,7 +38,7 @@ boxMax = [0.5, 0.5]
 boxSubdivs = 26
 thetaRad = np.arctan(yDiff / xDiff)
 boxTheta = -1 * np.degrees(thetaRad)
-boxParticles = sampleBoxGrid2D(boxMin, boxMax, boxSubdivs, boxTheta, 0.2, 0.25)
+boxParticles = sampleBoxGrid2D(boxMin, boxMax, boxSubdivs, boxTheta, 0.2, 0.243)
 
 particleCounts = [len(vertices), len(boxParticles)]
 vertices = np.concatenate((vertices, boxParticles))
@@ -56,6 +57,7 @@ maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.7 * maxDt
 
 useFrictionalContact = True
+frictionCoefficient = 0.0
 verbose = False
 useAPIC = False
 
@@ -64,7 +66,7 @@ particleMasses = [pVol * rho, pVol2 * rho]
 particleVolumes = [pVol, pVol2]
 surfaceThresholds = [surfaceThreshold1, surfaceThreshold2]
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, verbose, useAPIC)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC)
 
 #Collision Objects
 groundCenter = (0, 0.05)

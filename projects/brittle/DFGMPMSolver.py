@@ -23,7 +23,7 @@ class DFGMPMSolver:
     }
 
     #define constructor here
-    def __init__(self, endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, verbose = False, useAPIC = False):
+    def __init__(self, endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient = 0.0, verbose = False, useAPIC = False):
         
         #Simulation Parameters
         self.endFrame = endFrame
@@ -66,7 +66,7 @@ class DFGMPMSolver:
         self.rp = (3*(dx**2))**0.5 if self.dim == 3 else (2*(dx**2))**0.5 #set rp based on dx (this changes if dx != dy)
         self.maxParticlesInfluencingGridNode = self.ppc * self.maxPPC #2d = 4*ppc, 3d = 8*ppc
         self.dMin = 0.25
-        self.fricCoeff = 0.0
+        self.fricCoeff = frictionCoefficient
         self.epsilon_m = 0.0001
         #self.surfaceThreshold = surfaceThreshold 
         self.st = ti.field(dtype=float, shape=self.numParticles) #now we can have different thresholds for different objects and particle distributions!
@@ -435,7 +435,7 @@ class DFGMPMSolver:
                 self.grid_v[i, j, 1] += self.dt * self.gravity[None] * self.grid_m[i, j][1] # gravity, field 2
 
     @ti.kernel
-    def frictionalContact(self):
+    def computeContactForces(self):
         #Frictional Contact Forces
         for i,j in self.grid_m:
             if self.separable[i,j] != -1: #only apply these forces to nodes with two fields
@@ -487,9 +487,11 @@ class DFGMPMSolver:
                 tanDirection1 = ti.Vector([0.0, 0.0]) if fTanSign1 == 0.0 else fTanComp1.normalized() #prevent nan directions
                 tanDirection2 = ti.Vector([0.0, 0.0]) if fTanSign2 == 0.0 else fTanComp2.normalized()
 
-                if(i * self.nGrid + j == 8120 and self.verbose):
+                scale = 1e15
 
-                    scale = 1e15
+                #if(i * self.nGrid + j == 883):# and self.verbose):
+
+                    
                     # print('Data for grid node', i*self.nGrid + j, ':')
                     # print('q_1:', q_1*scale)
                     # print('q_2:', q_2*scale)
@@ -525,71 +527,65 @@ class DFGMPMSolver:
                     # print('tanDirection1:', tanDirection1)
                     # print('tanDirection2:', tanDirection2)
 
+                fieldOne = 0
+                fieldTwo = 0
+
                 if self.separable[i,j] == 1:
                     #two fields and are separable
                     if (v_cm - v_1).dot(n_cm1) > 0:
                         tanMin = self.fricCoeff * abs(fNormal1) if self.fricCoeff * abs(fNormal1) < abs(fTanMag1) else abs(fTanMag1)
                         f_c1 += (fNormal1 * n_cm1) + (tanMin * fTanSign1 * tanDirection1)
+                        fieldOne = 1
                 
                     if (v_cm - v_2).dot(n_cm2) > 0:
                         tanMin = self.fricCoeff * abs(fNormal2) if self.fricCoeff * abs(fNormal2) < abs(fTanMag2) else abs(fTanMag2)
                         f_c2 += (fNormal2 * n_cm2) + (tanMin * fTanSign2 * tanDirection2)
+                        fieldTwo = 1
+
+                    if(i * self.nGrid + j == 883):
+                        v1New = v_1 + (self.dt * (f_c2 / m_1))
+                        v2New = v_2 + (self.dt * (f_c1 / m_2))
+                        print('vcm-v1New dot n_cm1:', (v_cm - v1New).dot(n_cm1))
+                        print('vcm-v2New dot n_cm2:', (v_cm - v2New).dot(n_cm2))
+                        print()
+
 
                 else:
                     #two fields but not separable, treat as one field, but each gets an update
                     #NOTE: yellow node update reduces to v1 = v_cm, v2 = v_cm
-                    f_c1 = v_cm * m_1
-                    f_c2 = v_cm * m_2
+                    f_c1 = v_cm #we're now updating velocity (divide out mass before adding friction force)
+                    f_c2 = v_cm
+
+                if (fieldOne ^ fieldTwo):
+                    print('fieldOne:', fieldOne, 'fieldTwo:', fieldTwo)
 
                 #Now save these forces for later
                 self.grid_f[i,j,0] = f_c1
                 self.grid_f[i,j,1] = f_c2
 
-    @ti.kernel
-    def addFrictionForces(self):
-        #Use contact forces to update velocity
-        for i, j in self.grid_m:
-            if(self.separable[i,j] != -1 and self.useFrictionalContact):
-                if self.separable[i,j] == 1:
-                    self.grid_v[i,j,0] += self.dt * self.grid_f[i,j,1] # use field 2 force to update field 1 particles (for green nodes, ie separable contact)
-                    self.grid_v[i,j,1] += self.dt * self.grid_f[i,j,0] # use field 1 force to update field 2 particles
-                else:
-                    # self.grid_v[i,j,0] += self.dt * self.grid_f[i,j,0] #use field 1 for field 1 (yellow nodes)
-                    # self.grid_v[i,j,1] += self.dt * self.grid_f[i,j,1] #field 2 for field 2 (yellow)
-                    self.grid_v[i,j,0] = self.grid_f[i,j,0] #stored v_cm * m_1, so we just set to this!
-                    self.grid_v[i,j,1] = self.grid_f[i,j,1] #stored v_cm * m_2, so we just set to this!
+    # @ti.kernel
+    # def addFrictionForces(self):
+    #     #Use contact forces to update velocity
+    #     for i, j in self.grid_m:
+    #         if(self.separable[i,j] != -1 and self.useFrictionalContact):
+    #             if self.separable[i,j] == 1:
+    #                 self.grid_v[i,j,0] += self.dt * self.grid_f[i,j,1] # use field 2 force to update field 1 particles (for green nodes, ie separable contact)
+    #                 self.grid_v[i,j,1] += self.dt * self.grid_f[i,j,0] # use field 1 force to update field 2 particles
+    #             else:
+    #                 # self.grid_v[i,j,0] += self.dt * self.grid_f[i,j,0] #use field 1 for field 1 (yellow nodes)
+    #                 # self.grid_v[i,j,1] += self.dt * self.grid_f[i,j,1] #field 2 for field 2 (yellow)
+    #                 self.grid_v[i,j,0] = self.grid_f[i,j,0] #stored v_cm * m_1, so we just set to this!
+    #                 self.grid_v[i,j,1] = self.grid_f[i,j,1] #stored v_cm * m_2, so we just set to this!
 
     @ti.kernel
-    def momentumToVelocity(self):
-        #Convert Momentum to Velocity
+    def momentumToVelocityAndAddContact(self):
+        #Convert Momentum to Velocity And Add Friction Forces
         for i, j in self.grid_m:    
             if self.separable[i,j] == -1:
                 #treat as one field
                 nodalMass = self.grid_m[i,j][0]
                 if nodalMass > 0: #if there is mass at this node
                     self.grid_v[i, j, 0] = (1 / nodalMass) * self.grid_v[i, j, 0] # Momentum to velocity
-                                        
-                    #wall collisions
-                    # if i < 3 and self.grid_v[i, j,0][0] < 0:                 self.grid_v[i, j,0][0] = 0 # Boundary conditions
-                    # if i > self.nGrid - 3 and self.grid_v[i, j,0][0] > 0:    self.grid_v[i, j,0][0] = 0
-                    # if j < 3 and self.grid_v[i, j,0][1] < 0:                 self.grid_v[i, j,0][1] = 0
-                    # if j > self.nGrid - 3 and self.grid_v[i, j,0][1] > 0:    self.grid_v[i, j,0][1] = 0
-
-                    # for currObj in range(len(self.collisionObjects)):
-                    #     vx = self.grid_v[i, j,0][0]
-                    #     vy = self.grid_v[i, j,0][1]
-                    #     vz = 0.0
-                    #     self.collide(i, j, 0, currObj, vx, vy, vz)
-
-                    #hold the top of the box
-                    # if j*self.dx > 0.575: 
-                    #     self.grid_v[i, j,0][0] = 0
-                    #     self.grid_v[i, j,0][1] = 0
-
-                    # #move bottom of the box
-                    # if j*self.dx < 0.42: 
-                    #     self.grid_v[i, j,0][0] = 0
-                    #     self.grid_v[i, j,0][1] = -1
                     
             else:
                 #treat node as having two fields
@@ -598,18 +594,17 @@ class DFGMPMSolver:
                 if nodalMass1 > 0 and nodalMass2 > 0: #if there is mass at this node
                     self.grid_v[i, j, 0] = (1 / nodalMass1) * self.grid_v[i, j, 0] # Momentum to velocity, field 1
                     self.grid_v[i, j, 1] = (1 / nodalMass2) * self.grid_v[i, j, 1] # Momentum to velocity, field 2
-                    
-                    #wall collisions, field 1
-                    # if i < 3 and self.grid_v[i, j, 0][0] < 0:               self.grid_v[i, j, 0][0] = 0 # Boundary conditions
-                    # if i > self.nGrid - 3 and self.grid_v[i, j, 0][0] > 0:  self.grid_v[i, j, 0][0] = 0
-                    # if j < 3 and self.grid_v[i, j,0][1] < 0:                self.grid_v[i, j, 0][1] = 0
-                    # if j > self.nGrid - 3 and self.grid_v[i, j, 0][1] > 0:  self.grid_v[i, j, 0][1] = 0
 
-                    # #wall collisions, field 2
-                    # if i < 3 and self.grid_v[i, j, 1][0] < 0:               self.grid_v[i, j, 1][0] = 0 # Boundary conditions
-                    # if i > self.nGrid - 3 and self.grid_v[i, j, 1][0] > 0:  self.grid_v[i, j, 1][0] = 0
-                    # if j < 3 and self.grid_v[i, j, 1][1] < 0:               self.grid_v[i, j, 1][1] = 0
-                    # if j > self.nGrid - 3 and self.grid_v[i, j, 1][1] > 0:  self.grid_v[i, j, 1][1] = 0
+                    if(self.useFrictionalContact):
+                        if self.separable[i,j] == 1:
+                            self.grid_v[i,j,0] += (self.grid_f[i,j,1] / nodalMass1) * self.dt # use field 2 force to update field 1 particles (for green nodes, ie separable contact)
+                            self.grid_v[i,j,1] += (self.grid_f[i,j,0] / nodalMass2) * self.dt # use field 1 force to update field 2 particles
+                        else:
+                            # self.grid_v[i,j,0] += self.dt * self.grid_f[i,j,0] #use field 1 for field 1 (yellow nodes)
+                            # self.grid_v[i,j,1] += self.dt * self.grid_f[i,j,1] #field 2 for field 2 (yellow)
+                            self.grid_v[i,j,0] = self.grid_f[i,j,0] #stored v_cm * m_1, so we just set to this!
+                            self.grid_v[i,j,1] = self.grid_f[i,j,1] #stored v_cm * m_2, so we just set to this!
+
 
     @ti.kernel
     def G2P(self):
@@ -678,10 +673,10 @@ class DFGMPMSolver:
         with Timer("Add Gravity"):
             self.addGravity()
         with Timer("Frictional Contact"):
-            self.frictionalContact()
-            self.addFrictionForces()
-        with Timer("Momentum to Velocity"):
-            self.momentumToVelocity()
+            self.computeContactForces()
+            #self.addFrictionForces()
+        with Timer("Momentum to Velocity & Add Friction"):
+            self.momentumToVelocityAndAddContact()
         with Timer("Boundaries"):
             for func in self.gridPostProcess:
                 func()
@@ -703,63 +698,68 @@ class DFGMPMSolver:
             for I in ti.grouped(self.grid_m):
                 if self.separable[I] == -1:
                     #treat as one field
-                    offset = I * self.dx - ti.Vector(center)
-                    n = ti.Vector(normal)
-                    if offset.dot(n) < 0:
-                        if ti.static(surface == self.surfaceSticky):
-                            self.grid_v[I,0] = ti.Vector.zero(ti.f64, self.dim) #if sticky, set velocity to all zero
-                        else:
-                            v = self.grid_v[I,0] #divide out the mass to get velocity
-                            normal_component = n.dot(v)
-
-                            if ti.static(surface == self.surfaceSlip):
-                                # Project out all normal component
-                                v = v - n * normal_component
+                    nodalMass = self.grid_m[I][0]
+                    if nodalMass > 0:
+                        offset = I * self.dx - ti.Vector(center)
+                        n = ti.Vector(normal)
+                        if offset.dot(n) < 0:
+                            if ti.static(surface == self.surfaceSticky):
+                                self.grid_v[I,0] = ti.Vector.zero(ti.f64, self.dim) #if sticky, set velocity to all zero
                             else:
-                                # Project out only inward normal component
-                                v = v - n * min(normal_component, 0)
+                                v = self.grid_v[I,0] #divide out the mass to get velocity
+                                normal_component = n.dot(v)
 
-                            if normal_component < 0 and v.norm() > 1e-30:
-                                # apply friction here
-                                v = v.normalized() * max(0, v.norm() + normal_component * friction)
+                                if ti.static(surface == self.surfaceSlip):
+                                    # Project out all normal component
+                                    v = v - n * normal_component
+                                else:
+                                    # Project out only inward normal component
+                                    v = v - n * min(normal_component, 0)
 
-                            self.grid_v[I,0] = v
+                                if normal_component < 0 and v.norm() > 1e-30:
+                                    # apply friction here
+                                    v = v.normalized() * max(0, v.norm() + normal_component * friction)
+
+                                self.grid_v[I,0] = v
 
                 else:
                     #treat as two fields
-                    offset = I * self.dx - ti.Vector(center)
-                    n = ti.Vector(normal)
-                    if offset.dot(n) < 0:
-                        if ti.static(surface == self.surfaceSticky):
-                            self.grid_v[I,0] = ti.Vector.zero(ti.f64, self.dim) #if sticky, set velocity to all zero
-                            self.grid_v[I,1] = ti.Vector.zero(ti.f64, self.dim) #both fields get zero
+                    nodalMass1 = self.grid_m[I][0]
+                    nodalMass2 = self.grid_m[I][1]
+                    if nodalMass1 > 0 and nodalMass2 > 0:
+                        offset = I * self.dx - ti.Vector(center)
+                        n = ti.Vector(normal)
+                        if offset.dot(n) < 0:
+                            if ti.static(surface == self.surfaceSticky):
+                                self.grid_v[I,0] = ti.Vector.zero(ti.f64, self.dim) #if sticky, set velocity to all zero
+                                self.grid_v[I,1] = ti.Vector.zero(ti.f64, self.dim) #both fields get zero
 
-                        else:
-                            v1 = self.grid_v[I,0] #divide out the mass to get velocity
-                            v2 = self.grid_v[I,1] #divide out the mass to get velocity
-
-                            normal_component1 = n.dot(v1)
-                            normal_component2 = n.dot(v2)
-
-                            if ti.static(surface == self.surfaceSlip):
-                                # Project out all normal component
-                                v1 = v1 - n * normal_component1
-                                v2 = v2 - n * normal_component2
                             else:
-                                # Project out only inward normal component
-                                v1 = v1 - n * min(normal_component1, 0)
-                                v2 = v2 - n * min(normal_component2, 0)
+                                v1 = self.grid_v[I,0] #divide out the mass to get velocity
+                                v2 = self.grid_v[I,1] #divide out the mass to get velocity
 
-                            if normal_component1 < 0 and v1.norm() > 1e-30:
-                                # apply friction here
-                                v1 = v1.normalized() * max(0, v1.norm() + normal_component1 * friction)
+                                normal_component1 = n.dot(v1)
+                                normal_component2 = n.dot(v2)
 
-                            if normal_component2 < 0 and v2.norm() > 1e-30:
-                                # apply friction here
-                                v2 = v2.normalized() * max(0, v2.norm() + normal_component2 * friction)
+                                if ti.static(surface == self.surfaceSlip):
+                                    # Project out all normal component
+                                    v1 = v1 - n * normal_component1
+                                    v2 = v2 - n * normal_component2
+                                else:
+                                    # Project out only inward normal component
+                                    v1 = v1 - n * min(normal_component1, 0)
+                                    v2 = v2 - n * min(normal_component2, 0)
 
-                            self.grid_v[I,0] = v1
-                            self.grid_v[I,1] = v2
+                                if normal_component1 < 0 and v1.norm() > 1e-30:
+                                    # apply friction here
+                                    v1 = v1.normalized() * max(0, v1.norm() + normal_component1 * friction)
+
+                                if normal_component2 < 0 and v2.norm() > 1e-30:
+                                    # apply friction here
+                                    v2 = v2.normalized() * max(0, v2.norm() + normal_component2 * friction)
+
+                                self.grid_v[I,0] = v1
+                                self.grid_v[I,1] = v2
 
         self.gridPostProcess.append(collide)
 
