@@ -150,7 +150,7 @@ if dim == 2:
 else:
     indices = ti.ijk
 grid_size = 4096
-offset = tuple(-grid_size // 2 for _ in range(dim))
+offset = tuple(-grid_size // 4 for _ in range(dim))
 grid_block_size = 128
 grid = ti.root.pointer(indices, grid_size // grid_block_size)
 if dim == 2:
@@ -158,7 +158,7 @@ if dim == 2:
 else:
     leaf_block_size = 8
 block = grid.pointer(indices, grid_block_size // leaf_block_size)
-block.dynamic(ti.indices(dim), 1024 * 1024, chunk_size=leaf_block_size**dim * 8).place(pid, offset=offset + (0, ))
+block.dense(indices, leaf_block_size).dynamic(ti.indices(dim), 1024 * 1024, chunk_size=leaf_block_size**dim * 8).place(pid, offset=offset + (0, ))
 
 
 @ti.kernel
