@@ -172,51 +172,101 @@ def compute_adaptive_kappa() -> real:
 
 
 @ti.kernel
-def compute_filter(xx: ti.template(), x: ti.template()) -> real:
+def compute_mean_of_boundary_edges() -> real:
+    total = 0.0
+    for i in range(n_boundary_edges):
+        total += (x[boundary_edges[i, 0]] - x[boundary_edges[i, 1]]).norm()
+    result = total / ti.cast(n_boundary_edges, real)
+    print("Mean of boundary edges:", result)
+    return result
+
+
+@ti.kernel
+def compute_filter_2D_PE(xx: ti.template(), x: ti.template()) -> real:
     alpha = 1.0
-    if ti.static(dim == 2):
-        for i in range(n_boundary_points):
-            p = boundary_points[i]
-            for j in range(n_boundary_edges):
-                e0 = boundary_edges[j, 0]
-                e1 = boundary_edges[j, 1]
-                if p != e0 and p != e1:
-                    dp = x[p] - xx[p]
-                    de0 = x[e0] - xx[e0]
-                    de1 = x[e1] - xx[e1]
-                    if moving_point_edge_ccd_broadphase(xx[p], xx[e0], xx[e1], dp, de0, de1, dHat):
-                        alpha = ti.min(alpha, point_edge_ccd(xx[p], xx[e0], xx[e1], dp, de0, de1, 0.2))
-    else:
-        for i in range(n_boundary_points):
-            p = boundary_points[i]
-            for j in range(n_boundary_triangles):
-                t0 = boundary_triangles[j, 0]
-                t1 = boundary_triangles[j, 1]
-                t2 = boundary_triangles[j, 2]
+    for i in range(n_boundary_points):
+        p = boundary_points[i]
+        for j in range(n_boundary_edges):
+            e0 = boundary_edges[j, 0]
+            e1 = boundary_edges[j, 1]
+            if p != e0 and p != e1:
+                dp = x[p] - xx[p]
+                de0 = x[e0] - xx[e0]
+                de1 = x[e1] - xx[e1]
+                if moving_point_edge_ccd_broadphase(xx[p], xx[e0], xx[e1], dp, de0, de1, dHat):
+                    alpha = ti.min(alpha, point_edge_ccd(xx[p], xx[e0], xx[e1], dp, de0, de1, 0.2))
+    return alpha
+@ti.kernel
+def compute_filter_3D_PT(x: ti.template(), xTrial: ti.template()) -> real:
+    alpha = 1.0
+    for i in range(n_boundary_points):
+        p = boundary_points[i]
+        dp = xTrial[p] - x[p]
+        lower = int(ti.floor((min(x[p], x[p] + dp) - dHat) * spatial_hash_inv_dx)) - offset
+        upper = int(ti.floor((max(x[p], x[p] + dp) + dHat) * spatial_hash_inv_dx)) + 1 - offset
+        for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
+            ti.append(pid.parent(), I, i)
+    for i in range(n_boundary_triangles):
+        t0 = boundary_triangles[i, 0]
+        t1 = boundary_triangles[i, 1]
+        t2 = boundary_triangles[i, 2]
+        dt0 = xTrial[t0] - x[t0]
+        dt1 = xTrial[t1] - x[t1]
+        dt2 = xTrial[t2] - x[t2]
+        lower = int(ti.floor(min(x[t0], x[t0] + dt0, x[t1], x[t1] + dt1, x[t2], x[t2] + dt2) * spatial_hash_inv_dx)) - offset
+        upper = int(ti.floor(max(x[t0], x[t0] + dt0, x[t1], x[t1] + dt1, x[t2], x[t2] + dt2) * spatial_hash_inv_dx)) + 1 - offset
+        for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
+            L = ti.length(pid.parent(), I)
+            for l in range(L):
+                j = pid[I[0], I[1], I[2], l]
+                p = boundary_points[j]
+                dp = xTrial[p] - x[p]
                 if p != t0 and p != t1 and p != t2:
-                    dp = x[p] - xx[p]
-                    dt0 = x[t0] - xx[t0]
-                    dt1 = x[t1] - xx[t1]
-                    dt2 = x[t2] - xx[t2]
-                    if moving_point_triangle_ccd_broadphase(xx[p], xx[t0], xx[t1], xx[t2], dp, dt0, dt1, dt2, dHat):
-                        dist2 = PT_dist2(xx[p], xx[t0], xx[t1], xx[t2], PT_type(xx[p], xx[t0], xx[t1], xx[t2]))
-                        alpha = ti.min(alpha, point_triangle_ccd(xx[p], xx[t0], xx[t1], xx[t2], dp, dt0, dt1, dt2, 0.2, dist2))
-        for i in range(n_boundary_edges):
-            a0 = boundary_edges[i, 0]
-            a1 = boundary_edges[i, 1]
-            for j in range(n_boundary_edges):
+                    if moving_point_triangle_ccd_broadphase(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, dHat):
+                        dist2 = PT_dist2(x[p], x[t0], x[t1], x[t2], PT_type(x[p], x[t0], x[t1], x[t2]))
+                        alpha = min(alpha, point_triangle_ccd(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, 0.2, dist2))
+    return alpha
+@ti.kernel
+def compute_filter_3D_EE(x: ti.template(), xTrial: ti.template()) -> real:
+    alpha = 1.0
+    for i in range(n_boundary_edges):
+        a0 = boundary_edges[i, 0]
+        a1 = boundary_edges[i, 1]
+        da0 = xTrial[a0] - x[a0]
+        da1 = xTrial[a1] - x[a1]
+        lower = int(ti.floor(min(x[a0], x[a0] + da0, x[a1], x[a1] + da1) * spatial_hash_inv_dx)) - offset
+        upper = int(ti.floor(max(x[a0], x[a0] + da0, x[a1], x[a1] + da1) * spatial_hash_inv_dx)) + 1 - offset
+        for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
+            ti.append(pid.parent(), I, i)
+    for i in range(n_boundary_edges):
+        a0 = boundary_edges[i, 0]
+        a1 = boundary_edges[i, 1]
+        da0 = xTrial[a0] - x[a0]
+        da1 = xTrial[a1] - x[a1]
+        lower = int(ti.floor((min(x[a0], x[a0] + da0, x[a1], x[a1] + da1) - dHat) * spatial_hash_inv_dx)) - offset
+        upper = int(ti.floor((max(x[a0], x[a0] + da0, x[a1], x[a1] + da1) + dHat) * spatial_hash_inv_dx)) + 1 - offset
+        for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
+            L = ti.length(pid.parent(), I)
+            for l in range(L):
+                j = pid[I[0], I[1], I[2], l]
                 b0 = boundary_edges[j, 0]
                 b1 = boundary_edges[j, 1]
-                if a0 != b0 and a0 != b1 and a1 != b0 and a1 != b1:
-                    da0 = x[a0] - xx[a0]
-                    da1 = x[a1] - xx[a1]
-                    db0 = x[b0] - xx[b0]
-                    db1 = x[b1] - xx[b1]
-                    if moving_edge_edge_ccd_broadphase(xx[a0], xx[a1], xx[b0], xx[b1], da0, da1, db0, db1, dHat):
-                        dist2 = EE_dist2(xx[a0], xx[a1], xx[b0], xx[b1], EE_type(xx[a0], xx[a1], xx[b0], xx[b1]))
-                        alpha = ti.min(alpha, edge_edge_ccd(xx[a0], xx[a1], xx[b0], xx[b1], da0, da1, db0, db1, 0.2, dist2))
-
-
+                db0 = xTrial[b0] - x[b0]
+                db1 = xTrial[b1] - x[b1]
+                if i < j and a0 != b0 and a0 != b1 and a1 != b0 and a1 != b1:
+                    if moving_edge_edge_ccd_broadphase(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, dHat):
+                        dist2 = EE_dist2(x[a0], x[a1], x[b0], x[b1], EE_type(x[a0], x[a1], x[b0], x[b1]))
+                        alpha = min(alpha, edge_edge_ccd(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, 0.2, dist2))
+    return alpha
+def compute_filter(x, xTrial):
+    alpha = 1.0
+    if dim == 2:
+        alpha = min(alpha, compute_filter_2D_PE(x, xTrial))
+    else:
+        grid.deactivate_all()
+        alpha = min(alpha, compute_filter_3D_PT(x, xTrial))
+        grid.deactivate_all()
+        alpha = min(alpha, compute_filter_3D_EE(x, xTrial))
     return alpha
 
 
@@ -1310,6 +1360,7 @@ if __name__ == "__main__":
         boundary_triangles.from_numpy(boundary_triangles_.astype(np.int32))
         compute_restT_and_m()
         kappa = compute_adaptive_kappa()
+        spatial_hash_inv_dx = 1.0 / compute_mean_of_boundary_edges()
         vertices_ = vertices.to_numpy()
         write_image(0)
         f_start = 0
