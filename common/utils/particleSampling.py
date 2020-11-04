@@ -43,6 +43,13 @@ def sampleBox2D(minPoint, maxPoint, maxArea):
 
     return np.array(B.get('vertices'))
 
+def sampleTriangle2D(p1, p2, p3):
+    A = dict(vertices=np.array((p1, p2, p3)))
+    args = 'qa0.0000075'
+    B = tr.triangulate(A, args)
+
+    return np.array(B.get('vertices'))
+
 #Use Triangle to sample a triangulated circle
 def sampleCircle2D(centerPoint, radius, N, maxArea):
     theta = np.linspace(0, 2 * np.pi, N, endpoint=False)
@@ -80,7 +87,36 @@ def sampleBoxGrid2D(minPoint, maxPoint, N, theta, dx, dy):
 
     np_pos = np.array(positions)
 
-    #print(np_pos)
-
     return np_pos
 
+#Analytic Half Box (Ramp) Particle Sample
+def sampleRamp2D(minPoint, maxPoint, N):
+    dX = maxPoint[0] - minPoint[0]
+    dY = maxPoint[1] - minPoint[1]
+    xDiff = dX / float(N)
+    yDiff = dY / float(N)
+    increment = min(xDiff, yDiff) #want uniform particles regardless of ratio of w to h
+    m = -yDiff / xDiff
+    b = maxPoint[1]
+    positions = []
+    i = 0
+    j = 0
+    while minPoint[0] + (increment * i) <= maxPoint[0]:
+        while minPoint[1] + (increment * j) <= maxPoint[1]:
+            
+            vertex = np.array((minPoint[0] + (increment * i), minPoint[1] + (increment * j)))
+
+            #only keep particles above y=mx+b (m = yDiff/xDiff, b=0)
+            if vertex[1] >= ((vertex[0] * m) + b):
+                j += 1
+                continue
+
+            positions.append(vertex)
+
+            j += 1 #update y index
+        j = 0
+        i += 1 #update x index
+
+    np_pos = np.array(positions)
+
+    return np_pos

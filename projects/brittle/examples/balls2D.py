@@ -3,6 +3,7 @@ import numpy as np
 from common.utils.particleSampling import *
 from common.utils.cfl import *
 from projects.brittle.DFGMPMSolver import *
+from projects.brittle.HalfSpace import *
 import math
 
 ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
@@ -66,8 +67,35 @@ useAPIC = False
 
 initVel = [0,0]
 initialVelocity = []
+particleMasses = []
+particleVolumes = []
 for i in range(8):
     initialVelocity.append(initVel)
+    particleMasses.append(pVol * rho)
+    particleVolumes.append(pVol)
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vol, rho, vertices, particleCounts, initialVelocity, outputPath, outputPath2, surfaceThreshold, useFrictionalContact, verbose, useAPIC)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useFrictionalContact, verbose, useAPIC)
+
+#Collision Objects
+groundCenter = (0, 0.05)
+groundNormal = (0, 1)
+groundCollisionType = solver.surfaceSlip
+solver.addHalfSpace(groundCenter, groundNormal, groundCollisionType)
+
+leftWallCenter = (0.05, 0)
+leftWallNormal = (1, 0)
+leftWallCollisionType = solver.surfaceSlip
+solver.addHalfSpace(leftWallCenter, leftWallNormal, leftWallCollisionType)
+
+rightWallCenter = (0.95, 0)
+rightWallNormal = (-1, 0)
+rightWallCollisionType = solver.surfaceSlip
+solver.addHalfSpace(rightWallCenter, rightWallNormal, rightWallCollisionType)
+
+ceilingCenter = (0, 0.95)
+ceilingNormal = (0, -1)
+ceilingCollisionType = solver.surfaceSlip
+solver.addHalfSpace(ceilingCenter, ceilingNormal, ceilingCollisionType)
+
+#start sim!
 solver.simulate()

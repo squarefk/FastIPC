@@ -11,7 +11,7 @@ ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 gravity = 0.0
 outputPath = "../output/hangingBlock2D/brittle.ply"
 outputPath2 = "../output/hangingBlock2D/brittle_nodes.ply"
-fps = 60
+fps = 24
 endFrame = 10 * fps
 vol = 0.2 * 0.2
 ppc = 4
@@ -32,6 +32,11 @@ maxP = [0.6, 0.6]
 vertices = sampleBoxGrid2D(minP, maxP, subdivs, 0, 0.5, 0.5)
 particleCounts = [len(vertices)]
 initialVelocity = [[0,-1]]
+
+
+pVol = vol / len(vertices)
+particleMasses = [pVol * rho]
+particleVolumes = [pVol]
 pVol = vol / len(vertices)
 dx = (ppc * pVol)**0.5
 
@@ -44,5 +49,27 @@ frictionalContact = True
 verbose = False
 useAPIC = False
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vol, rho, vertices, particleCounts, initialVelocity, outputPath, outputPath2, surfaceThreshold, frictionalContact, verbose, useAPIC)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, frictionalContact, verbose, useAPIC)
+
+#Collision Objects
+groundCenter = (0, 0.05)
+groundNormal = (0, 1)
+groundCollisionType = solver.surfaceSlip
+solver.addHalfSpace(groundCenter, groundNormal, groundCollisionType)
+
+leftWallCenter = (0.05, 0)
+leftWallNormal = (1, 0)
+leftWallCollisionType = solver.surfaceSlip
+solver.addHalfSpace(leftWallCenter, leftWallNormal, leftWallCollisionType)
+
+rightWallCenter = (0.95, 0)
+rightWallNormal = (-1, 0)
+rightWallCollisionType = solver.surfaceSlip
+solver.addHalfSpace(rightWallCenter, rightWallNormal, rightWallCollisionType)
+
+ceilingCenter = (0, 0.95)
+ceilingNormal = (0, -1)
+ceilingCollisionType = solver.surfaceSlip
+solver.addHalfSpace(ceilingCenter, ceilingNormal, ceilingCollisionType)
+
 solver.simulate()
