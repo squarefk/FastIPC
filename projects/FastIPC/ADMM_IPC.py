@@ -305,7 +305,8 @@ def initial_guess():
         xTilde(1)[i] += dt * dt * gravity
     for i in range(n_elements):
         currentT = compute_T(i, xTilde)
-        W[i] = ti.sqrt(la + mu * 2 / 3) * (restT[i].determinant() / dim / (dim - 1))
+        vol0 = restT[i].determinant() / dim / (dim - 1)
+        W[i] = ti.sqrt((la + mu * 2 / 3) * dt * dt * vol0)
         z[i] = currentT @ restT[i].inverse()
         u[i] = ti.Matrix.zero(real, dim, dim)
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
