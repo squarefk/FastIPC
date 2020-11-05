@@ -890,6 +890,12 @@ def write_image(f):
                          (particle_pos[b][0], particle_pos[b][1]),
                          radius=1,
                          color=0x4FB99F)
+        if 'visualize_segments' in settings:
+            for a, b in settings['visualize_segments']:
+                gui.line((particle_pos[a][0], particle_pos[a][1]),
+                         (particle_pos[b][0], particle_pos[b][1]),
+                         radius=1,
+                         color=0xFFB99F)
         gui.show(directory + f'images/{f:06d}.png')
     else:
         model.vi.from_numpy(particle_pos.astype(np.float32))

@@ -95,6 +95,9 @@ def add_boundary(positions):
     elif len(positions) == 2:
         boundary_points.update([offset, offset + 1])
         boundary_edges = np.vstack((boundary_edges, [offset, offset + 1]))
+        if 'visualize_segments' not in settings:
+            settings['visualize_segments'] = np.zeros((0, 2), dtype=np.int32)
+        settings['visualize_segments'] = np.vstack((settings['visualize_segments'], [offset, offset + 1]))
     else:
         boundary_points.update([offset, offset + 1, offset + 2])
         boundary_edges = np.vstack((boundary_edges, [offset, offset + 1]))
