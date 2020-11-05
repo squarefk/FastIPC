@@ -140,7 +140,10 @@ old_n_PEM = ti.field(ti.i32, shape=())
 old_y_PEM, old_r_PEM, old_Q_PEM = vec(), vec(), scalar()
 ti.root.dense(ti.ij, (MAX_C, 3)).place(old_y_PEM, old_r_PEM, old_Q_PEM)
 
-dHat2 = 1e-5
+dfx = ti.field(ti.i32, shape=n_particles * dim)
+dfv = ti.field(real, shape=n_particles * dim)
+
+dHat2 = 1e-6
 dHat = dHat2 ** 0.5
 kappa = 1e4
 
@@ -578,28 +581,40 @@ def op2():
     for i in range(n_particles):
         x[i] = xx[i]
 def solve_system(current_time):
-    dirichlet_fixed, dirichlet_value = settings['dirichlet'](current_time)
-    D, V = np.where(np.stack((dirichlet_fixed,) * dim, axis=-1).reshape((n_particles * dim)))[0], dirichlet_value.reshape((n_particles * dim))
-    before_solve()
+    with Timer("Init DBC"):
+        dirichlet_fixed, dirichlet_value = settings['dirichlet'](current_time)
+        D, V = np.stack((dirichlet_fixed,) * dim, axis=-1).reshape((n_particles * dim)), dirichlet_value.reshape((n_particles * dim))
+        dfx.from_numpy(D.astype(np.int32))
+        dfv.from_numpy(V.astype(np.float64))
+        D = np.where(D)[0]
+        before_solve()
 
     if cnt[None] >= MAX_LINEAR or n_PP[None] >= MAX_C or n_PE[None] >= MAX_C or n_PT[None] >= MAX_C or n_EE[None] >= MAX_C or n_EEM[None] >= MAX_C or n_PPM[None] >= MAX_C or n_PEM[None] >= MAX_C:
         print("FATAL ERROR: Array Too Small!")
 
-    with Timer("Taichi to Numpy"):
-        row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
-        rhs = data_rhs.to_numpy()
-
     with Timer("Direct Solve (scipy)"):
-        n = n_particles * dim
-        A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
         with Timer("DBC"):
-            rhs -= A[:, D].dot(V[D])
-            A = scipy.sparse.lil_matrix(A)
-            A[:, D] = 0
-            A[D, :] = 0
-            A = scipy.sparse.csr_matrix(A)
-            A += scipy.sparse.csr_matrix((np.ones(len(D)), (D, D)), shape=(n, n))
-            rhs[D] = V[D]
+            with Timer("3"):
+                @ti.kernel
+                def DBC_set_zeros():
+                    for i in range(cnt[None]):
+                        r, c = data_row[i], data_col[i]
+                        if dfx[r]:
+                            data_val[i] = 0
+                        if dfx[c]:
+                            data_rhs[r] -= data_val[i] * dfv[c]
+                            data_val[i] = 0
+                DBC_set_zeros()
+            with Timer("4"):
+                row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
+                rhs = data_rhs.to_numpy()
+            with Timer("5"):
+                n = n_particles * dim
+                A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
+            with Timer("6"):
+                A += scipy.sparse.csr_matrix((np.ones(len(D)), (D, D)), shape=(n, n))
+            with Timer("7"):
+                rhs[D] = V[D]
         data_x.from_numpy(scipy.sparse.linalg.spsolve(A, rhs))
         tmp = A.dot(data_x.to_numpy()) - rhs
         residual = np.linalg.norm(tmp, ord=np.inf)
