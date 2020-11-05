@@ -46,7 +46,7 @@ E = 1e4
 nu = 0.4
 la = E * nu / ((1 + nu) * (1 - 2 * nu))
 mu = E / (2 * (1 + nu))
-density = 100
+density = 1000
 n_particles = len(mesh_particles)
 n_elements = len(mesh_elements)
 n_boundary_points = len(boundary_points_)
@@ -159,7 +159,7 @@ if dim == 2:
 else:
     leaf_block_size = 8
 block = grid.pointer(indices, grid_block_size // leaf_block_size)
-block.dense(indices, leaf_block_size).dynamic(ti.indices(dim), 1024 * 1024, chunk_size=leaf_block_size**dim * 8).place(pid, offset=offset + (0, ))
+block.dynamic(ti.indices(dim), 1024 * 1024, chunk_size=leaf_block_size**dim * 8).place(pid, offset=offset + (0, ))
 
 
 @ti.kernel
@@ -335,25 +335,8 @@ def X2F(p: ti.template(), q: ti.template(), i: ti.template(), j: ti.template(), 
     return val
 
 
-@ti.func
-def point_inside_triangle(P, A, B, C):
-    v0 = C - A
-    v1 = B - A
-    v2 = P - A
-    # Compute dot products
-    dot00 = v0.dot(v0)
-    dot01 = v0.dot(v1)
-    dot02 = v0.dot(v2)
-    dot11 = v1.dot(v1)
-    dot12 = v1.dot(v2)
-    # Compute barycentric coordinates
-    invDenom = 1 / (dot00 * dot11 - dot01 * dot01)
-    u = (dot11 * dot02 - dot01 * dot12) * invDenom
-    v = (dot00 * dot12 - dot01 * dot02) * invDenom
-    # Check if point is in triangle
-    return u >= 0 and v >= 0 and u + v < 1
 @ti.kernel
-def check_collision() -> ti.i32:
+def check_collision_2D() -> ti.i32:
     result = 0
     for i in range(n_boundary_points):
         P = boundary_points[i]
@@ -365,6 +348,38 @@ def check_collision() -> ti.i32:
                 if point_inside_triangle(x[P], x[A], x[B], x[C]):
                     result = 1
     return result
+@ti.kernel
+def check_collision_3D() -> ti.i32:
+    result = 0
+    for i in range(n_boundary_edges):
+        a0 = boundary_edges[i, 0]
+        a1 = boundary_edges[i, 1]
+        lower = int(ti.floor((min(x[a0], x[a1]) - dHat) * spatial_hash_inv_dx)) - offset
+        upper = int(ti.floor((max(x[a0], x[a1]) + dHat) * spatial_hash_inv_dx)) + 1 - offset
+        for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
+            ti.append(pid.parent(), I, i)
+    for i in range(n_boundary_triangles):
+        t0 = boundary_triangles[i, 0]
+        t1 = boundary_triangles[i, 1]
+        t2 = boundary_triangles[i, 2]
+        lower = int(ti.floor(min(x[t0], x[t1], x[t2]) * spatial_hash_inv_dx)) - offset
+        upper = int(ti.floor(max(x[t0], x[t1], x[t2]) * spatial_hash_inv_dx)) + 1 - offset
+        for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
+            L = ti.length(pid.parent(), I)
+            for l in range(L):
+                j = pid[I[0], I[1], I[2], l]
+                a0 = boundary_edges[j, 0]
+                a1 = boundary_edges[j, 1]
+                if a0 != t0 and a0 != t1 and a0 != t2 and a1 != t0 and a1 != t1 and a1 != t2:
+                    if segment_intersect_triangle(x[a0], x[a1], x[t0], x[t1], x[t2]):
+                        result = 1
+    return result
+def check_collision():
+    if dim == 2:
+        return check_collision_2D()
+    else:
+        grid.deactivate_all()
+        return check_collision_3D()
 
 
 @ti.kernel
