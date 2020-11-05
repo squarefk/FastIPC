@@ -33,7 +33,34 @@ def add_object(filename, translation=None, rotation=None, scale=None):
     else:
         rotation = np.zeros(settings['dim'] * 2 - 3) if rotation is None else np.array(rotation)
     scale = np.ones(settings['dim']) if scale is None else np.array(scale)
-    if filename[-4:] == '.msh':
+    if filename == 'cube':
+        n = 10
+        new_particles = np.zeros((n**3, 3), dtype=np.float32)
+        for i in range(n):
+            for j in range(n):
+                for k in range(n):
+                    new_particles[i * n * n + j * n + k, 0] = i * 0.1
+                    new_particles[i * n * n + j * n + k, 1] = j * 0.1
+                    new_particles[i * n * n + j * n + k, 2] = k * 0.1
+        new_elements = np.zeros(((n - 1)**3 * 6, 4), dtype=np.int32)
+        for i in range(n - 1):
+            for j in range(n - 1):
+                for k in range(n - 1):
+                    f = np.array([(i + 0) * n * n + (j + 0) * n + k + 0,
+                                  (i + 1) * n * n + (j + 0) * n + k + 0,
+                                  (i + 1) * n * n + (j + 0) * n + k + 1,
+                                  (i + 0) * n * n + (j + 0) * n + k + 1,
+                                  (i + 0) * n * n + (j + 1) * n + k + 0,
+                                  (i + 1) * n * n + (j + 1) * n + k + 0,
+                                  (i + 1) * n * n + (j + 1) * n + k + 1,
+                                  (i + 0) * n * n + (j + 1) * n + k + 1])
+                    new_elements[i * (n - 1) * (n - 1) * 6 + j * (n - 1) * 6 + k * 6 + 0, :] = np.array([f[0], f[4], f[6], f[5]], dtype=np.int32)
+                    new_elements[i * (n - 1) * (n - 1) * 6 + j * (n - 1) * 6 + k * 6 + 1, :] = np.array([f[3], f[6], f[2], f[0]], dtype=np.int32)
+                    new_elements[i * (n - 1) * (n - 1) * 6 + j * (n - 1) * 6 + k * 6 + 2, :] = np.array([f[0], f[4], f[7], f[6]], dtype=np.int32)
+                    new_elements[i * (n - 1) * (n - 1) * 6 + j * (n - 1) * 6 + k * 6 + 3, :] = np.array([f[3], f[6], f[0], f[7]], dtype=np.int32)
+                    new_elements[i * (n - 1) * (n - 1) * 6 + j * (n - 1) * 6 + k * 6 + 4, :] = np.array([f[2], f[0], f[6], f[1]], dtype=np.int32)
+                    new_elements[i * (n - 1) * (n - 1) * 6 + j * (n - 1) * 6 + k * 6 + 5, :] = np.array([f[6], f[0], f[5], f[1]], dtype=np.int32)
+    elif filename[-4:] == '.msh':
         new_particles, new_elements = read_msh(filename)
     else:
         mesh = meshio.read(filename)
@@ -221,6 +248,19 @@ def read(testcase):
         add_object('input/cube.vtk', translation=[0.2, 6, -0.2], scale=[0.4, 0.4, 0.4])
         add_object('input/cube.vtk', translation=[0.5, 9, -0.3], scale=[0.4, 0.4, 0.4])
         add_object('input/cube.vtk', translation=[-4, -1.44, -4], scale=[8., 1., 8.])
+        settings['boundary'] = find_boundary(settings['mesh_elements'])
+        settings['dirichlet'] = lambda t: (np.concatenate(([False] * (len(settings['mesh_particles']) - 8), [True] * 8)), settings['mesh_particles'])
+        adjust_camera()
+        return settings
+    elif testcase == 1008:
+        # cube
+        scale = 0.5
+        init(3)
+        settings['gravity'] = -9.8
+        add_object('cube', translation=[-0.5 * scale, 0.5 * scale, -0.5 * scale], scale=[1. * scale, 1. * scale, 1. * scale])
+        add_object('cube', translation=[0 * scale, 1.75 * scale, -0.5 * scale], scale=[1. * scale, 1. * scale, 1. * scale])
+        add_object('cube', translation=[0.5 * scale, 3.0 * scale, -0.5 * scale], scale=[1. * scale, 1. * scale, 1. * scale])
+        add_object('input/cube.vtk', translation=[-3. * scale, -0.1 * scale, -3. * scale], scale=[6. * scale, 0.1 * scale, 6. * scale])
         settings['boundary'] = find_boundary(settings['mesh_elements'])
         settings['dirichlet'] = lambda t: (np.concatenate(([False] * (len(settings['mesh_particles']) - 8), [True] * 8)), settings['mesh_particles'])
         adjust_camera()
