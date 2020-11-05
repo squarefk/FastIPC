@@ -228,7 +228,7 @@ def find_constraints_3D_PT():
         for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
             L = ti.length(pid.parent(), I)
             for l in range(L):
-                j = pid[I[0], I[1], I[2], l]
+                j = pid[I[0] + offset[0], I[1] + offset[1], I[2] + offset[2], l]
                 p = boundary_points[j]
                 attempt_PT(p, t0, t1, t2)
 
@@ -328,7 +328,7 @@ def find_constraints_3D_EE():
         for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
             L = ti.length(pid.parent(), I)
             for l in range(L):
-                j = pid[I[0], I[1], I[2], l]
+                j = pid[I[0] + offset[0], I[1] + offset[1], I[2] + offset[2], l]
                 b0 = boundary_edges[j, 0]
                 b1 = boundary_edges[j, 1]
                 if i < j:
@@ -395,7 +395,7 @@ def compute_filter_3D_PT() -> real:
         for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
             L = ti.length(pid.parent(), I)
             for l in range(L):
-                j = pid[I[0], I[1], I[2], l]
+                j = pid[I[0] + offset[0], I[1] + offset[1], I[2] + offset[2], l]
                 p = boundary_points[j]
                 dp = ti.Vector([data_sol[p * dim + 0], data_sol[p * dim + 1], data_sol[p * dim + 2]])
                 if p != t0 and p != t1 and p != t2:
@@ -427,7 +427,7 @@ def compute_filter_3D_EE() -> real:
         for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
             L = ti.length(pid.parent(), I)
             for l in range(L):
-                j = pid[I[0], I[1], I[2], l]
+                j = pid[I[0] + offset[0], I[1] + offset[1], I[2] + offset[2], l]
                 b0 = boundary_edges[j, 0]
                 b1 = boundary_edges[j, 1]
                 db0 = ti.Vector([data_sol[b0 * dim + 0], data_sol[b0 * dim + 1], data_sol[b0 * dim + 2]])
@@ -853,7 +853,7 @@ def check_collision_3d() -> ti.i32:
         for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
             L = ti.length(pid.parent(), I)
             for l in range(L):
-                j = pid[I[0], I[1], I[2], l]
+                j = pid[I[0] + offset[0], I[1] + offset[1], I[2] + offset[2], l]
                 a0 = boundary_edges[j, 0]
                 a1 = boundary_edges[j, 1]
                 if a0 != t0 and a0 != t1 and a0 != t2 and a1 != t0 and a1 != t1 and a1 != t2:

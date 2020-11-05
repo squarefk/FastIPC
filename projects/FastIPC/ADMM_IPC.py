@@ -162,7 +162,7 @@ if dim == 2:
 else:
     leaf_block_size = 8
 block = grid.pointer(indices, grid_block_size // leaf_block_size)
-block.dynamic(ti.indices(dim), 1024 * 1024, chunk_size=leaf_block_size**dim * 8).place(pid, offset=offset + (0, ))
+block.dense(indices, leaf_block_size).dynamic(ti.indices(dim), 1024 * 1024, chunk_size=leaf_block_size**dim * 8).place(pid, offset=offset + (0, ))
 
 
 @ti.kernel
@@ -221,7 +221,7 @@ def compute_filter_3D_PT(x: ti.template(), xTrial: ti.template()) -> real:
         for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
             L = ti.length(pid.parent(), I)
             for l in range(L):
-                j = pid[I[0], I[1], I[2], l]
+                j = pid[I[0] + offset[0], I[1] + offset[1], I[2] + offset[2], l]
                 p = boundary_points[j]
                 dp = xTrial[p] - x[p]
                 if p != t0 and p != t1 and p != t2:
@@ -251,7 +251,7 @@ def compute_filter_3D_EE(x: ti.template(), xTrial: ti.template()) -> real:
         for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
             L = ti.length(pid.parent(), I)
             for l in range(L):
-                j = pid[I[0], I[1], I[2], l]
+                j = pid[I[0] + offset[0], I[1] + offset[1], I[2] + offset[2], l]
                 b0 = boundary_edges[j, 0]
                 b1 = boundary_edges[j, 1]
                 db0 = xTrial[b0] - x[b0]
@@ -371,7 +371,7 @@ def check_collision_3D() -> ti.i32:
         for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
             L = ti.length(pid.parent(), I)
             for l in range(L):
-                j = pid[I[0], I[1], I[2], l]
+                j = pid[I[0] + offset[0], I[1] + offset[1], I[2] + offset[2], l]
                 a0 = boundary_edges[j, 0]
                 a1 = boundary_edges[j, 1]
                 if a0 != t0 and a0 != t1 and a0 != t2 and a1 != t0 and a1 != t1 and a1 != t2:
@@ -1003,39 +1003,25 @@ def backup_admm_variables():
 
 @ti.kernel
 def find_constraints_2D_PE():
-    inv_dx = 1 / 0.01
-    for i in range(n_boundary_edges):
-        e0 = boundary_edges[i, 0]
-        e1 = boundary_edges[i, 1]
-        lower = int(ti.floor((min(x[e0], x[e1]) - dHat) * inv_dx)) - ti.Vector(list(offset))
-        upper = int(ti.floor((max(x[e0], x[e1]) + dHat) * inv_dx)) + 1 - ti.Vector(list(offset))
-        for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]))):
-            ti.append(pid.parent(), I, i)
     for i in range(n_boundary_points):
         p = boundary_points[i]
-        lower = int(ti.floor(x[p] * inv_dx)) - ti.Vector(list(offset))
-        upper = int(ti.floor(x[p] * inv_dx)) + 1 - ti.Vector(list(offset))
-        for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]))):
-            L = ti.length(pid.parent(), I)
-            for l in range(L):
-                j = pid[I[0], I[1], l]
-                e0 = boundary_edges[j, 0]
-                e1 = boundary_edges[j, 1]
-                if p != e0 and p != e1 and point_edge_ccd_broadphase(x[p], x[e0], x[e1], dHat):
-                    case = PE_type(x[p], x[e0], x[e1])
-                    if case == 0:
-                        if PP_2D_E(x[p], x[e0]) < dHat2:
-                            n = ti.atomic_add(n_PP[None], 1)
-                            PP[n, 0], PP[n, 1] = min(p, e0), max(p, e0)
-                    elif case == 1:
-                        if PP_2D_E(x[p], x[e1]) < dHat2:
-                            n = ti.atomic_add(n_PP[None], 1)
-                            PP[n, 0], PP[n, 1] = min(p, e1), max(p, e1)
-                    elif case == 2:
-                        if PE_2D_E(x[p], x[e0], x[e1]) < dHat2:
-                            n = ti.atomic_add(n_PE[None], 1)
-                            PE[n, 0], PE[n, 1], PE[n, 2] = p, e0, e1
-
+        for j in range(n_boundary_edges):
+            e0 = boundary_edges[j, 0]
+            e1 = boundary_edges[j, 1]
+            if p != e0 and p != e1 and point_edge_ccd_broadphase(x[p], x[e0], x[e1], dHat):
+                case = PE_type(x[p], x[e0], x[e1])
+                if case == 0:
+                    if PP_2D_E(x[p], x[e0]) < dHat2:
+                        n = ti.atomic_add(n_PP[None], 1)
+                        PP[n, 0], PP[n, 1] = min(p, e0), max(p, e0)
+                elif case == 1:
+                    if PP_2D_E(x[p], x[e1]) < dHat2:
+                        n = ti.atomic_add(n_PP[None], 1)
+                        PP[n, 0], PP[n, 1] = min(p, e1), max(p, e1)
+                elif case == 2:
+                    if PE_2D_E(x[p], x[e0], x[e1]) < dHat2:
+                        n = ti.atomic_add(n_PE[None], 1)
+                        PE[n, 0], PE[n, 1], PE[n, 2] = p, e0, e1
 
 @ti.func
 def attempt_PT(p, t0, t1, t2):
@@ -1086,7 +1072,7 @@ def find_constraints_3D_PT():
         for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
             L = ti.length(pid.parent(), I)
             for l in range(L):
-                j = pid[I[0], I[1], I[2], l]
+                j = pid[I[0] + offset[0], I[1] + offset[1], I[2] + offset[2], l]
                 p = boundary_points[j]
                 attempt_PT(p, t0, t1, t2)
 
@@ -1186,7 +1172,7 @@ def find_constraints_3D_EE():
         for I in ti.grouped(ti.ndrange((lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2]))):
             L = ti.length(pid.parent(), I)
             for l in range(L):
-                j = pid[I[0], I[1], I[2], l]
+                j = pid[I[0] + offset[0], I[1] + offset[1], I[2] + offset[2], l]
                 b0 = boundary_edges[j, 0]
                 b1 = boundary_edges[j, 1]
                 if i < j:
@@ -1414,7 +1400,6 @@ if __name__ == "__main__":
                 for step in range(20):
                     with Timer("Global Initialization"):
                         alpha = compute_filter(x, xTilde) if step == 0 else 0.0
-                        grid.deactivate_all()
                         backup_admm_variables()
                         if dim == 2:
                             find_constraints_2D_PE()
