@@ -41,7 +41,7 @@ scalar = lambda: ti.field(real)
 vec = lambda: ti.Vector.field(dim, real)
 mat = lambda: ti.Matrix.field(dim, dim, real)
 
-dt = 0.01
+dt = 0.04
 E = 1e4
 nu = 0.4
 la = E * nu / ((1 + nu) * (1 - 2 * nu))
@@ -309,7 +309,10 @@ def initial_guess():
     for i in range(n_elements):
         currentT = compute_T(i, xTilde)
         vol0 = restT[i].determinant() / dim / (dim - 1)
-        W[i] = ti.sqrt((la + mu * 2 / 3) * dt * dt * vol0)
+        F = compute_T(i, x) @ restT[i].inverse()
+        U, sig, V = svd(F)
+        W[i] = ti.sqrt(elasticity_hessian(sig, la, mu).norm() * dt * dt * vol0)
+        # W[i] = ti.sqrt((la + mu * 2 / 3) * dt * dt * vol0)
         z[i] = currentT @ restT[i].inverse()
         u[i] = ti.Matrix.zero(real, dim, dim)
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
@@ -624,11 +627,11 @@ def solve_system(current_time):
     with Timer("Filter Global"):
         alpha = compute_filter(xx, x)
         op0(alpha)
-        # while alpha >= 1e-6 and check_collision() == 1:
-        #     op1()
-        #     alpha /= 2.0
-        # if alpha < 1e-6:
-        #     op2()
+        while alpha >= 1e-6 and check_collision() == 1:
+            op1()
+            alpha /= 2.0
+        if alpha < 1e-6:
+            op2()
     return alpha
 
 
@@ -706,8 +709,6 @@ def local_PE():
             alpha = 1.0
             if ti.static(dim == 2):
                 alpha = point_edge_ccd(ti.Vector([0.0, 0.0]), ti.Vector([pos[0], pos[1]]), ti.Vector([pos[2], pos[3]]), ti.Vector([0.0, 0.0]), ti.Vector([p[0], p[1]]), ti.Vector([p[2], p[3]]), 0.1)
-            else:
-                print("not implemented", end='')
             pos0 = pos
             E0 = PE_energy(op, extract_vec(pos, list(range(0, dim))), extract_vec(pos, list(range(dim, dim * 2))), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
