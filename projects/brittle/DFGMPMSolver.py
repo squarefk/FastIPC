@@ -357,6 +357,9 @@ class DFGMPMSolver:
             self.gridMaxDamage[gridIdx][0] = max1
             self.gridMaxDamage[gridIdx][1] = max2
 
+            # if(i * self.nGrid + j == 1151):
+            #     print("node 1151 field one count:", self.activeFieldsCount[gridIdx, 0], "field two count:", self.activeFieldsCount[gridIdx, 1])
+
             #NOTE: separable[i,j] = -1 for one field, 0 for two non-separable fields, and 1 for two separable fields
             if self.grid_m[i,j][0] > 0 and self.grid_m[i,j][1] > 0:
                 minSep = self.gridSeparability[i,j][0] if self.gridSeparability[i,j][0] < self.gridSeparability[i,j][1] else self.gridSeparability[i,j][1]
@@ -530,7 +533,7 @@ class DFGMPMSolver:
                 fieldOne = 0
                 fieldTwo = 0
 
-                if self.separable[i,j] == 1:
+                if self.separable[i,j] == 1:            
                     #two fields and are separable
                     if (v_cm - v_1).dot(n_cm1) > 0:
                         tanMin = self.fricCoeff * abs(fNormal1) if self.fricCoeff * abs(fNormal1) < abs(fTanMag1) else abs(fTanMag1)
@@ -542,10 +545,23 @@ class DFGMPMSolver:
                         f_c2 += (fNormal2 * n_cm2) + (tanMin * fTanSign2 * tanDirection2)
                         fieldTwo = 1
 
-                    if(i * self.nGrid + j == 883):
-                        v1New = v_1 + (self.dt * (f_c2 / m_1))
-                        v2New = v_2 + (self.dt * (f_c1 / m_2))
-                        print('vcm-v1New dot n_cm1:', (v_cm - v1New).dot(n_cm1))
+                    if(i * self.nGrid + j == 883 and fieldOne & fieldTwo and self.verbose):
+                        print('m_1:', m_1)
+                        print('m_2:', m_2)
+                        print('m1/dt:', m_1 / self.dt)
+                        print('m2/dt:', m_2 / self.dt)
+                        print('v_1:', v_1)
+                        print('v_2:', v_2)
+                        print('v_cm:', v_cm)
+                        print('n_cm1:', n_cm1)
+                        print('n_cm2:', n_cm2)
+                        print('fNormal1:', fNormal1)
+                        print('fNormal2:', fNormal2)
+                        print('vcm-v1 dot n_cm1:', (v_cm - v_1).dot(n_cm1))
+                        print('vcm-v2 dot n_cm2:', (v_cm - v_2).dot(n_cm2))
+                        v1New = v_1 + (self.dt * (-f_c2 / m_1))
+                        v2New = v_2 + (self.dt * (-f_c1 / m_2))
+                        print('vcm-v1New dot n_cm1:', (v_cm - v1New).dot(n_cm1)) 
                         print('vcm-v2New dot n_cm2:', (v_cm - v2New).dot(n_cm2))
                         print()
 
@@ -557,7 +573,7 @@ class DFGMPMSolver:
                     f_c2 = v_cm
 
                 if (fieldOne ^ fieldTwo):
-                    print('fieldOne:', fieldOne, 'fieldTwo:', fieldTwo)
+                    print('ERROR ERROR ERROR: fieldOne:', fieldOne, 'fieldTwo:', fieldTwo)
 
                 #Now save these forces for later
                 self.grid_f[i,j,0] = f_c1
@@ -597,8 +613,10 @@ class DFGMPMSolver:
 
                     if(self.useFrictionalContact):
                         if self.separable[i,j] == 1:
-                            self.grid_v[i,j,0] += (self.grid_f[i,j,1] / nodalMass1) * self.dt # use field 2 force to update field 1 particles (for green nodes, ie separable contact)
-                            self.grid_v[i,j,1] += (self.grid_f[i,j,0] / nodalMass2) * self.dt # use field 1 force to update field 2 particles
+                            self.grid_v[i,j,0] += (self.grid_f[i,j,0] / nodalMass1) * self.dt # use field 2 force to update field 1 particles (for green nodes, ie separable contact)
+                            self.grid_v[i,j,1] += (self.grid_f[i,j,1] / nodalMass2) * self.dt # use field 1 force to update field 2 particles
+                            #self.grid_v[i,j,0] += (-self.grid_f[i,j,1] / nodalMass1) * self.dt # use field 2 force to update field 1 particles (for green nodes, ie separable contact)
+                            #self.grid_v[i,j,1] += (-self.grid_f[i,j,0] / nodalMass2) * self.dt # use field 1 force to update field 2 particles
                         else:
                             # self.grid_v[i,j,0] += self.dt * self.grid_f[i,j,0] #use field 1 for field 1 (yellow nodes)
                             # self.grid_v[i,j,1] += self.dt * self.grid_f[i,j,1] #field 2 for field 2 (yellow)
@@ -649,39 +667,7 @@ class DFGMPMSolver:
             self.x[p] += self.dt * self.v[p] # advection
             self.F[p] = (ti.Matrix.identity(float, 2) + (self.dt * new_F)) @ self.F[p] #updateF (explicitMPM way)
 
-    #Simulation substep
-    def substep(self):
-
-        with Timer("Reinitialize Structures"):
-            self.reinitializeStructures()
-        with Timer("Back Grid Sort"):
-            self.backGridSort()
-        with Timer("Particle Neighbor Sorting"):
-            self.particleNeighborSorting()
-        with Timer("Surface Detection"):
-            self.surfaceDetection()
-        with Timer("Compute Particle DGs"):
-            self.computeParticleDG()
-        with Timer("Compute Grid DGs"):
-            self.computeGridDG()
-        with Timer("Mass P2G"):
-            self.massP2G()
-        with Timer("Compute Separability"):
-            self.computeSeparability()
-        with Timer("Momentum P2G and Forces"):
-            self.momentumP2GandForces()
-        with Timer("Add Gravity"):
-            self.addGravity()
-        with Timer("Frictional Contact"):
-            self.computeContactForces()
-            #self.addFrictionForces()
-        with Timer("Momentum to Velocity & Add Friction"):
-            self.momentumToVelocityAndAddContact()
-        with Timer("Boundaries"):
-            for func in self.gridPostProcess:
-                func()
-        with Timer("G2P"):
-            self.G2P()
+    #------------Collision Objects---------------
 
     def addHalfSpace(self, center, normal, surface=surfaceSticky, friction = 0.0):
         #Code adapted from mpm_solver.py here: https://github.com/taichi-dev/taichi_elements/blob/master/engine/mpm_solver.py
@@ -762,6 +748,42 @@ class DFGMPMSolver:
                                 self.grid_v[I,1] = v2
 
         self.gridPostProcess.append(collide)
+
+    #------------Simulation Routines---------------
+
+    #Simulation substep
+    def substep(self):
+
+        with Timer("Reinitialize Structures"):
+            self.reinitializeStructures()
+        with Timer("Back Grid Sort"):
+            self.backGridSort()
+        with Timer("Particle Neighbor Sorting"):
+            self.particleNeighborSorting()
+        with Timer("Surface Detection"):
+            self.surfaceDetection()
+        with Timer("Compute Particle DGs"):
+            self.computeParticleDG()
+        with Timer("Compute Grid DGs"):
+            self.computeGridDG()
+        with Timer("Mass P2G"):
+            self.massP2G()
+        with Timer("Compute Separability"):
+            self.computeSeparability()
+        with Timer("Momentum P2G and Forces"):
+            self.momentumP2GandForces()
+        with Timer("Add Gravity"):
+            self.addGravity()
+        with Timer("Frictional Contact"):
+            self.computeContactForces()
+            #self.addFrictionForces()
+        with Timer("Momentum to Velocity & Add Friction"):
+            self.momentumToVelocityAndAddContact()
+        with Timer("Boundaries"):
+            for func in self.gridPostProcess:
+                func()
+        with Timer("G2P"):
+            self.G2P()
 
     @ti.kernel
     def reset(self, arr: ti.ext_arr(), partCount: ti.ext_arr(), initVel: ti.ext_arr(), pMasses: ti.ext_arr(), pVols: ti.ext_arr(), surfaceThresholds: ti.ext_arr()):

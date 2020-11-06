@@ -38,7 +38,7 @@ cfl = 0.4
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.7 * maxDt
 
-useFrictionalContact = True
+useFrictionalContact = False
 verbose = False
 useAPIC = False
 

@@ -6,8 +6,8 @@ from projects.brittle.DFGMPMSolver import *
 from projects.brittle.HalfSpace import *
 import math
 
-#ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
-ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
+ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+#ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10
 outputPath = "../output/slipperySlope2D/brittle.ply"
@@ -56,7 +56,7 @@ cfl = 0.4
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.7 * maxDt
 
-useFrictionalContact = True
+useFrictionalContact = False
 frictionCoefficient = 0.0
 verbose = False
 useAPIC = False
