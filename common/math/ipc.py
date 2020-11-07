@@ -25,17 +25,19 @@ from common.math.external_func import *
 # segment_intersect_triangle
 ###########################################
 
+COMMON_MATH_IPC_DISTANCE_THRESHOLD = 1e-16
+
 @ti.func
 def PP_energy(p0, p1, dHat2, kappa):
     if ti.static(p0.n == 2):
         dist2 = PP_2D_E(p0, p1)
-        if dist2 < 1e-12:
-            print("ERROR PP", dist2)
+        if dist2 < COMMON_MATH_IPC_DISTANCE_THRESHOLD:
+            print('ERROR PP', dist2 * 1e16, 'e-16')
         return barrier_E(dist2, dHat2, kappa)
     else:
         dist2 = PP_3D_E(p0, p1)
-        if dist2 < 1e-12:
-            print("ERROR PP", dist2)
+        if dist2 < COMMON_MATH_IPC_DISTANCE_THRESHOLD:
+            print('ERROR PP', dist2 * 1e16, 'e-16')
         return barrier_E(dist2, dHat2, kappa)
 @ti.func
 def PP_gradient(p0, p1, dHat2, kappa):
@@ -89,13 +91,13 @@ def PP_g_and_H(p0, p1, dHat2, kappa):
 def PE_energy(p, e0, e1, dHat2, kappa):
     if ti.static(p.n == 2):
         dist2 = PE_2D_E(p, e0, e1)
-        if dist2 < 1e-12:
-            print("ERROR PE", dist2)
+        if dist2 < COMMON_MATH_IPC_DISTANCE_THRESHOLD:
+            print('ERROR PE', dist2 * 1e16, 'e-16')
         return barrier_E(dist2, dHat2, kappa)
     else:
         dist2 = PE_3D_E(p, e0, e1)
-        if dist2 < 1e-12:
-            print("ERROR PE", dist2)
+        if dist2 < COMMON_MATH_IPC_DISTANCE_THRESHOLD:
+            print('ERROR PE', dist2 * 1e16, 'e-16')
         return barrier_E(dist2, dHat2, kappa)
 @ti.func
 def PE_gradient(p, e0, e1, dHat2, kappa):
@@ -148,8 +150,8 @@ def PE_g_and_H(p, e0, e1, dHat2, kappa):
 @ti.func
 def PT_energy(p, t0, t1, t2, dHat2, kappa):
     dist2 = PT_3D_E(p, t0, t1, t2)
-    if dist2 < 1e-12:
-        print("ERROR PT", dist2)
+    if dist2 < COMMON_MATH_IPC_DISTANCE_THRESHOLD:
+        print('ERROR PT', dist2 * 1e16, 'e-16')
     return barrier_E(dist2, dHat2, kappa)
 @ti.func
 def PT_gradient(p, t0, t1, t2, dHat2, kappa):
@@ -179,8 +181,8 @@ def PT_g_and_H(p, t0, t1, t2, dHat2, kappa):
 @ti.func
 def EE_energy(a0, a1, b0, b1, dHat2, kappa):
     dist2 = EE_3D_E(a0, a1, b0, b1)
-    if dist2 < 1e-12:
-        print("ERROR EE", dist2)
+    if dist2 < COMMON_MATH_IPC_DISTANCE_THRESHOLD:
+        print('ERROR EE', dist2 * 1e16, 'e-16')
     return barrier_E(dist2, dHat2, kappa)
 @ti.func
 def EE_gradient(a0, a1, b0, b1, dHat2, kappa):
@@ -211,8 +213,8 @@ def EE_g_and_H(a0, a1, b0, b1, dHat2, kappa):
 def EEM_energy(a0, a1, b0, b1, _a0, _a1, _b0, _b1, dHat2, kappa):
     eps_x = M_threshold(_a0, _a1, _b0, _b1)
     dist2 = EE_3D_E(a0, a1, b0, b1)
-    if dist2 < 1e-12:
-        print("ERROR EEM", dist2)
+    if dist2 < COMMON_MATH_IPC_DISTANCE_THRESHOLD:
+        print('ERROR EEM', dist2 * 1e16, 'e-16')
     return barrier_E(dist2, dHat2, kappa) * M_E(a0, a1, b0, b1, eps_x)
 @ti.func
 def EEM_gradient(a0, a1, b0, b1, _a0, _a1, _b0, _b1, dHat2, kappa):
@@ -260,8 +262,8 @@ def EEM_g_and_H(a0, a1, b0, b1, _a0, _a1, _b0, _b1, dHat2, kappa):
 def PPM_energy(a0, a1, b0, b1, _a0, _a1, _b0, _b1, dHat2, kappa):
     eps_x = M_threshold(_a0, _a1, _b0, _b1)
     dist2 = PP_3D_E(a0, b0)
-    if dist2 < 1e-12:
-        print("ERROR EPPM", dist2)
+    if dist2 < COMMON_MATH_IPC_DISTANCE_THRESHOLD:
+        print('ERROR PPM', dist2 * 1e16, 'e-16')
     return barrier_E(dist2, dHat2, kappa) * M_E(a0, a1, b0, b1, eps_x)
 @ti.func
 def PPM_gradient(a0, a1, b0, b1, _a0, _a1, _b0, _b1, dHat2, kappa):
@@ -309,8 +311,8 @@ def PPM_g_and_H(a0, a1, b0, b1, _a0, _a1, _b0, _b1, dHat2, kappa):
 def PEM_energy(a0, a1, b0, b1, _a0, _a1, _b0, _b1, dHat2, kappa):
     eps_x = M_threshold(_a0, _a1, _b0, _b1)
     dist2 = PE_3D_E(a0, b0, b1)
-    if dist2 < 1e-12:
-        print("ERROR PEM", dist2)
+    if dist2 < COMMON_MATH_IPC_DISTANCE_THRESHOLD:
+        print('ERROR PEM', dist2 * 1e16, 'e-16')
     return barrier_E(dist2, dHat2, kappa) * M_E(a0, a1, b0, b1, eps_x)
 @ti.func
 def PEM_gradient(a0, a1, b0, b1, _a0, _a1, _b0, _b1, dHat2, kappa):
