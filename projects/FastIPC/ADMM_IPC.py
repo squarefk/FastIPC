@@ -596,30 +596,29 @@ def solve_system(current_time):
     with Timer("Direct Solve (scipy)"):
         before_solve()
         with Timer("DBC"):
-            with Timer("3"):
-                @ti.kernel
-                def DBC_set_zeros(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
-                    for i in range(cnt[None]):
-                        r, c = data_row[i], data_col[i]
-                        if dfx[r]:
-                            data_val[i] = 0
-                        if dfx[c]:
-                            data_rhs[r] -= data_val[i] * dfv[c]
-                            data_val[i] = 0
-                    for i in dfx:
-                        if dfx[i]:
-                            idx = ti.atomic_add(cnt[None], 1)
-                            data_row[idx] = i
-                            data_col[idx] = i
-                            data_val[idx] = 1
-                            data_rhs[i] = dfv[i]
-                DBC_set_zeros(_data_row, _data_col, _data_val)
-            with Timer("Taichi_Triplets to Scipy_Triplets"):
-                row, col, val = _data_row[:cnt[None]], _data_col[:cnt[None]], _data_val[:cnt[None]]
-                rhs = data_rhs.to_numpy()
-            with Timer("Scipy_Triplets to Scipy_CSC"):
-                n = n_particles * dim
-                A = scipy.sparse.csc_matrix((val, (row, col)), shape=(n, n))
+            @ti.kernel
+            def DBC_set_zeros(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
+                for i in range(cnt[None]):
+                    r, c = data_row[i], data_col[i]
+                    if dfx[r]:
+                        data_val[i] = 0
+                    if dfx[c]:
+                        data_rhs[r] -= data_val[i] * dfv[c]
+                        data_val[i] = 0
+                for i in dfx:
+                    if dfx[i]:
+                        idx = ti.atomic_add(cnt[None], 1)
+                        data_row[idx] = i
+                        data_col[idx] = i
+                        data_val[idx] = 1
+                        data_rhs[i] = dfv[i]
+            DBC_set_zeros(_data_row, _data_col, _data_val)
+        with Timer("Taichi_Triplets to Scipy_Triplets"):
+            row, col, val = _data_row[:cnt[None]], _data_col[:cnt[None]], _data_val[:cnt[None]]
+            rhs = data_rhs.to_numpy()
+        with Timer("Scipy_Triplets to Scipy_CSC"):
+            n = n_particles * dim
+            A = scipy.sparse.csc_matrix((val, (row, col)), shape=(n, n))
         with Timer("CHOLMOD"):
             factor = cholesky(A)
             solved_x = factor(rhs)
