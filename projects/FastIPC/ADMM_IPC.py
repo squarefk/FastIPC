@@ -651,10 +651,17 @@ def local_elasticity():
         sigma_Dx_plus_u = sigma
         vol0 = restT[e].determinant() / dim / (dim - 1)
         We = W[e]
-        for iter in range(20):
+        converge = False
+        iter = 0
+        while not converge:
             g = elasticity_gradient(sigma, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u) * We * We
             P = project_pd(elasticity_hessian(sigma, la, mu)) * dt * dt * vol0 + ti.Matrix.identity(real, dim) * We * We
             p = -P.inverse() @ g
+            iter += 1
+            if p.norm_sqr() < 1e-6:
+                converge = True
+            if iter & 31 == 0:
+                print("local elasticity iters:", iter, ", residual:", p.norm_sqr())
             alpha = 1.0
             sigma0 = sigma
             E0 = elasticity_energy(sigma, la, mu) * dt * dt * vol0 + (sigma - sigma_Dx_plus_u).norm_sqr() * We * We / 2
@@ -677,17 +684,22 @@ def local_PP():
             posTilde[i] = x(i)[PP[c, 0]] - x(i)[PP[c, 1]] + r_PP(i)[c, 0]
         Q = Q_PP[c, 0]
         op = ti.Matrix.zero(real, dim)
-        for iter in range(20):
+        converge = False
+        iter = 0
+        while not converge:
             g = PP_gradient(op, extract_vec(pos, list(range(0, dim))), dHat2, kappa) + (pos - posTilde) * Q * Q
             P = PP_hessian(op, extract_vec(pos, list(range(0, dim))), dHat2, kappa) + ti.Matrix.identity(real, dim) * Q * Q
             p = -solve(P, g)
+            iter += 1
+            if p.norm_sqr() < 1e-6:
+                converge = True
+            if iter & 31 == 0:
+                print("local PP iters:", iter, ", residual:", p.norm_sqr())
             alpha = 1.0
             pos0 = pos
             E0 = PP_energy(op, extract_vec(pos, list(range(0, dim))), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
             E = PP_energy(op, extract_vec(pos, list(range(0, dim))), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
-            if iter == 19 and p.norm_sqr() > 1e-5:
-                print("FATAL ERROR: local PP Newton not converge", P, p.norm_sqr())
             while E > E0:
                 alpha *= 0.5
                 pos = pos0 + alpha * p
@@ -706,10 +718,17 @@ def local_PE():
             posTilde[i + dim] = x(i)[PE[c, 0]] - x(i)[PE[c, 2]] + r_PE(i)[c, 1]
         Q = Q_PE[c, 0]
         op = ti.Matrix.zero(real, dim)
-        for iter in range(20):
+        converge = False
+        iter = 0
+        while not converge:
             g = PE_gradient(op, extract_vec(pos, list(range(0, dim))), extract_vec(pos, list(range(dim, dim * 2))), dHat2, kappa) + (pos - posTilde) * Q * Q
             P = PE_hessian(op, extract_vec(pos, list(range(0, dim))), extract_vec(pos, list(range(dim, dim * 2))), dHat2, kappa) + ti.Matrix.identity(real, dim * 2) * Q * Q
             p = -solve(P, g)
+            iter += 1
+            if p.norm_sqr() < 1e-6:
+                converge = True
+            if iter & 31 == 0:
+                print("local PE iters:", iter, ", residual:", p.norm_sqr())
             alpha = 1.0
             if ti.static(dim == 2):
                 alpha = point_edge_ccd(ti.Vector([0.0, 0.0]), ti.Vector([pos[0], pos[1]]), ti.Vector([pos[2], pos[3]]), ti.Vector([0.0, 0.0]), ti.Vector([p[0], p[1]]), ti.Vector([p[2], p[3]]), 0.1)
@@ -717,8 +736,6 @@ def local_PE():
             E0 = PE_energy(op, extract_vec(pos, list(range(0, dim))), extract_vec(pos, list(range(dim, dim * 2))), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
             E = PE_energy(op, extract_vec(pos, list(range(0, dim))), extract_vec(pos, list(range(dim, dim * 2))), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
-            if iter == 19 and p.norm_sqr() > 1e-5:
-                print("FATAL ERROR: local PE Newton not converge", P, p.norm_sqr())
             while E > E0:
                 alpha *= 0.5
                 pos = pos0 + alpha * p
@@ -737,17 +754,22 @@ def local_PT():
                               x(0)[PT[c, 0]] - x(0)[PT[c, 3]] + r_PT(0)[c, 2], x(1)[PT[c, 0]] - x(1)[PT[c, 3]] + r_PT(1)[c, 2], x(2)[PT[c, 0]] - x(2)[PT[c, 3]] + r_PT(2)[c, 2]])
         Q = Q_PT[c, 0]
         op = ti.Matrix.zero(real, dim)
-        for iter in range(20):
+        converge = False
+        iter = 0
+        while not converge:
             g = PT_gradient(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde) * Q * Q
             P = PT_hessian(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + ti.Matrix.identity(real, dim * 3) * Q * Q
             p = -solve(P, g)
+            iter += 1
+            if p.norm_sqr() < 1e-6:
+                converge = True
+            if iter & 31 == 0:
+                print("local PT iters:", iter, ", residual:", p.norm_sqr())
             alpha = 1.0
             pos0 = pos
             E0 = PT_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
             E = PT_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
-            if iter == 19 and p.norm_sqr() > 1e-6:
-                print("FATAL ERROR: Newton not converge")
             while E > E0:
                 alpha *= 0.5
                 pos = pos0 + alpha * p
@@ -764,17 +786,22 @@ def local_EE():
                               x(0)[EE[c, 0]] - x(0)[EE[c, 3]] + r_EE(0)[c, 2], x(1)[EE[c, 0]] - x(1)[EE[c, 3]] + r_EE(1)[c, 2], x(2)[EE[c, 0]] - x(2)[EE[c, 3]] + r_EE(2)[c, 2]])
         Q = Q_EE[c, 0]
         op = ti.Matrix.zero(real, dim)
-        for iter in range(20):
+        converge = False
+        iter = 0
+        while not converge:
             g = EE_gradient(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde) * Q * Q
             P = EE_hessian(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + ti.Matrix.identity(real, dim * 3) * Q * Q
             p = -solve(P, g)
+            iter += 1
+            if p.norm_sqr() < 1e-6:
+                converge = True
+            if iter & 31 == 0:
+                print("local EE iters:", iter, ", residual:", p.norm_sqr())
             alpha = 1.0
             pos0 = pos
             E0 = EE_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
             E = EE_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
-            if iter == 19 and p.norm_sqr() > 1e-6:
-                print("FATAL ERROR: Newton not converge")
             while E > E0:
                 alpha *= 0.5
                 pos = pos0 + alpha * p
@@ -792,17 +819,22 @@ def local_EEM():
         Q = Q_EEM[c, 0]
         op = ti.Matrix.zero(real, dim)
         _a0, _a1, _b0, _b1 = x0[EEM[c, 0]], x0[EEM[c, 1]], x0[EEM[c, 2]], x0[EEM[c, 3]]
-        for iter in range(20):
+        converge = False
+        iter = 0
+        while not converge:
             g = EEM_gradient(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde) * Q * Q
             P = EEM_hessian(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + ti.Matrix.identity(real, dim * 3) * Q * Q
             p = -solve(P, g)
+            iter += 1
+            if p.norm_sqr() < 1e-6:
+                converge = True
+            if iter & 31 == 0:
+                print("local EEM iters:", iter, ", residual:", p.norm_sqr())
             alpha = 1.0
             pos0 = pos
             E0 = EEM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
             E = EEM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
-            if iter == 19 and p.norm_sqr() > 1e-6:
-                print("FATAL ERROR: Newton not converge")
             while E > E0:
                 alpha *= 0.5
                 pos = pos0 + alpha * p
@@ -820,17 +852,22 @@ def local_PPM():
         Q = Q_PPM[c, 0]
         op = ti.Matrix.zero(real, dim)
         _a0, _a1, _b0, _b1 = x0[PPM[c, 0]], x0[PPM[c, 1]], x0[PPM[c, 2]], x0[PPM[c, 3]]
-        for iter in range(20):
+        converge = False
+        iter = 0
+        while not converge:
             g = PPM_gradient(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde) * Q * Q
             P = PPM_hessian(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + ti.Matrix.identity(real, dim * 3) * Q * Q
             p = -solve(P, g)
+            iter += 1
+            if p.norm_sqr() < 1e-6:
+                converge = True
+            if iter & 31 == 0:
+                print("local PPM iters:", iter, ", residual:", p.norm_sqr())
             alpha = 1.0
             pos0 = pos
             E0 = PPM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
             E = PPM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
-            if iter == 19 and p.norm_sqr() > 1e-6:
-                print("FATAL ERROR: Newton not converge")
             while E > E0:
                 alpha *= 0.5
                 pos = pos0 + alpha * p
@@ -848,17 +885,22 @@ def local_PEM():
         Q = Q_PEM[c, 0]
         op = ti.Matrix.zero(real, dim)
         _a0, _a1, _b0, _b1 = x0[PEM[c, 0]], x0[PEM[c, 1]], x0[PEM[c, 2]], x0[PEM[c, 3]]
-        for iter in range(20):
+        converge = False
+        iter = 0
+        while not converge:
             g = PEM_gradient(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde) * Q * Q
             P = PEM_hessian(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + ti.Matrix.identity(real, dim * 3) * Q * Q
             p = -solve(P, g)
+            iter += 1
+            if p.norm_sqr() < 1e-6:
+                converge = True
+            if iter & 31 == 0:
+                print("local PEM iters:", iter, ", residual:", p.norm_sqr())
             alpha = 1.0
             pos0 = pos
             E0 = PEM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
             E = PEM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
-            if iter == 19 and p.norm_sqr() > 1e-6:
-                print("FATAL ERROR: Newton not converge")
             while E > E0:
                 alpha *= 0.5
                 pos = pos0 + alpha * p
