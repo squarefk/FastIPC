@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import pickle
 import scipy.sparse
 import scipy.sparse.linalg
+from sksparse.cholmod import *
 
 ##############################################################################
 testcase = int(sys.argv[1])
@@ -73,7 +74,7 @@ ti.root.dense(ti.i, n_particles).place(drf)
 drv = scalar()
 ti.root.dense(ti.i, n_particles * dim).place(drv)
 
-MAX_LINEAR = 5000000
+MAX_LINEAR = 50000000
 data_rhs = ti.field(real, shape=n_particles * dim)
 data_row = ti.field(ti.i32, shape=MAX_LINEAR)
 data_col = ti.field(ti.i32, shape=MAX_LINEAR)
@@ -589,13 +590,12 @@ def solve_system(current_time):
         D, V = np.stack((dirichlet_fixed,) * dim, axis=-1).reshape((n_particles * dim)), dirichlet_value.reshape((n_particles * dim))
         dfx.from_numpy(D.astype(np.int32))
         dfv.from_numpy(V.astype(np.float64))
-        D = np.where(D)[0]
-        before_solve()
 
     if cnt[None] >= MAX_LINEAR or n_PP[None] >= MAX_C or n_PE[None] >= MAX_C or n_PT[None] >= MAX_C or n_EE[None] >= MAX_C or n_EEM[None] >= MAX_C or n_PPM[None] >= MAX_C or n_PEM[None] >= MAX_C:
         print("FATAL ERROR: Array Too Small!")
 
     with Timer("Direct Solve (scipy)"):
+        before_solve()
         with Timer("DBC"):
             with Timer("3"):
                 @ti.kernel
@@ -607,22 +607,28 @@ def solve_system(current_time):
                         if dfx[c]:
                             data_rhs[r] -= data_val[i] * dfv[c]
                             data_val[i] = 0
+                    for i in dfx:
+                        if dfx[i]:
+                            idx = ti.atomic_add(cnt[None], 1)
+                            data_row[idx] = i
+                            data_col[idx] = i
+                            data_val[idx] = 1
+                            data_rhs[i] = dfv[i]
                 DBC_set_zeros()
-            with Timer("4"):
+            with Timer("Taichi_Triplets to Scipy_Triplets"):
                 row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
                 rhs = data_rhs.to_numpy()
-            with Timer("5"):
+            with Timer("Scipy_Triplets to Scipy_CSC"):
                 n = n_particles * dim
-                A = scipy.sparse.csr_matrix((val, (row, col)), shape=(n, n))
-            with Timer("6"):
-                A += scipy.sparse.csr_matrix((np.ones(len(D)), (D, D)), shape=(n, n))
-            with Timer("7"):
-                rhs[D] = V[D]
-        data_x.from_numpy(scipy.sparse.linalg.spsolve(A, rhs))
-        tmp = A.dot(data_x.to_numpy()) - rhs
-        residual = np.linalg.norm(tmp, ord=np.inf)
-        print("Global solve residual = ", residual)
-        after_solve()
+                A = scipy.sparse.csc_matrix((val, (row, col)), shape=(n, n))
+        with Timer("CHOLMOD"):
+            factor = cholesky(A)
+            solved_x = factor(rhs)
+            data_x.from_numpy(solved_x)
+            tmp = A.dot(data_x.to_numpy()) - rhs
+            residual = np.linalg.norm(tmp, ord=np.inf)
+            print("Global solve residual = ", residual)
+            after_solve()
 
     with Timer("Filter Global"):
         alpha = compute_filter(xx, x)
