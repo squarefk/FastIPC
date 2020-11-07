@@ -76,9 +76,9 @@ ti.root.dense(ti.i, n_particles * dim).place(drv)
 
 MAX_LINEAR = 50000000
 data_rhs = ti.field(real, shape=n_particles * dim)
-data_row = ti.field(ti.i32, shape=MAX_LINEAR)
-data_col = ti.field(ti.i32, shape=MAX_LINEAR)
-data_val = ti.field(real, shape=MAX_LINEAR)
+_data_row = np.zeros(MAX_LINEAR, dtype=np.int32)
+_data_col = np.zeros(MAX_LINEAR, dtype=np.int32)
+_data_val = np.zeros(MAX_LINEAR, dtype=np.float64)
 data_x = ti.field(real, shape=n_particles * dim)
 cnt = ti.field(ti.i32, shape=())
 
@@ -391,8 +391,7 @@ def check_collision():
 
 
 @ti.kernel
-def global_step():
-    cnt[None] = 0
+def global_step(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     for i in range(n_particles):
         for d in ti.static(range(dim)):
             c = i * dim + d
@@ -421,7 +420,7 @@ def global_step():
                         data_rhs[vertices[e, p] * dim + q] += X2F(p, q, i, j, A) * F[i, j] * W[e] * W[e]
     cnt[None] += n_elements * dim * dim * (dim + 1) * (dim + 1)
 @ti.kernel
-def global_PP():
+def global_PP(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     ETE2 = ti.Matrix([[1, -1], [-1, 1]])
     for _ in range(1):
         for c in range(n_PP[None]):
@@ -438,7 +437,7 @@ def global_PP():
                 data_rhs[PP[c, 1] * dim + j] -= (y_PP(j)[c, 0] - r_PP(j)[c, 0]) * Q * Q
     cnt[None] += n_PP[None] * 4 * dim
 @ti.kernel
-def global_PE():
+def global_PE(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     ETE3 = ti.Matrix([[2, -1, -1], [-1, 1, 0], [-1, 0, 1]])
     for _ in range(1):
         for c in range(n_PE[None]):
@@ -457,7 +456,7 @@ def global_PE():
                 data_rhs[PE[c, 2] * dim + j] -= (y_PE(j)[c, 1] - r_PE(j)[c, 1]) * Q * Q
     cnt[None] += n_PE[None] * 9 * dim
 @ti.kernel
-def global_PT():
+def global_PT(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
     for _ in range(1):
         for c in range(n_PT[None]):
@@ -478,7 +477,7 @@ def global_PT():
                 data_rhs[PT[c, 3] * 3 + j] -= (y_PT(j)[c, 2] - r_PT(j)[c, 2]) * Q * Q
     cnt[None] += n_PT[None] * 48
 @ti.kernel
-def global_EE():
+def global_EE(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
     for _ in range(1):
         for c in range(n_EE[None]):
@@ -499,7 +498,7 @@ def global_EE():
                 data_rhs[EE[c, 3] * 3 + j] -= (y_EE(j)[c, 2] - r_EE(j)[c, 2]) * Q * Q
     cnt[None] += n_EE[None] * 48
 @ti.kernel
-def global_EEM():
+def global_EEM(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
     for _ in range(1):
         for c in range(n_EEM[None]):
@@ -520,7 +519,7 @@ def global_EEM():
                 data_rhs[EEM[c, 3] * 3 + j] -= (y_EEM(j)[c, 2] - r_EEM(j)[c, 2]) * Q * Q
     cnt[None] += n_EEM[None] * 48
 @ti.kernel
-def global_PPM():
+def global_PPM(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
     for _ in range(1):
         for c in range(n_PPM[None]):
@@ -541,7 +540,7 @@ def global_PPM():
                 data_rhs[PPM[c, 3] * 3 + j] -= (y_PPM(j)[c, 2] - r_PPM(j)[c, 2]) * Q * Q
     cnt[None] += n_PPM[None] * 48
 @ti.kernel
-def global_PEM():
+def global_PEM(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
     for _ in range(1):
         for c in range(n_PEM[None]):
@@ -599,7 +598,7 @@ def solve_system(current_time):
         with Timer("DBC"):
             with Timer("3"):
                 @ti.kernel
-                def DBC_set_zeros():
+                def DBC_set_zeros(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
                     for i in range(cnt[None]):
                         r, c = data_row[i], data_col[i]
                         if dfx[r]:
@@ -614,9 +613,9 @@ def solve_system(current_time):
                             data_col[idx] = i
                             data_val[idx] = 1
                             data_rhs[i] = dfv[i]
-                DBC_set_zeros()
+                DBC_set_zeros(_data_row, _data_col, _data_val)
             with Timer("Taichi_Triplets to Scipy_Triplets"):
-                row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
+                row, col, val = _data_row[:cnt[None]], _data_col[:cnt[None]], _data_val[:cnt[None]]
                 rhs = data_rhs.to_numpy()
             with Timer("Scipy_Triplets to Scipy_CSC"):
                 n = n_particles * dim
@@ -1419,20 +1418,18 @@ if __name__ == "__main__":
                         reuse_admm_variables(alpha)
 
                     with Timer("Global Build System"):
-                        data_row.fill(0)
-                        data_col.fill(0)
-                        data_val.fill(0)
                         data_rhs.fill(0)
                         data_x.fill(0)
-                        global_step()
-                        global_PP()
-                        global_PE()
+                        cnt[None] = 0
+                        global_step(_data_row, _data_col, _data_val)
+                        global_PP(_data_row, _data_col, _data_val)
+                        global_PE(_data_row, _data_col, _data_val)
                         if dim == 3:
-                            global_PT()
-                            global_EE()
-                            global_EEM()
-                            global_PPM()
-                            global_PEM()
+                            global_PT(_data_row, _data_col, _data_val)
+                            global_EE(_data_row, _data_col, _data_val)
+                            global_EEM(_data_row, _data_col, _data_val)
+                            global_PPM(_data_row, _data_col, _data_val)
+                            global_PEM(_data_row, _data_col, _data_val)
                     with Timer("Global Solve"):
                         solve_system(f * dt)
 
