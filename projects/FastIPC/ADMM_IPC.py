@@ -552,28 +552,14 @@ def global_PEM(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_
     cnt[None] += n_PEM[None] * 48
 
 
-@ti.kernel
-def before_solve():
-    for i in range(n_particles):
-        xx[i] = x[i]
-@ti.kernel
-def after_solve() -> real:
-    for i in range(n_particles):
-        for d in ti.static(range(dim)):
-            x(d)[i] = data_x[i * dim + d]
-@ti.kernel
-def op0(alpha: real):
-    for i in range(n_particles):
-        x[i] = x[i] * alpha + xx[i] * (1 - alpha)
-@ti.kernel
-def op1():
-    for i in range(n_particles):
-        x[i] = (x[i] + xx[i]) / 2.0
-@ti.kernel
-def op2():
-    for i in range(n_particles):
-        x[i] = xx[i]
 def solve_system(current_time):
+    with Timer("Filter Global Prepare"):
+        @ti.kernel
+        def before_solve():
+            for i in range(n_particles):
+                xx[i] = x[i]
+        before_solve()
+
     with Timer("Init DBC"):
         dirichlet_fixed, dirichlet_value = settings['dirichlet'](current_time)
         D, V = np.stack((dirichlet_fixed,) * dim, axis=-1).reshape((n_particles * dim)), dirichlet_value.reshape((n_particles * dim))
@@ -584,7 +570,6 @@ def solve_system(current_time):
         print("FATAL ERROR: Array Too Small!")
 
     with Timer("Direct Solve (scipy)"):
-        before_solve()
         with Timer("DBC"):
             @ti.kernel
             def DBC_set_zeros(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
@@ -616,9 +601,26 @@ def solve_system(current_time):
             tmp = A.dot(data_x.to_numpy()) - rhs
             residual = np.linalg.norm(tmp, ord=np.inf)
             print("Global solve residual = ", residual)
+            @ti.kernel
+            def after_solve() -> real:
+                for i in range(n_particles):
+                    for d in ti.static(range(dim)):
+                        x(d)[i] = data_x[i * dim + d]
             after_solve()
 
     with Timer("Filter Global"):
+        @ti.kernel
+        def op0(alpha: real):
+            for i in range(n_particles):
+                x[i] = x[i] * alpha + xx[i] * (1 - alpha)
+        @ti.kernel
+        def op1():
+            for i in range(n_particles):
+                x[i] = (x[i] + xx[i]) / 2.0
+        @ti.kernel
+        def op2():
+            for i in range(n_particles):
+                x[i] = xx[i]
         alpha = compute_filter(xx, x)
         op0(alpha)
         while alpha >= 1e-6 and check_collision() == 1:
