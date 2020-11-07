@@ -17,25 +17,15 @@ import scipy.sparse.linalg
 from sksparse.cholmod import *
 
 ##############################################################################
-testcase = int(sys.argv[1])
-settings = read(testcase)
+settings = read()
+directory = settings['directory']
 mesh_particles = settings['mesh_particles']
 mesh_elements = settings['mesh_elements']
 dim = settings['dim']
 gravity = settings['gravity']
 boundary_points_, boundary_edges_, boundary_triangles_ = settings['boundary']
-##############################################################################
-
-directory = 'output/' + '_'.join(sys.argv[:2]) + '/'
-os.makedirs(directory + 'images/', exist_ok=True)
-os.makedirs(directory + 'caches/', exist_ok=True)
-os.makedirs(directory + 'objs/', exist_ok=True)
-print('output directory:', directory)
-# sys.stdout = open(directory + 'log.txt', 'w')
-# sys.stderr = open(directory + 'err.txt', 'w')
 
 ##############################################################################
-
 real = ti.f64
 ti.init(arch=ti.cpu, default_fp=real) #, cpu_max_num_threads=1)
 scalar = lambda: ti.field(real)
@@ -1434,8 +1424,8 @@ if __name__ == "__main__":
         vertices_ = vertices.to_numpy()
         write_image(0)
         f_start = 0
-        if len(sys.argv) == 3:
-            f_start = int(sys.argv[2])
+        if settings['start_frame'] > 0:
+            f_start = settings['start_frame']
             [x_, v_] = pickle.load(open(directory + f'caches/{f_start:06d}.p', 'rb'))
             x.from_numpy(x_)
             v.from_numpy(v_)

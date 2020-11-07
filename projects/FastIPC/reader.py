@@ -3,6 +3,7 @@ import math
 import numpy as np
 from common.math.graph_tools import *
 from scipy.spatial.transform import Rotation
+import os, sys
 
 
 def read_msh(filename):
@@ -128,12 +129,22 @@ def adjust_camera():
         settings['mesh_offset'] = - ((upper + lower) * 0.5) * settings['mesh_scale']
 
 
-def read(testcase):
+def read():
+    ################################################### GENERAL ##################################################
+    testcase = int(sys.argv[1])
+    settings['start_frame'] = int(sys.argv[2])
+
+    directory = 'output/' + '_'.join(sys.argv[:2] + sys.argv[3:]) + '/'
+    os.makedirs(directory + 'images/', exist_ok=True)
+    os.makedirs(directory + 'caches/', exist_ok=True)
+    os.makedirs(directory + 'objs/', exist_ok=True)
+    print('output directory:', directory)
+    settings['directory'] = directory
+
     ##################################################### 3D #####################################################
     if testcase == 1001:
         # two spheres
         init(3)
-        settings['gravity'] = 0.
         add_object('input/sphere1K.vtk', [-0.51, 0, 0])
         add_object('input/sphere1K.vtk', [0.51, 0, 0])
         settings['boundary'] = find_boundary(settings['mesh_elements'])
