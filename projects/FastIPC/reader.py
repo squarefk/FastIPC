@@ -91,20 +91,23 @@ def add_boundary(positions):
     if 'boundary' not in settings:
         print('Please do find_boundary first')
     boundary_points, boundary_edges, boundary_triangles = settings['boundary']
-    if len(positions) == 1:
-        boundary_points.update([offset])
-    elif len(positions) == 2:
-        boundary_points.update([offset, offset + 1])
-        boundary_edges = np.vstack((boundary_edges, [offset, offset + 1]))
+    if settings['dim'] == 2:
         if 'visualize_segments' not in settings:
             settings['visualize_segments'] = np.zeros((0, 2), dtype=np.int32)
-        settings['visualize_segments'] = np.vstack((settings['visualize_segments'], [offset, offset + 1]))
+        for i in range(len(positions)):
+            boundary_points.update([offset + i])
+        for i in range(len(positions) - 1):
+            boundary_edges = np.vstack((boundary_edges, [offset + i, offset + i + 1]))
+            settings['visualize_segments'] = np.vstack((settings['visualize_segments'], [offset + i, offset + i + 1]))
     else:
-        boundary_points.update([offset, offset + 1, offset + 2])
-        boundary_edges = np.vstack((boundary_edges, [offset, offset + 1]))
-        boundary_edges = np.vstack((boundary_edges, [offset + 1, offset + 2]))
-        boundary_edges = np.vstack((boundary_edges, [offset + 2, offset]))
-        boundary_triangles = np.vstack((boundary_triangles, [offset, offset + 1, offset + 2]))
+        if len(positions) == 1:
+            boundary_points.update([offset])
+        else:
+            boundary_points.update([offset, offset + 1, offset + 2])
+            boundary_edges = np.vstack((boundary_edges, [offset, offset + 1]))
+            boundary_edges = np.vstack((boundary_edges, [offset + 1, offset + 2]))
+            boundary_edges = np.vstack((boundary_edges, [offset + 2, offset]))
+            boundary_triangles = np.vstack((boundary_triangles, [offset, offset + 1, offset + 2]))
     settings['boundary'] = (boundary_points, boundary_edges, boundary_triangles)
 
 
@@ -307,9 +310,8 @@ def read():
         add_object('input/Sharkey.obj')
         add_object('input/Sharkey.obj', translation=[0., 1.])
         settings['boundary'] = find_boundary(settings['mesh_elements'])
-        add_boundary([[-0.5, 0.6], [0.3, -0.3]])
-        add_boundary([[0.3, -0.3], [1.1, 0.6]])
-        settings['dirichlet'] = lambda t: (np.concatenate(([False] * (len(settings['mesh_particles']) - 4), [True] * 4)), settings['mesh_particles'])
+        add_boundary([[-0.5, 0.6], [0.3, -0.3], [1.1, 0.6]])
+        settings['dirichlet'] = lambda t: (np.concatenate(([False] * (len(settings['mesh_particles']) - 3), [True] * 3)), settings['mesh_particles'])
         adjust_camera()
         return settings
     elif testcase == 4:
@@ -320,19 +322,15 @@ def read():
         settings['boundary'] = find_boundary(settings['mesh_elements'])
 
         thickness = 0.1
-        add_boundary([[0.5, 0.95], [1.1, 0.6 + thickness * 0.5]])
-        add_boundary([[1.1, 0.6 + thickness * 0.5], [2.1, 0.6 + thickness * 0.5]])
-        add_boundary([[2.1, 0.6 + thickness * 0.5], [2.7, 0.95]])
-        add_boundary([[0.5, 0.25], [1.1, 0.6 - thickness * 0.5]])
-        add_boundary([[1.1, 0.6 - thickness * 0.5], [2.1, 0.6 - thickness * 0.5]])
-        add_boundary([[2.1, 0.6 - thickness * 0.5], [2.7, 0.25]])
+        add_boundary([[0.5, 0.95], [1.1, 0.6 + thickness * 0.5], [2.1, 0.6 + thickness * 0.5], [2.7, 0.95]])
+        add_boundary([[0.5, 0.25], [1.1, 0.6 - thickness * 0.5], [2.1, 0.6 - thickness * 0.5], [2.7, 0.25]])
 
         def dirichlet_generator(t):
             dirichlet_fixed = np.zeros(len(settings['mesh_particles']), dtype=bool)
             dirichlet_value = settings['mesh_particles'].copy()
-            dirichlet_fixed[-12:] = True
+            dirichlet_fixed[-8:] = True
             n_particles = len(dirichlet_value)
-            for i in range(n_particles - 12):
+            for i in range(n_particles - 8):
                 if dirichlet_value[i][0] > 0.745:
                     dirichlet_fixed[i] = True
                     dirichlet_value[i, 0] += t
