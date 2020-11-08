@@ -621,7 +621,8 @@ def solve_system(current_time):
             op1()
             alpha /= 2.0
         if alpha < 1e-6:
-            op2()
+            print('FATAL ERROR: global filter makes line search step size too small', alpha)
+            exit(0)
     return alpha
 
 
