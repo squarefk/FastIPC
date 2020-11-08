@@ -131,7 +131,7 @@ old_n_PEM = ti.field(ti.i32, shape=())
 old_y_PEM, old_r_PEM, old_Q_PEM = vec(), vec(), scalar()
 ti.root.dense(ti.ij, (MAX_C, 3)).place(old_y_PEM, old_r_PEM, old_Q_PEM)
 
-dfx = ti.field(ti.i32, shape=n_particles * dim)
+dfx = ti.field(ti.i32, shape=n_particles)
 dfv = ti.field(real, shape=n_particles * dim)
 
 dHat2 = 1e-6
@@ -384,32 +384,29 @@ def check_collision():
 @ti.kernel
 def global_step(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     for i in range(n_particles):
+        c = i
+        data_row[c] = i
+        data_col[c] = i
+        data_val[c] = m[i]
         for d in ti.static(range(dim)):
-            c = i * dim + d
-            data_row[c] = i * dim + d
-            data_col[c] = i * dim + d
-            data_val[c] = m[i]
             data_rhs[i * dim + d] += m[i] * xTilde(d)[i]
-    cnt[None] += n_particles * dim
-    for _ in range(1):
-        for e in range(n_elements):
-            A = restT[e].inverse()
-            for p in ti.static(range(dim + 1)):
-                for i in ti.static(range(dim)):
-                    for j in ti.static(range(dim)):
-                        for pp in ti.static(range(dim + 1)):
-                            q, qq = i, i
-                            c = cnt[None] + e * dim * dim * (dim + 1) * (dim + 1) + p * dim * dim * (dim + 1) + i * dim * (dim + 1) + j * (dim + 1) + pp
-                            data_row[c] = vertices[e, p] * dim + q
-                            data_col[c] = vertices[e, pp] * dim + qq
-                            data_val[c] = X2F(p, q, i, j, A) * X2F(pp, qq, i, j, A) * W[e] * W[e]
-            F = z[e] - u[e]
-            for p in ti.static(range(dim + 1)):
-                for i in ti.static(range(dim)):
-                    for j in ti.static(range(dim)):
-                        q = i
-                        data_rhs[vertices[e, p] * dim + q] += X2F(p, q, i, j, A) * F[i, j] * W[e] * W[e]
-    cnt[None] += n_elements * dim * dim * (dim + 1) * (dim + 1)
+    cnt[None] += n_particles
+    for e in range(n_elements):
+        A = restT[e].inverse()
+        for p in ti.static(range(dim + 1)):
+            for j in ti.static(range(dim)):
+                for pp in ti.static(range(dim + 1)):
+                    c = cnt[None] + e * (dim + 1) * dim * (dim + 1) + p * dim * (dim + 1) + j * (dim + 1) + pp
+                    data_row[c] = vertices[e, p]
+                    data_col[c] = vertices[e, pp]
+                    data_val[c] = X2F(p, 0, 0, j, A) * X2F(pp, 0, 0, j, A) * W[e] * W[e]
+        F = z[e] - u[e]
+        for p in ti.static(range(dim + 1)):
+            for i in ti.static(range(dim)):
+                for j in ti.static(range(dim)):
+                    q = i
+                    data_rhs[vertices[e, p] * dim + q] += X2F(p, q, i, j, A) * F[i, j] * W[e] * W[e]
+    cnt[None] += n_elements * (dim + 1) * dim * (dim + 1)
 @ti.kernel
 def global_PP(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     ETE2 = ti.Matrix([[1, -1], [-1, 1]])
@@ -418,15 +415,14 @@ def global_PP(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_a
             Q = Q_PP[c, 0]
             for p in ti.static(range(2)):
                 for q in ti.static(range(2)):
-                    for j in ti.static(range(dim)):
-                        idx = cnt[None] + c * 4 * dim + p * 2 * dim + q * dim + j
-                        data_row[idx] = PP[c, p] * dim + j
-                        data_col[idx] = PP[c, q] * dim + j
-                        data_val[idx] = ETE2[p, q] * Q * Q
+                    idx = cnt[None] + c * 4 + p * 2 + q
+                    data_row[idx] = PP[c, p]
+                    data_col[idx] = PP[c, q]
+                    data_val[idx] = ETE2[p, q] * Q * Q
             for j in ti.static(range(dim)):
                 data_rhs[PP[c, 0] * dim + j] += (y_PP(j)[c, 0] - r_PP(j)[c, 0]) * Q * Q
                 data_rhs[PP[c, 1] * dim + j] -= (y_PP(j)[c, 0] - r_PP(j)[c, 0]) * Q * Q
-    cnt[None] += n_PP[None] * 4 * dim
+    cnt[None] += n_PP[None] * 4
 @ti.kernel
 def global_PE(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     ETE3 = ti.Matrix([[2, -1, -1], [-1, 1, 0], [-1, 0, 1]])
@@ -435,17 +431,16 @@ def global_PE(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_a
             Q = Q_PE[c, 0]
             for p in ti.static(range(3)):
                 for q in ti.static(range(3)):
-                    for j in ti.static(range(dim)):
-                        idx = cnt[None] + c * 9 * dim + p * 3 * dim + q * dim + j
-                        data_row[idx] = PE[c, p] * dim + j
-                        data_col[idx] = PE[c, q] * dim + j
-                        data_val[idx] = ETE3[p, q] * Q * Q
+                    idx = cnt[None] + c * 9 + p * 3 + q
+                    data_row[idx] = PE[c, p]
+                    data_col[idx] = PE[c, q]
+                    data_val[idx] = ETE3[p, q] * Q * Q
             for j in ti.static(range(dim)):
                 data_rhs[PE[c, 0] * dim + j] += (y_PE(j)[c, 0] - r_PE(j)[c, 0]) * Q * Q
                 data_rhs[PE[c, 0] * dim + j] += (y_PE(j)[c, 1] - r_PE(j)[c, 1]) * Q * Q
                 data_rhs[PE[c, 1] * dim + j] -= (y_PE(j)[c, 0] - r_PE(j)[c, 0]) * Q * Q
                 data_rhs[PE[c, 2] * dim + j] -= (y_PE(j)[c, 1] - r_PE(j)[c, 1]) * Q * Q
-    cnt[None] += n_PE[None] * 9 * dim
+    cnt[None] += n_PE[None] * 9
 @ti.kernel
 def global_PT(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
@@ -454,11 +449,10 @@ def global_PT(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_a
             Q = Q_PT[c, 0]
             for p in ti.static(range(4)):
                 for q in ti.static(range(4)):
-                    for j in ti.static(range(3)):
-                        idx = cnt[None] + c * 48 + p * 12 + q * 3 + j
-                        data_row[idx] = PT[c, p] * 3 + j
-                        data_col[idx] = PT[c, q] * 3 + j
-                        data_val[idx] = ETE4[p, q] * Q * Q
+                    idx = cnt[None] + c * 16 + p * 4 + q
+                    data_row[idx] = PT[c, p]
+                    data_col[idx] = PT[c, q]
+                    data_val[idx] = ETE4[p, q] * Q * Q
             for j in ti.static(range(3)):
                 data_rhs[PT[c, 0] * 3 + j] += (y_PT(j)[c, 0] - r_PT(j)[c, 0]) * Q * Q
                 data_rhs[PT[c, 0] * 3 + j] += (y_PT(j)[c, 1] - r_PT(j)[c, 1]) * Q * Q
@@ -466,7 +460,7 @@ def global_PT(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_a
                 data_rhs[PT[c, 1] * 3 + j] -= (y_PT(j)[c, 0] - r_PT(j)[c, 0]) * Q * Q
                 data_rhs[PT[c, 2] * 3 + j] -= (y_PT(j)[c, 1] - r_PT(j)[c, 1]) * Q * Q
                 data_rhs[PT[c, 3] * 3 + j] -= (y_PT(j)[c, 2] - r_PT(j)[c, 2]) * Q * Q
-    cnt[None] += n_PT[None] * 48
+    cnt[None] += n_PT[None] * 16
 @ti.kernel
 def global_EE(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
@@ -475,11 +469,10 @@ def global_EE(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_a
             Q = Q_EE[c, 0]
             for p in ti.static(range(4)):
                 for q in ti.static(range(4)):
-                    for j in ti.static(range(3)):
-                        idx = cnt[None] + c * 48 + p * 12 + q * 3 + j
-                        data_row[idx] = EE[c, p] * 3 + j
-                        data_col[idx] = EE[c, q] * 3 + j
-                        data_val[idx] = ETE4[p, q] * Q * Q
+                    idx = cnt[None] + c * 16 + p * 4 + q
+                    data_row[idx] = EE[c, p]
+                    data_col[idx] = EE[c, q]
+                    data_val[idx] = ETE4[p, q] * Q * Q
             for j in ti.static(range(3)):
                 data_rhs[EE[c, 0] * 3 + j] += (y_EE(j)[c, 0] - r_EE(j)[c, 0]) * Q * Q
                 data_rhs[EE[c, 0] * 3 + j] += (y_EE(j)[c, 1] - r_EE(j)[c, 1]) * Q * Q
@@ -487,7 +480,7 @@ def global_EE(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_a
                 data_rhs[EE[c, 1] * 3 + j] -= (y_EE(j)[c, 0] - r_EE(j)[c, 0]) * Q * Q
                 data_rhs[EE[c, 2] * 3 + j] -= (y_EE(j)[c, 1] - r_EE(j)[c, 1]) * Q * Q
                 data_rhs[EE[c, 3] * 3 + j] -= (y_EE(j)[c, 2] - r_EE(j)[c, 2]) * Q * Q
-    cnt[None] += n_EE[None] * 48
+    cnt[None] += n_EE[None] * 16
 @ti.kernel
 def global_EEM(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
@@ -496,11 +489,10 @@ def global_EEM(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_
             Q = Q_EEM[c, 0]
             for p in ti.static(range(4)):
                 for q in ti.static(range(4)):
-                    for j in ti.static(range(3)):
-                        idx = cnt[None] + c * 48 + p * 12 + q * 3 + j
-                        data_row[idx] = EEM[c, p] * 3 + j
-                        data_col[idx] = EEM[c, q] * 3 + j
-                        data_val[idx] = ETE4[p, q] * Q * Q
+                    idx = cnt[None] + c * 16 + p * 4 + q
+                    data_row[idx] = EEM[c, p]
+                    data_col[idx] = EEM[c, q]
+                    data_val[idx] = ETE4[p, q] * Q * Q
             for j in ti.static(range(3)):
                 data_rhs[EEM[c, 0] * 3 + j] += (y_EEM(j)[c, 0] - r_EEM(j)[c, 0]) * Q * Q
                 data_rhs[EEM[c, 0] * 3 + j] += (y_EEM(j)[c, 1] - r_EEM(j)[c, 1]) * Q * Q
@@ -508,7 +500,7 @@ def global_EEM(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_
                 data_rhs[EEM[c, 1] * 3 + j] -= (y_EEM(j)[c, 0] - r_EEM(j)[c, 0]) * Q * Q
                 data_rhs[EEM[c, 2] * 3 + j] -= (y_EEM(j)[c, 1] - r_EEM(j)[c, 1]) * Q * Q
                 data_rhs[EEM[c, 3] * 3 + j] -= (y_EEM(j)[c, 2] - r_EEM(j)[c, 2]) * Q * Q
-    cnt[None] += n_EEM[None] * 48
+    cnt[None] += n_EEM[None] * 16
 @ti.kernel
 def global_PPM(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
@@ -517,11 +509,10 @@ def global_PPM(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_
             Q = Q_PPM[c, 0]
             for p in ti.static(range(4)):
                 for q in ti.static(range(4)):
-                    for j in ti.static(range(3)):
-                        idx = cnt[None] + c * 48 + p * 12 + q * 3 + j
-                        data_row[idx] = PPM[c, p] * 3 + j
-                        data_col[idx] = PPM[c, q] * 3 + j
-                        data_val[idx] = ETE4[p, q] * Q * Q
+                    idx = cnt[None] + c * 16 + p * 4 + q
+                    data_row[idx] = PPM[c, p]
+                    data_col[idx] = PPM[c, q]
+                    data_val[idx] = ETE4[p, q] * Q * Q
             for j in ti.static(range(3)):
                 data_rhs[PPM[c, 0] * 3 + j] += (y_PPM(j)[c, 0] - r_PPM(j)[c, 0]) * Q * Q
                 data_rhs[PPM[c, 0] * 3 + j] += (y_PPM(j)[c, 1] - r_PPM(j)[c, 1]) * Q * Q
@@ -529,7 +520,7 @@ def global_PPM(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_
                 data_rhs[PPM[c, 1] * 3 + j] -= (y_PPM(j)[c, 0] - r_PPM(j)[c, 0]) * Q * Q
                 data_rhs[PPM[c, 2] * 3 + j] -= (y_PPM(j)[c, 1] - r_PPM(j)[c, 1]) * Q * Q
                 data_rhs[PPM[c, 3] * 3 + j] -= (y_PPM(j)[c, 2] - r_PPM(j)[c, 2]) * Q * Q
-    cnt[None] += n_PPM[None] * 48
+    cnt[None] += n_PPM[None] * 16
 @ti.kernel
 def global_PEM(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_arr()):
     ETE4 = ti.Matrix([[3, -1, -1, -1], [-1, 1, 0, 0], [-1, 0, 1, 0], [-1, 0, 0, 1]])
@@ -538,11 +529,10 @@ def global_PEM(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_
             Q = Q_PEM[c, 0]
             for p in ti.static(range(4)):
                 for q in ti.static(range(4)):
-                    for j in ti.static(range(3)):
-                        idx = cnt[None] + c * 48 + p * 12 + q * 3 + j
-                        data_row[idx] = PEM[c, p] * 3 + j
-                        data_col[idx] = PEM[c, q] * 3 + j
-                        data_val[idx] = ETE4[p, q] * Q * Q
+                    idx = cnt[None] + c * 16 + p * 4 + q
+                    data_row[idx] = PEM[c, p]
+                    data_col[idx] = PEM[c, q]
+                    data_val[idx] = ETE4[p, q] * Q * Q
             for j in ti.static(range(3)):
                 data_rhs[PEM[c, 0] * 3 + j] += (y_PEM(j)[c, 0] - r_PEM(j)[c, 0]) * Q * Q
                 data_rhs[PEM[c, 0] * 3 + j] += (y_PEM(j)[c, 1] - r_PEM(j)[c, 1]) * Q * Q
@@ -550,7 +540,7 @@ def global_PEM(data_row: ti.ext_arr(), data_col: ti.ext_arr(), data_val: ti.ext_
                 data_rhs[PEM[c, 1] * 3 + j] -= (y_PEM(j)[c, 0] - r_PEM(j)[c, 0]) * Q * Q
                 data_rhs[PEM[c, 2] * 3 + j] -= (y_PEM(j)[c, 1] - r_PEM(j)[c, 1]) * Q * Q
                 data_rhs[PEM[c, 3] * 3 + j] -= (y_PEM(j)[c, 2] - r_PEM(j)[c, 2]) * Q * Q
-    cnt[None] += n_PEM[None] * 48
+    cnt[None] += n_PEM[None] * 16
 
 
 def solve_system(current_time):
@@ -563,7 +553,7 @@ def solve_system(current_time):
 
     with Timer("Init DBC"):
         dirichlet_fixed, dirichlet_value = settings['dirichlet'](current_time)
-        D, V = np.stack((dirichlet_fixed,) * dim, axis=-1).reshape((n_particles * dim)), dirichlet_value.reshape((n_particles * dim))
+        D, V = dirichlet_fixed, dirichlet_value.reshape((n_particles * dim))
         dfx.from_numpy(D.astype(np.int32))
         dfv.from_numpy(V.astype(np.float64))
 
@@ -579,7 +569,8 @@ def solve_system(current_time):
                     if dfx[r]:
                         data_val[i] = 0
                     if dfx[c]:
-                        data_rhs[r] -= data_val[i] * dfv[c]
+                        for d in ti.static(range(dim)):
+                            data_rhs[r * dim + d] -= data_val[i] * dfv[c * dim + d]
                         data_val[i] = 0
                 for i in dfx:
                     if dfx[i]:
@@ -587,21 +578,23 @@ def solve_system(current_time):
                         data_row[idx] = i
                         data_col[idx] = i
                         data_val[idx] = 1
-                        data_rhs[i] = dfv[i]
+                        for d in ti.static(range(dim)):
+                            data_rhs[i * dim + d] = dfv[i * dim + d]
             DBC_set_zeros(_data_row, _data_col, _data_val)
         with Timer("Taichi_Triplets to Scipy_Triplets"):
             row, col, val = _data_row[:cnt[None]], _data_col[:cnt[None]], _data_val[:cnt[None]]
             rhs = data_rhs.to_numpy()
         with Timer("Scipy_Triplets to Scipy_CSC"):
-            n = n_particles * dim
-            A = scipy.sparse.csc_matrix((val, (row, col)), shape=(n, n))
+            A = scipy.sparse.csc_matrix((val, (row, col)), shape=(n_particles, n_particles))
         with Timer("CHOLMOD"):
             factor = cholesky(A)
-            solved_x = factor(rhs)
-            data_x.from_numpy(solved_x)
-            tmp = A.dot(data_x.to_numpy()) - rhs
-            residual = np.linalg.norm(tmp, ord=np.inf)
+            residual = 0.
+            solved_x = rhs.copy()
+            for d in range(dim):
+                solved_x[d::dim] = factor(rhs[d::dim])
+                residual = max(residual, np.linalg.norm(A.dot(solved_x[d::dim]) - rhs[d::dim], ord=np.inf))
             print("Global solve residual = ", residual)
+            data_x.from_numpy(solved_x)
             @ti.kernel
             def after_solve() -> real:
                 for i in range(n_particles):
