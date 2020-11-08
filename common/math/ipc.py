@@ -551,3 +551,19 @@ def segment_intersect_triangle(P, Q, A, B, C):
     v = -E1.dot(DAO) * invdet
     t = AO.dot(N) * invdet
     return det >= 1e-12 and t >= 0.0 and u >= 0.0 and v >= 0.0 and (u+v) <= 1.0 and t <= RLen
+
+
+@ti.func
+def line_intersection_test(p0, p1, p2, p3):
+    s1_x = float(p1[0] - p0[0])
+    s1_y = float(p1[1] - p0[1])
+    s2_x = float(p3[0] - p2[0])
+    s2_y = float(p3[1] - p2[1])
+    s = float(-s1_y * (p0[0] - p2[0]) + s1_x * (p0[1] - p2[1])) / (-s2_x * s1_y + s1_x * s2_y)
+    t = float( s2_x * (p0[1] - p2[1]) - s2_y * (p0[0] - p2[0])) / (-s2_x * s1_y + s1_x * s2_y)
+    return 0 <= s <= 1 and 0 <= t <= 1
+
+
+@ti.func
+def segment_intersect_triangle_2D(e0, e1, t0, t1, t2):
+    return line_intersection_test(e0, e1, t0, t1) or line_intersection_test(e0, e1, t0, t2) or line_intersection_test(e0, e1, t1, t2)
