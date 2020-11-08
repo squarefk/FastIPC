@@ -336,14 +336,15 @@ def X2F(p: ti.template(), q: ti.template(), i: ti.template(), j: ti.template(), 
 @ti.kernel
 def check_collision_2D() -> ti.i32:
     result = 0
-    for i in range(n_boundary_points):
-        P = boundary_points[i]
+    for i in range(n_boundary_edges):
+        P = boundary_edges[i, 0]
+        Q = boundary_edges[i, 1]
         for j in range(n_elements):
             A = vertices[j, 0]
             B = vertices[j, 1]
             C = vertices[j, 2]
-            if P != A and P != B and P != C:
-                if point_inside_triangle(x[P], x[A], x[B], x[C]):
+            if P != A and P != B and P != C and Q != A and Q != B and Q != C:
+                if segment_intersect_triangle_2D(x[P], x[Q], x[A], x[B], x[C]):
                     result = 1
     return result
 @ti.kernel
