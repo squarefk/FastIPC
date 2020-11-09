@@ -29,6 +29,8 @@ mpm = MPMSolverImplicit(res=(128,128))
 
 mpm.add_cube(min_corner=(0.3, 0.7), max_corner=(0.7, 0.9), num_particles = 20000)
 
+# mpm.add_cube(min_corner=(0.3, 0.3), max_corner=(0.7, 0.5), num_particles = 20000)
+
 # mpm.add_surface_collider(point=(0.0, 0.02), normal=(0.0, 1.0))
 
 mpm.add_analytic_box(min_corner=(0.4, 0.3), max_corner=(0.6, 0.5), rotation=3.1415926/4)
@@ -37,6 +39,7 @@ mpm.add_analytic_box(min_corner=(0.0, 0.0), max_corner=(1.0, 0.1))
 
 for frame in range(100000):
     # print(frame)
+    # mpm.step(8e-3)
     mpm.step(8e-3)
     particles = mpm.particle_info()
     gui.circles(particles['position'],
