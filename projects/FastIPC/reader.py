@@ -292,6 +292,8 @@ def read():
         settings['boundary'] = find_boundary(settings['mesh_elements'])
         settings['dirichlet'] = lambda t: (np.concatenate(([True] * 12, [False] * (len(settings['mesh_particles']) - 12))), settings['mesh_particles'])
         adjust_camera()
+        settings['mesh_scale'] *= 0.8
+        settings['mesh_offset'] += [0.1, 0.25]
         return settings
     elif testcase == 2:
         # one sharkey

@@ -134,7 +134,7 @@ ti.root.dense(ti.ij, (MAX_C, 3)).place(old_y_PEM, old_r_PEM, old_Q_PEM)
 dfx = ti.field(ti.i32, shape=n_particles)
 dfv = ti.field(real, shape=n_particles * dim)
 
-dHat2 = 1e-6
+dHat2 = 1e-5
 dHat = dHat2 ** 0.5
 kappa = 1e4
 
@@ -154,6 +154,9 @@ else:
     leaf_block_size = 8
 block = grid.pointer(indices, grid_block_size // leaf_block_size)
 block.dense(indices, leaf_block_size).dynamic(ti.indices(dim), 1024 * 1024, chunk_size=leaf_block_size**dim * 8).place(pid, offset=offset + (0, ))
+
+update_dbdf = False
+update_dpdf = False
 
 
 @ti.kernel
@@ -302,8 +305,8 @@ def initial_guess():
         vol0 = restT[i].determinant() / dim / (dim - 1)
         F = compute_T(i, x) @ restT[i].inverse()
         U, sig, V = svd(F)
-        W[i] = ti.sqrt(elasticity_hessian(sig, la, mu).norm() * dt * dt * vol0)
-        # W[i] = ti.sqrt((la + mu * 2 / 3) * dt * dt * vol0)
+        # W[i] = ti.sqrt(elasticity_hessian(sig, la, mu).norm() * dt * dt * vol0)
+        W[i] = ti.sqrt((la + mu * 2 / 3) * dt * dt * vol0)
         z[i] = currentT @ restT[i].inverse()
         u[i] = ti.Matrix.zero(real, dim, dim)
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
@@ -622,7 +625,8 @@ def solve_system(current_time):
             alpha /= 2.0
         if alpha < 1e-6:
             print('FATAL ERROR: global filter makes line search step size too small', alpha)
-            exit(0)
+            # exit(0)
+            op2()
     return alpha
 
 
@@ -1314,52 +1318,73 @@ def reuse_admm_variables(alpha: real):
     for c in range(old_n_PP[None]):
         for d in range(n_PP[None]):
             if old_PP[c, 0] == PP[d, 0] and old_PP[c, 1] == PP[d, 1]:
-                k = old_Q_PP[c, 0] / Q_PP[c, 0]
+                k = 1.
+                if ti.static(update_dbdf):
+                    k = old_Q_PP[c, 0] / Q_PP[c, 0]
+                else:
+                    Q_PP[d, 0] = old_Q_PP[c, 0]
                 y_PP[d, 0] = old_y_PP[c, 0]
                 r_PP[d, 0] = old_r_PP[c, 0] * k
-                Q_PP[d, 0] = old_Q_PP[c, 0]
     for c in range(old_n_PE[None]):
         for d in range(n_PE[None]):
             if old_PE[c, 0] == PE[d, 0] and old_PE[c, 1] == PE[d, 1] and old_PE[c, 2] == PE[d, 2]:
-                k = old_Q_PE[c, 0] / Q_PE[c, 0]
+                k = 1.
+                if ti.static(update_dbdf):
+                    k = old_Q_PE[c, 0] / Q_PE[c, 0]
+                else:
+                    Q_PE[d, 0], Q_PE[d, 1] = old_Q_PE[c, 0], old_Q_PE[c, 1]
                 y_PE[d, 0], y_PE[d, 1] = old_y_PE[c, 0], old_y_PE[c, 1]
                 r_PE[d, 0], r_PE[d, 1] = old_r_PE[c, 0] * k, old_r_PE[c, 1] * k
-                Q_PE[d, 0], Q_PE[d, 1] = old_Q_PE[c, 0], old_Q_PE[c, 1]
     for c in range(old_n_PT[None]):
         for d in range(n_PT[None]):
             if old_PT[c, 0] == PT[d, 0] and old_PT[c, 1] == PT[d, 1] and old_PT[c, 2] == PT[d, 2] and old_PT[c, 3] == PT[d, 3]:
-                k = old_Q_PT[c, 0] / Q_PT[c, 0]
+                k = 1.
+                if ti.static(update_dbdf):
+                    k = old_Q_PT[c, 0] / Q_PT[c, 0]
+                else:
+                    Q_PT[d, 0], Q_PT[d, 1], Q_PT[d, 2] = old_Q_PT[c, 0], old_Q_PT[c, 1], old_Q_PT[c, 2]
                 y_PT[d, 0], y_PT[d, 1], y_PT[d, 2] = old_y_PT[c, 0], old_y_PT[c, 1], old_y_PT[c, 2]
                 r_PT[d, 0], r_PT[d, 1], r_PT[d, 2] = old_r_PT[c, 0] * k, old_r_PT[c, 1] * k, old_r_PT[c, 2] * k
-                Q_PT[d, 0], Q_PT[d, 1], Q_PT[d, 2] = old_Q_PT[c, 0], old_Q_PT[c, 1], old_Q_PT[c, 2]
     for c in range(old_n_EE[None]):
         for d in range(n_EE[None]):
             if old_EE[c, 0] == EE[d, 0] and old_EE[c, 1] == EE[d, 1] and old_EE[c, 2] == EE[d, 2] and old_EE[c, 3] == EE[d, 3]:
-                k = old_Q_EE[c, 0] / Q_EE[c, 0]
+                k = 1.
+                if ti.static(update_dbdf):
+                    k = old_Q_EE[c, 0] / Q_EE[c, 0]
+                else:
+                    Q_EE[d, 0], Q_EE[d, 1], Q_EE[d, 2] = old_Q_EE[c, 0], old_Q_EE[c, 1], old_Q_EE[c, 2]
                 y_EE[d, 0], y_EE[d, 1], y_EE[d, 2] = old_y_EE[c, 0], old_y_EE[c, 1], old_y_EE[c, 2]
                 r_EE[d, 0], r_EE[d, 1], r_EE[d, 2] = old_r_EE[c, 0] * k, old_r_EE[c, 1] * k, old_r_EE[c, 2] * k
-                Q_EE[d, 0], Q_EE[d, 1], Q_EE[d, 2] = old_Q_EE[c, 0], old_Q_EE[c, 1], old_Q_EE[c, 2]
     for c in range(old_n_EEM[None]):
         for d in range(n_EEM[None]):
             if old_EEM[c, 0] == EEM[d, 0] and old_EEM[c, 1] == EEM[d, 1] and old_EEM[c, 2] == EEM[d, 2] and old_EEM[c, 3] == EEM[d, 3]:
-                k = old_Q_EEM[c, 0] / Q_EEM[c, 0]
+                k = 1.
+                if ti.static(update_dbdf):
+                    k = old_Q_EEM[c, 0] / Q_EEM[c, 0]
+                else:
+                    Q_EEM[d, 0], Q_EEM[d, 1], Q_EEM[d, 2] = old_Q_EEM[c, 0], old_Q_EEM[c, 1], old_Q_EEM[c, 2]
                 y_EEM[d, 0], y_EEM[d, 1], y_EEM[d, 2] = old_y_EEM[c, 0], old_y_EEM[c, 1], old_y_EEM[c, 2]
                 r_EEM[d, 0], r_EEM[d, 1], r_EEM[d, 2] = old_r_EEM[c, 0] * k, old_r_EEM[c, 1] * k, old_r_EEM[c, 2] * k
-                Q_EEM[d, 0], Q_EEM[d, 1], Q_EEM[d, 2] = old_Q_EEM[c, 0], old_Q_EEM[c, 1], old_Q_EEM[c, 2]
     for c in range(old_n_PPM[None]):
         for d in range(n_PPM[None]):
             if old_PPM[c, 0] == PPM[d, 0] and old_PPM[c, 1] == PPM[d, 1] and old_PPM[c, 2] == PPM[d, 2] and old_PPM[c, 3] == PPM[d, 3]:
-                k = old_Q_PPM[c, 0] / Q_PPM[c, 0]
+                k = 1.
+                if ti.static(update_dbdf):
+                    k = old_Q_PPM[c, 0] / Q_PPM[c, 0]
+                else:
+                    Q_PPM[d, 0], Q_PPM[d, 1], Q_PPM[d, 2] = old_Q_PPM[c, 0], old_Q_PPM[c, 1], old_Q_PPM[c, 2]
                 y_PPM[d, 0], y_PPM[d, 1], y_PPM[d, 2] = old_y_PPM[c, 0], old_y_PPM[c, 1], old_y_PPM[c, 2]
                 r_PPM[d, 0], r_PPM[d, 1], r_PPM[d, 2] = old_r_PPM[c, 0] * k, old_r_PPM[c, 1] * k, old_r_PPM[c, 2] * k
-                Q_PPM[d, 0], Q_PPM[d, 1], Q_PPM[d, 2] = old_Q_PPM[c, 0], old_Q_PPM[c, 1], old_Q_PPM[c, 2]
     for c in range(old_n_PEM[None]):
         for d in range(n_PEM[None]):
             if old_PEM[c, 0] == PEM[d, 0] and old_PEM[c, 1] == PEM[d, 1] and old_PEM[c, 2] == PEM[d, 2] and old_PEM[c, 3] == PEM[d, 3]:
-                k = old_Q_PEM[c, 0] / Q_PEM[c, 0]
+                k = 1.
+                if ti.static(update_dbdf):
+                    k = old_Q_PEM[c, 0] / Q_PEM[c, 0]
+                else:
+                    Q_PEM[d, 0], Q_PEM[d, 1], Q_PEM[d, 2] = old_Q_PEM[c, 0], old_Q_PEM[c, 1], old_Q_PEM[c, 2]
                 y_PEM[d, 0], y_PEM[d, 1], y_PEM[d, 2] = old_y_PEM[c, 0], old_y_PEM[c, 1], old_y_PEM[c, 2]
                 r_PEM[d, 0], r_PEM[d, 1], r_PEM[d, 2] = old_r_PEM[c, 0] * k, old_r_PEM[c, 1] * k, old_r_PEM[c, 2] * k
-                Q_PEM[d, 0], Q_PEM[d, 1], Q_PEM[d, 2] = old_Q_PEM[c, 0], old_Q_PEM[c, 1], old_Q_PEM[c, 2]
 
 
 @ti.kernel
@@ -1445,7 +1470,7 @@ if __name__ == "__main__":
             [x_, v_] = pickle.load(open(directory + f'caches/{f_start:06d}.p', 'rb'))
             x.from_numpy(x_)
             v.from_numpy(v_)
-        for f in range(f_start, 360):
+        for f in range(f_start, 120):
             with Timer("Time Step"):
                 print("==================== Frame: ", f, " ====================")
                 with Timer("Initialization for xTilde, elasticity"):
@@ -1463,7 +1488,8 @@ if __name__ == "__main__":
                             find_constraints_3D_EE()
                         remove_duplicated_constraints()
                         reuse_admm_variables(alpha)
-                        update_dpdf_and_dbdf()
+                        if update_dpdf:
+                            update_dpdf_and_dbdf()
 
                     with Timer("Global Build System"):
                         data_rhs.fill(0)
