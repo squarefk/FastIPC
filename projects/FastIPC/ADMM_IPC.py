@@ -155,6 +155,9 @@ else:
 block = grid.pointer(indices, grid_block_size // leaf_block_size)
 block.dense(indices, leaf_block_size).dynamic(ti.indices(dim), 1024 * 1024, chunk_size=leaf_block_size**dim * 8).place(pid, offset=offset + (0, ))
 
+update_dbdf = False
+update_dpdf = False
+
 
 @ti.kernel
 def compute_adaptive_kappa() -> real:
@@ -302,8 +305,8 @@ def initial_guess():
         vol0 = restT[i].determinant() / dim / (dim - 1)
         F = compute_T(i, x) @ restT[i].inverse()
         U, sig, V = svd(F)
-        W[i] = ti.sqrt(elasticity_hessian(sig, la, mu).norm() * dt * dt * vol0)
-        # W[i] = ti.sqrt((la + mu * 2 / 3) * dt * dt * vol0)
+        # W[i] = ti.sqrt(elasticity_hessian(sig, la, mu).norm() * dt * dt * vol0)
+        W[i] = ti.sqrt((la + mu * 2 / 3) * dt * dt * vol0)
         z[i] = currentT @ restT[i].inverse()
         u[i] = ti.Matrix.zero(real, dim, dim)
     n_PP[None], n_PE[None], n_PT[None], n_EE[None], n_EEM[None], n_PPM[None], n_PEM[None] = 0, 0, 0, 0, 0, 0, 0
@@ -1299,7 +1302,6 @@ def reuse_admm_variables(alpha: real):
             _a0, _a1, _b0, _b1 = x0[PPM[r, 0]], x0[PPM[r, 1]], x0[PPM[r, 2]], x0[PPM[r, 3]]
             Q_PPM[r, 0] = min(max(ti.sqrt(PPM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _b0, _a1, _b1, dHat2, kappa).norm()), min_Q), max_Q)
     ############################################### PEM ###############################################
-    update_dbdf = False
     if ti.static(dim == 3):
         for r in range(n_PEM[None]):
             a0 = xTilde[PEM[r, 0]] * alpha + x[PEM[r, 0]] * (1 - alpha)
@@ -1486,7 +1488,8 @@ if __name__ == "__main__":
                             find_constraints_3D_EE()
                         remove_duplicated_constraints()
                         reuse_admm_variables(alpha)
-                        # update_dpdf_and_dbdf()
+                        if update_dpdf:
+                            update_dpdf_and_dbdf()
 
                     with Timer("Global Build System"):
                         data_rhs.fill(0)
