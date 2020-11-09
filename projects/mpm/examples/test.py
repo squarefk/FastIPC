@@ -13,27 +13,27 @@ os.makedirs(directory, exist_ok=True)
 
 # mpm = MPMSolverImplicit(res=(128,128))
 
-# mpm.add_cube(pos=(0.4, 0.5), size=(0.2, 0.2))
+# mpm.add_cube(min_corner=(0.4, 0.5), max_corner=(0.6, 0.7))
 
 # mpm.add_surface_collider(point=(0.0, 0.02), normal=(0.0, 1.0))
 
-# mpm.add_analytic_box()
+# # mpm.add_analytic_box()
 
-# mpm.test()
+# # mpm.test()
 
 
 gui = ti.GUI("Taichi Elements", res=512, background_color=0x112F41)
 
 mpm = MPMSolverImplicit(res=(128,128))
 
-mpm.dt = 0.0001
 
-mpm.add_cube(pos=(0.3, 0.7), size=(0.4, 0.2))
+mpm.add_cube(min_corner=(0.3, 0.7), max_corner=(0.7, 0.9), num_particles = 20000)
 
-mpm.add_surface_collider(point=(0.0, 0.02), normal=(0.0, 1.0))
+# mpm.add_surface_collider(point=(0.0, 0.02), normal=(0.0, 1.0))
 
-# mpm.add_analytic_box()
+mpm.add_analytic_box(min_corner=(0.4, 0.3), max_corner=(0.6, 0.5), rotation=3.1415926/4)
 
+mpm.add_analytic_box(min_corner=(0.0, 0.0), max_corner=(1.0, 0.1))
 
 for frame in range(100000):
     # print(frame)
@@ -43,6 +43,7 @@ for frame in range(100000):
                 radius=1.5,
                 color=0x068587)
     gui.show(directory + f'{frame:06d}.png')
+    # print(mpm.getMaxVelocity())
     # gui.show()
 
 
