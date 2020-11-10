@@ -238,6 +238,7 @@ class MPMSolverImplicit:
 
             # Hardening coefficient: snow gets harder when compressed
             h = ti.exp(10 * (1.0 - self.p_Jp[p]))
+            h = 1.0
             mu, la = self.mu_0 * h, self.lambda_0 * h
 
             # mu, la = self.mu_0, self.lambda_0
@@ -443,7 +444,7 @@ class MPMSolverImplicit:
             #         self.rhs[i*self.dim+d] = 0
 
     @ti.kernel
-    def TotalEnergy(self):
+    def TotalEnergy(self) -> real:
         '''
             Compute total elastic energy
         '''
@@ -454,7 +455,7 @@ class MPMSolverImplicit:
             la, mu = self.lambda_0, self.mu_0
             psi = elasticity_energy(F, la, mu)
             e += psi
-        print(e)
+        return e
 
     def SolveLinearSystem(self, dt):
         ndof = self.num_active_grid[None]
@@ -471,7 +472,9 @@ class MPMSolverImplicit:
             self.data_x[i*d], self.data_x[i*d+1] = x[i*d], x[i*d+1]        
 
     @ti.kernel
-    def UpdateState(self, dt:real):
+    def UpdateState(self, dt:real, alpha:real):
+        # Update deformation gradient F = (I + deltat * d(v'))F
+        # where v' = v + dv + alpha * ddv
         for I in ti.grouped(self.pid):
             p = self.pid[I]
             base = ti.floor(self.p_x[p] * self.inv_dx - 0.5).cast(int)
@@ -486,6 +489,9 @@ class MPMSolverImplicit:
             # loop over 3x3 grid node neighborhood
             for offset in ti.static(ti.grouped(self.stencil_range())):
                 g_v = self.grid_v[base + offset]
+                g_dof = self.grid_idx[base + offset]
+                dvplusddv = ti.Vector([self.dv[2*g_dof], self.dv[2*g_dof+1]]) + alpha * ti.Vector([self.data_x[2*g_dof], self.data_x[2*g_dof+1]])
+                g_v += dvplusddv
                 weight = 1.0
                 dN = ti.Vector.zero(real, self.dim)
                 for d in ti.static(range(self.dim)):
@@ -520,10 +526,10 @@ class MPMSolverImplicit:
         #     rhs[i*d+1] += (-10.0)*self.dt*m
 
     @ti.kernel
-    def LineSearch(self, dt:real):
+    def LineSearch(self, dt:real, alpha:real):
         # self.dv += self.data_x
         for i in range(self.num_active_grid[None] * self.dim):
-            self.dv[i] += self.data_x[i] * 0.1
+            self.dv[i] += self.data_x[i] * alpha
 
     @ti.kernel
     def BuildInitial(self, dt:real):
@@ -579,8 +585,12 @@ class MPMSolverImplicit:
         self.boundary.fill(0)
         self.BuildInitial(self.dt)
         # Newton iteration
-        for iter in range(1):
-            print('iter = ', iter)
+        self.BackupStrain()
+        for iter in range(3):
+            print('Newton iter = ', iter)
+            self.UpdateState(dt, 0)
+            E0 = self.TotalEnergy()
+            print("E0 = ", E0)
             self.explicit_force(dt) 
             self.ComputeResidual(dt) # Compute g
             self.BuildMatrix(dt) # Compute H
@@ -590,8 +600,33 @@ class MPMSolverImplicit:
 
             self.SolveLinearSystem(dt)  # solve dx = H^(-1)g
 
-            self.LineSearch(dt)
-        
+            # self.LineSearch(dt, 0.1)
+
+            alpha = 1.0
+            for _ in range(10):
+                self.RestoreStrain()
+                self.UpdateState(dt, alpha)
+                E = self.TotalEnergy()
+                # print("alpha=",alpha,"E=",E)
+                if E <= E0:
+                    break
+                alpha /= 2
+            print(alpha, E)
+            
+            # self.RestoreStrain()
+            # self.UpdateState(dt, 1.0)
+            # E1 = self.TotalEnergy()
+            # self.RestoreStrain()
+            # self.UpdateState(dt, 0.1)
+            # E2 = self.TotalEnergy() 
+            # print("aaa", E1, E2)
+            self.LineSearch(dt, alpha)
+
+
+            self.RestoreStrain() 
+
+            ndof = self.num_active_grid[None]
+            print(np.linalg.norm(self.data_x.to_numpy()[0:ndof*self.dim]))       
         self.implicit_update(dt)
         # self.TotalEnergy()
 

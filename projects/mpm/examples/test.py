@@ -27,7 +27,7 @@ gui = ti.GUI("Taichi Elements", res=512, background_color=0x112F41)
 mpm = MPMSolverImplicit(res=(128,128))
 
 
-mpm.add_cube(min_corner=(0.3, 0.7), max_corner=(0.7, 0.9), num_particles = 20000)
+mpm.add_cube(min_corner=(0.3, 0.55), max_corner=(0.7, 0.75), num_particles = 20000)
 
 # mpm.add_cube(min_corner=(0.3, 0.3), max_corner=(0.7, 0.5), num_particles = 20000)
 
