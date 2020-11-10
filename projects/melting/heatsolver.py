@@ -265,10 +265,11 @@ mpm.sample_particles()
 gui = ti.GUI("ExaAM")
 current_t = 0.
 
-times_data = []
-width_data = []
-depth_data = []
+times_simulated = []
+width_simulated = []
+depth_simulated = []
 
+fig = plt.figure(figsize=(10, 5))
 while current_t < 0.0045:
     print("current_t", current_t)
     mpm.step(current_t)
@@ -276,11 +277,16 @@ while current_t < 0.0045:
     mpm.img.fill(0)
     mpm.visualize()
 
-    times_data.append(current_t * 1e6)
-    width_data.append(mpm.width[None] * 1e6)
-    depth_data.append(mpm.depth[None] * 1e6)
+    times_simulated.append(current_t * 1e6)
+    width_simulated.append(mpm.width[None] * 1e6)
+    depth_simulated.append(mpm.depth[None] * 1e6)
     plt.clf()
-    plt.plot(times_data, width_data)
+    plt.subplot(1, 2, 1)
+    plt.title("Width")
+    plt.plot(times_simulated, width_simulated, label='simulation')
+    plt.subplot(1, 2, 2)
+    plt.title("Depth")
+    plt.plot(times_simulated, depth_simulated, label='simulation')
     plt.pause(0.05)
     if np.isnan(mpm.T.to_numpy()).any():
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!! FATAL NAN")
