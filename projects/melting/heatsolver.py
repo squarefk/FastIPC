@@ -1,6 +1,8 @@
 import taichi as ti
 import math
 import time
+import numpy as np
+import matplotlib.pyplot as plt
 
 real = ti.f32
 
@@ -58,6 +60,8 @@ class MPMSolver:
 
         #################### visualization data ####################
         self.img = ti.field(dtype=real, shape=(self.res, self.res))
+        self.depth = ti.field(real, shape=())
+        self.width = ti.field(real, shape=())
 
     def stencil_range(self):
         return ti.ndrange(*((3, ) * self.dim))
@@ -194,6 +198,8 @@ class MPMSolver:
     def step3(self):
         ti.no_activate(self.particle)
         ti.block_dim(256)
+        self.depth[None] = 0.
+        self.width[None] = 0.
         for I in ti.grouped(self.pid):
             p = self.pid[I]
             base = ti.floor(self.x[p] * self.inv_dx - 0.5).cast(int)
@@ -211,6 +217,9 @@ class MPMSolver:
                     T_ += (delta / H * self.dt + theta) * weight
             self.T[p] += T
             self.T_[p] = T_
+            if self.T_[p] > 1728.:
+                ti.atomic_max(self.depth[None], 0.0003 - self.x[p](1))
+                ti.atomic_max(self.width[None], ti.abs(self.x[p](0)))
 
     def step(self, current_t):
         self.grid.deactivate_all()
@@ -241,11 +250,28 @@ mpm = MPMSolver()
 mpm.sample_particles()
 gui = ti.GUI("ExaAM")
 current_t = 0.
+
+times_data = []
+width_data = []
+depth_data = []
+
 while current_t < 0.0045:
     print("current_t", current_t)
     mpm.step(current_t)
+    current_t += mpm.dt
     mpm.img.fill(0)
     mpm.visualize()
+
+    times_data.append(current_t * 1e6)
+    width_data.append(mpm.width[None] * 1e6)
+    depth_data.append(mpm.depth[None] * 1e6)
+    plt.clf()
+    plt.plot(times_data, width_data)
+    plt.pause(0.05)
+    if np.isnan(mpm.T.to_numpy()).any():
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!! FATAL NAN")
+        exit(0)
+
     gui.set_image(mpm.img)
     gui.show(f'outputs/{int(current_t / mpm.dt):06d}.png' )
-    current_t += mpm.dt
+plt.show()
