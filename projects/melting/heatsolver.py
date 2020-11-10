@@ -267,8 +267,8 @@ current_t = 0.
 width_simulated = []
 depth_simulated = []
 time_simulated = []
-width_real = np.array(list(map(float, open('width_real.txt', 'r').readlines())))[1:]
-depth_real = np.array(list(map(float, open('depth_real.txt', 'r').readlines())))[1:]
+width_real = np.array(list(map(float, open('width_real_40.txt', 'r').readlines())))[1:]
+depth_real = np.array(list(map(float, open('depth_real_40.txt', 'r').readlines())))[1:]
 time_real = np.array(range(len(depth_real))) * 57.12
 
 fig = plt.figure(figsize=(10, 5))
@@ -294,8 +294,7 @@ while current_t < 0.0045:
     plt.pause(0.05)
     if np.isnan(mpm.T.to_numpy()).any():
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!! FATAL NAN")
-        exit(0)
-
+        break
     gui.set_image(mpm.img)
     gui.show(f'outputs/{int(current_t / mpm.dt):06d}.png' )
 plt.show()
