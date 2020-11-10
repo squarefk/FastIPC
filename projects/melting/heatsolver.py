@@ -103,8 +103,8 @@ class MPMSolver:
             p = ti.atomic_add(self.n_particles[None], 1)
             d = ti.Vector([ti.random(real) for i in range(self.dim)])
             self.x[p] = lower + (ti.cast(I, real) + d) * cell_size
-            self.T[p] = 297.
-            self.T_[p] = 297.
+            self.T[p] = 298.
+            self.T_[p] = 298.
             self.S[p] = 0
             self.LH[p] = 0.
         print("Total particle#", self.n_particles[None])
