@@ -204,9 +204,10 @@ class MPMSolver:
                 weight = w[offset[0]][0] * w[offset[1]][1] * w[offset[2]][2]
                 delta = self.grid_delta[base + offset]
                 H = self.grid_H[base + offset]
-                theta = self.grid_theta[base + offset]
-                T += delta / H * self.dt * weight
-                T_ += (delta / H * self.dt + theta) * weight
+                if H > 0:
+                    theta = self.grid_theta[base + offset]
+                    T += delta / H * self.dt * weight
+                    T_ += (delta / H * self.dt + theta) * weight
             self.T[p] += T
             self.T_[p] = T_
 
@@ -225,14 +226,13 @@ class MPMSolver:
 
     @ti.kernel
     def visualize(self):
-        # for I in ti.grouped(self.grid_H):
-        #     T = self.grid_delta[I] / self.grid_H[I] * self.dt + self.grid_theta[I]
-        for I in ti.grouped(self.grid_theta):
-            T = self.grid_theta[I] / 1000.
-            i = I[0] + self.res // 2
-            j = I[1] + self.res // 2
-            if 0 <= i < self.res and 0 <= j < self.res:
-                ti.atomic_max(self.img[i, j], T)
+        for I in ti.grouped(self.grid_H):
+            if self.grid_H[I] > 0:
+                T = (self.grid_delta[I] / self.grid_H[I] * self.dt + self.grid_theta[I]) / 1728.
+                i = I[0] + self.res // 2
+                j = I[1] + self.res // 2
+                if 0 <= i < self.res and 0 <= j < self.res:
+                    ti.atomic_max(self.img[i, j], T)
 
 ti.init(arch=ti.gpu, default_fp=real)
 
