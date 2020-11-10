@@ -27,11 +27,11 @@ class MPMSolver:
         # temperature with last PIC transfer
         self.T_ = ti.field(real)
         # liquid/solid status: 0--solid 1--liquid
-        self.S = ti.field(ti.i32)
+        self.P = ti.field(ti.i32)
         # latent heat buffer
         self.LH = ti.field(real)
         self.particle = ti.root.dynamic(ti.i, 2**27, 2**20)
-        self.particle.place(self.x, self.T, self.T_, self.S, self.LH)
+        self.particle.place(self.x, self.T, self.T_, self.P, self.LH)
 
         #################### grid data ####################
         indices = ti.ij if self.dim == 2 else ti.ijk
@@ -107,7 +107,7 @@ class MPMSolver:
             self.x[p] = lower + (ti.cast(I, real) + d) * cell_size
             self.T[p] = 298.
             self.T_[p] = 298.
-            self.S[p] = 0
+            self.P[p] = 0
             self.LH[p] = 0.
         print("Total particle#", self.n_particles[None])
 
@@ -212,7 +212,26 @@ class MPMSolver:
                     T_ += (delta / H * self.dt + theta) * weight
             self.T[p] += T
             self.T_[p] = T_
-            if self.T_[p] > 1728.:
+            melt_buffer = 523
+            if self.T_[p] > 1728. and self.P[p] == 0:
+                self.LH[p] += self.T_[p] - 1728
+                self.T[p] -= self.T_[p] - 1728
+                self.T_[p] = 1728
+                if self.LH[p] > melt_buffer:
+                    self.T[p] += self.LH[p] - melt_buffer
+                    self.T_[p] += self.LH[p] - melt_buffer
+                    self.P[p] = 1
+                    self.LH[p] = melt_buffer
+            if self.T_[p] < 1728. and self.P[p] == 1:
+                self.LH[p] -= 1728 - self.T_[p]
+                self.T[p] += 1728 - self.T_[p]
+                self.T_[p] = 1728
+                if self.LH[p] < 0:
+                    self.T[p] += self.LH[p]
+                    self.T_[p] += self.LH[p]
+                    self.P[p] = 0
+                    self.LH[p] = 0
+            if self.P[p] == 1:
                 ti.atomic_max(self.depth[None], 0.0003 - self.x[p](1))
                 ti.atomic_max(self.width[None], ti.abs(self.x[p](0)))
 
