@@ -168,6 +168,7 @@ class MPMSolver:
                     self.inv_dx * w[offset[0]][0] * w[offset[1]][1] * dw[offset[2]][2]])
                 self.grid_delta[base_2 + offset] -= kappa * self.p_vol * dweight.dot(middle)
 
+            T = self.T_[p]
             base_0 = ti.floor(self.x[p] * self.inv_dx).cast(int)
             base_0[1] += 1
             beta = 0.01
