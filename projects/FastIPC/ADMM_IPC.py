@@ -32,8 +32,8 @@ scalar = lambda: ti.field(real)
 vec = lambda: ti.Vector.field(dim, real)
 mat = lambda: ti.Matrix.field(dim, dim, real)
 
-dt = 0.04
-E = 1e4
+dt = settings['dt']
+E = settings['E']
 nu = 0.4
 la = E * nu / ((1 + nu) * (1 - 2 * nu))
 mu = E / (2 * (1 + nu))
@@ -134,7 +134,7 @@ ti.root.dense(ti.ij, (MAX_C, 3)).place(old_y_PEM, old_r_PEM, old_Q_PEM)
 dfx = ti.field(ti.i32, shape=n_particles)
 dfv = ti.field(real, shape=n_particles * dim)
 
-dHat2 = 1e-5
+dHat2 = 1e-5 if dim == 2 else 1e-6
 dHat = dHat2 ** 0.5
 kappa = 1e4
 

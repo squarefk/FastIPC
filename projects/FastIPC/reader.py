@@ -136,6 +136,9 @@ def read():
     ################################################### GENERAL ##################################################
     testcase = int(sys.argv[1])
     settings['start_frame'] = int(sys.argv[2])
+    settings['dt'] = float(sys.argv[3])
+    settings['E'] = float(sys.argv[4])
+    settings['scale'] = float(sys.argv[5])
 
     directory = 'output/' + '_'.join(sys.argv[:2] + sys.argv[3:]) + '/'
     os.makedirs(directory + 'images/', exist_ok=True)
@@ -271,7 +274,7 @@ def read():
         return settings
     elif testcase == 1008:
         # cube
-        scale = 0.5
+        scale = settings['scale']
         init(3)
         settings['gravity'] = -9.8
         add_object('cube', translation=[-0.5 * scale, 0.5 * scale, -0.5 * scale], scale=[1. * scale, 1. * scale, 1. * scale])
