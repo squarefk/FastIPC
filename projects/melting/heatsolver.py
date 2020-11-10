@@ -128,15 +128,14 @@ class MPMSolver:
             p = self.pid[I]
             T = self.T[p]
             c = self.get_heat_capacity(T)
-            base_2 = ti.floor(self.x[p] * self.inv_dx - 0.5).cast(int)
-            fx = self.x[p] * self.inv_dx - base_2.cast(real)
+            base = ti.floor(self.x[p] * self.inv_dx - 0.5).cast(int)
+            fx = self.x[p] * self.inv_dx - base.cast(real)
             w = [0.5 * (1.5 - fx)**2, 0.75 - (fx - 1)**2, 0.5 * (fx - 0.5)**2]
             for offset in ti.static(ti.grouped(self.stencil_range())):
                 weight = w[offset[0]][0] * w[offset[1]][1] * w[offset[2]][2]
-                self.grid_H[base_2 + offset] += self.p_mass * c * weight
-                self.grid_theta[base_2 + offset] += self.p_mass * c * T * weight
-            base_0 = ti.floor(self.x[p] * self.inv_dx).cast(int)
-            self.grid_color[base_0] = 1
+                self.grid_H[base + offset] += self.p_mass * c * weight
+                self.grid_theta[base + offset] += self.p_mass * c * T * weight
+            self.grid_color[base] = 1
 
     @ti.kernel
     def step1(self):
@@ -152,8 +151,8 @@ class MPMSolver:
             p = self.pid[I]
             T = self.T[p]
             kappa = self.get_thermal_conductivity(T)
-            base_2 = ti.floor(self.x[p] * self.inv_dx - 0.5).cast(int)
-            fx = self.x[p] * self.inv_dx - base_2.cast(real)
+            base = ti.floor(self.x[p] * self.inv_dx - 0.5).cast(int)
+            fx = self.x[p] * self.inv_dx - base.cast(real)
             w = [0.5 * (1.5 - fx)**2, 0.75 - (fx - 1)**2, 0.5 * (fx - 0.5)**2]
             dw = [fx - 1.5, -2.0 * (fx - 1), fx - 0.5]
 
@@ -163,18 +162,19 @@ class MPMSolver:
                     self.inv_dx * dw[offset[0]][0] * w[offset[1]][1] * w[offset[2]][2],
                     self.inv_dx * w[offset[0]][0] * dw[offset[1]][1] * w[offset[2]][2],
                     self.inv_dx * w[offset[0]][0] * w[offset[1]][1] * dw[offset[2]][2]])
-                middle += dweight * self.grid_theta[base_2 + offset]
+                middle += dweight * self.grid_theta[base + offset]
 
             for offset in ti.static(ti.grouped(self.stencil_range())):
                 dweight = ti.Vector([
                     self.inv_dx * dw[offset[0]][0] * w[offset[1]][1] * w[offset[2]][2],
                     self.inv_dx * w[offset[0]][0] * dw[offset[1]][1] * w[offset[2]][2],
                     self.inv_dx * w[offset[0]][0] * w[offset[1]][1] * dw[offset[2]][2]])
-                self.grid_delta[base_2 + offset] -= kappa * self.p_vol * dweight.dot(middle)
+                self.grid_delta[base + offset] -= kappa * self.p_vol * dweight.dot(middle)
 
-            T = self.T_[p]
-            base_0 = ti.floor(self.x[p] * self.inv_dx).cast(int)
-            base_0[1] += 1
+            upside = base
+            upside[1] += 1
+            on_boundary = ti.cast(1 - self.grid_color[upside], real)
+            # T = self.T_[p]
             beta = 0.01
             convection = -80.0 * (T - 298.)
             radiation = -0.3 * 5.670367 * 1e-8 * (T**4 - 298.**4)
@@ -186,8 +186,7 @@ class MPMSolver:
             laser = (2. * alpha * 197) / (math.pi * (r0**2)) * ti.exp((-2 * (r**2)) / (r0**2)) * laser_on
             for offset in ti.static(ti.grouped(self.stencil_range())):
                 weight = w[offset[0]][0] * w[offset[1]][1] * w[offset[2]][2]
-                on_boundary = ti.cast(1 - self.grid_color[base_0], real)
-                self.grid_delta[base_2 + offset] += (self.dx ** 2) / 4 * weight * (convection + radiation + evaporation + laser) * on_boundary
+                self.grid_delta[base + offset] += (self.dx ** 2) / 4 * weight * (convection + radiation + evaporation + laser) * on_boundary
 
     @ti.kernel
     def step3(self):
