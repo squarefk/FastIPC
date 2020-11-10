@@ -186,13 +186,8 @@ class MPMSolver:
             laser = (2. * alpha * 197) / (math.pi * (r0**2)) * ti.exp((-2 * (r**2)) / (r0**2)) * laser_on
             for offset in ti.static(ti.grouped(self.stencil_range())):
                 weight = w[offset[0]][0] * w[offset[1]][1] * w[offset[2]][2]
-                self.grid_delta[base_2 + offset] += (self.dx ** 2) / 4 * weight * (convection + radiation + evaporation + laser) * (1 - self.grid_color[base_0])
-
-        m1, m2, m3 = 0., 0., 0.
-        for I in ti.grouped(self.grid_H):
-            ti.atomic_max(m1, self.grid_delta[I])
-            ti.atomic_max(m2, self.grid_theta[I])
-            ti.atomic_max(m3, self.grid_H[I])
+                on_boundary = ti.cast(1 - self.grid_color[base_0], real)
+                self.grid_delta[base_2 + offset] += (self.dx ** 2) / 4 * weight * (convection + radiation + evaporation + laser) * on_boundary
 
     @ti.kernel
     def step3(self):
