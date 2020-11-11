@@ -933,15 +933,16 @@ def reuse_admm_variables(alpha: real):
     min_Q = ti.sqrt(PP_hessian(ti.Matrix.zero(real, dim), ti.Matrix.one(real, dim) * 9e-1 * dHat, dHat2, kappa).norm()) / 10
     max_Q = ti.sqrt(PP_hessian(ti.Matrix.zero(real, dim), ti.Matrix.one(real, dim) * 1e-4 * dHat, dHat2, kappa).norm()) * 10
     ############################################### PE ###############################################
-    for r in range(n_GPE[None]):
-        p = xTilde[GPE[r, 0]] * alpha + x[GPE[r, 0]] * (1 - alpha)
-        e0 = xTilde[GPE[r, 1]] * alpha + x[GPE[r, 1]] * (1 - alpha)
-        e1 = xTilde[GPE[r, 2]] * alpha + x[GPE[r, 2]] * (1 - alpha)
-        y_GPE[r, 0], y_GPE[r, 1] = p - e0, p - e1
-        r_GPE[r, 0], r_GPE[r, 1] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
+    if ti.static(dim == 2):
+        for r in range(n_GPE[None]):
+            p = xTilde[GPE[r, 0]] * alpha + x[GPE[r, 0]] * (1 - alpha)
+            e0 = xTilde[GPE[r, 1]] * alpha + x[GPE[r, 1]] * (1 - alpha)
+            e1 = xTilde[GPE[r, 2]] * alpha + x[GPE[r, 2]] * (1 - alpha)
+            y_GPE[r, 0], y_GPE[r, 1] = p - e0, p - e1
+            r_GPE[r, 0], r_GPE[r, 1] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
 
-        p, e0, e1 = x[GPE[r, 0]], x[GPE[r, 1]], x[GPE[r, 2]]
-        Q_GPE[r, 0] = min(max(ti.sqrt(GPE_hessian(ti.Matrix.zero(real, dim), p - e0, p - e1, dHat2, kappa).norm()), min_Q), max_Q)
+            p, e0, e1 = x[GPE[r, 0]], x[GPE[r, 1]], x[GPE[r, 2]]
+            Q_GPE[r, 0] = min(max(ti.sqrt(GPE_hessian(ti.Matrix.zero(real, dim), p - e0, p - e1, dHat2, kappa).norm()), min_Q), max_Q)
     ############################################### PT ###############################################
     if ti.static(dim == 3):
         for r in range(n_GPT[None]):
@@ -1133,7 +1134,7 @@ if __name__ == "__main__":
                         global_step(_data_row, _data_col, _data_val)
                         if dim == 2:
                             global_GPE(_data_row, _data_col, _data_val)
-                        if dim == 3:
+                        elif dim == 3:
                             global_GPT(_data_row, _data_col, _data_val)
                             global_GEE(_data_row, _data_col, _data_val)
                             global_GEEM(_data_row, _data_col, _data_val)
@@ -1142,8 +1143,9 @@ if __name__ == "__main__":
 
                     with Timer("Local Step"):
                         local_elasticity()
-                        local_GPE()
-                        if dim == 3:
+                        if dim == 2:
+                            local_GPE()
+                        elif dim == 3:
                             local_GPT()
                             local_GEE()
                             local_GEEM()
