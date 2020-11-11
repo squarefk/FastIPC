@@ -608,9 +608,7 @@ def local_GPE():
                 converge = True
             if iter & 31 == 0:
                 print("local PE iters:", iter, ", residual:", p.norm_sqr())
-            alpha = 1.0
-            if ti.static(dim == 2):
-                alpha = point_edge_ccd(ti.Vector([0.0, 0.0]), ti.Vector([pos[0], pos[1]]), ti.Vector([pos[2], pos[3]]), ti.Vector([0.0, 0.0]), ti.Vector([p[0], p[1]]), ti.Vector([p[2], p[3]]), 0.1)
+            alpha = point_edge_ccd(ti.Vector([0.0, 0.0]), ti.Vector([pos[0], pos[1]]), ti.Vector([pos[2], pos[3]]), ti.Vector([0.0, 0.0]), ti.Vector([p[0], p[1]]), ti.Vector([p[2], p[3]]), 0.1)
             pos0 = pos
             E0 = GPE_energy(op, extract_vec(pos, list(range(0, dim))), extract_vec(pos, list(range(dim, dim * 2))), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
@@ -644,7 +642,12 @@ def local_GPT():
                 converge = True
             if iter & 31 == 0:
                 print("local GPT iters:", iter, ", residual:", p.norm_sqr())
-            alpha = 1.0
+
+            _p, _t0, _t1, _t2 = ti.Vector([0., 0., 0.]), ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]])
+            _dp, _dt0, _dt1, _dt2 = ti.Vector([0., 0., 0.]), ti.Vector([p[0], p[1], p[2]]), ti.Vector([p[3], p[4], p[5]]), ti.Vector([p[6], p[7], p[8]])
+            dist2 = PT_dist2(_p, _t0, _t1, _t2, PT_type(_p, _t0, _t1, _t2))
+            alpha = point_triangle_ccd(_p, _t0, _t1, _t2, _dp, _dt0, _dt1, _dt2, 0.2, dist2)
+
             pos0 = pos
             E0 = GPT_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
@@ -676,7 +679,12 @@ def local_GEE():
                 converge = True
             if iter & 31 == 0:
                 print("local GEE iters:", iter, ", residual:", p.norm_sqr())
-            alpha = 1.0
+
+            _a0, _a1, _b0, _b1 = ti.Vector([0., 0., 0.]), ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]])
+            _da0, _da1, _db0, _db1 = ti.Vector([0., 0., 0.]), ti.Vector([p[0], p[1], p[2]]), ti.Vector([p[3], p[4], p[5]]), ti.Vector([p[6], p[7], p[8]])
+            dist2 = PT_dist2(_a0, _a1, _b0, _b1, PT_type(_a0, _a1, _b0, _b1))
+            alpha = edge_edge_ccd(_a0, _a1, _b0, _b1, _da0, _da1, _db0, _db1, 0.2, dist2)
+
             pos0 = pos
             E0 = GEE_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
@@ -709,7 +717,12 @@ def local_GEEM():
                 converge = True
             if iter & 31 == 0:
                 print("local GEEM iters:", iter, ", residual:", p.norm_sqr())
-            alpha = 1.0
+
+            _a0, _a1, _b0, _b1 = ti.Vector([0., 0., 0.]), ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]])
+            _da0, _da1, _db0, _db1 = ti.Vector([0., 0., 0.]), ti.Vector([p[0], p[1], p[2]]), ti.Vector([p[3], p[4], p[5]]), ti.Vector([p[6], p[7], p[8]])
+            dist2 = PT_dist2(_a0, _a1, _b0, _b1, PT_type(_a0, _a1, _b0, _b1))
+            alpha = edge_edge_ccd(_a0, _a1, _b0, _b1, _da0, _da1, _db0, _db1, 0.2, dist2)
+
             pos0 = pos
             E0 = GEEM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
             pos = pos0 + alpha * p
