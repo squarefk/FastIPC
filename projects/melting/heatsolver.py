@@ -4,7 +4,7 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 
-real = ti.f32
+real = ti.f64
 
 @ti.data_oriented
 class MPMSolver:
