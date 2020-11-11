@@ -231,7 +231,7 @@ class MPMSolver:
                     self.P[p] = 0
                     self.LH[p] = 0
             if self.P[p] == 1:
-                ti.atomic_max(self.depth[None], 0.0003 - self.x[p](1))
+                ti.atomic_max(self.depth[None], 0.0003 - self.x[p](1) - self.dx / 4)
                 ti.atomic_max(self.width[None], ti.abs(self.x[p](0)))
 
     def step(self, current_t):
