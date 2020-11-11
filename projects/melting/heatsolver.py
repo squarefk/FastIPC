@@ -242,7 +242,7 @@ class MPMSolver:
         print('step1')
         self.step1()
         print('step2')
-        self.step2(1. if current_t < 0.002 else 0.)
+        self.step2(1. if current_t < 0.003 else 0.)
         print('step3')
         self.step3()
         print('step4')
