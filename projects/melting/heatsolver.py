@@ -53,7 +53,7 @@ class MPMSolver:
         block_component(self.grid_H)
         block_component(self.grid_theta)
         block_component(self.grid_delta)
-        block.dense(indices, self.leaf_block_size).dynamic(ti.indices(self.dim),
+        block.dynamic(ti.indices(self.dim),
                       1024 * 1024,
                       chunk_size=self.leaf_block_size**self.dim * 8).place(
             self.pid, offset=self.offset + (0, ))
