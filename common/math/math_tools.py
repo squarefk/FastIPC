@@ -11,16 +11,25 @@ def extract_vec(v, idx: ti.template()):
 
 
 @ti.func
-def fill_vec(v, idx: ti.template()):
-    vec = ti.Matrix.zero(ti.get_runtime().default_fp, 12)
+def extract_mat(m, idx: ti.template()):
+    mat = ti.Matrix.zero(ti.get_runtime().default_fp, len(idx), len(idx))
+    for i, j in ti.static(enumerate(idx)):
+        for p, q in ti.static(enumerate(idx)):
+            mat[i, p] = m[j, q]
+    return mat
+
+
+@ti.func
+def fill_vec(v, idx: ti.template(), n: ti.template()):
+    vec = ti.Matrix.zero(ti.get_runtime().default_fp, n)
     for i, j in ti.static(enumerate(idx)):
         vec[j] = v[i]
     return vec
 
 
 @ti.func
-def fill_mat(m, idx: ti.template()):
-    mat = ti.Matrix.zero(ti.get_runtime().default_fp, 12, 12)
+def fill_mat(m, idx: ti.template(), n: ti.template()):
+    mat = ti.Matrix.zero(ti.get_runtime().default_fp, n, n)
     for i, j in ti.static(enumerate(idx)):
         for p, q in ti.static(enumerate(idx)):
             mat[j, q] = m[i, p]

@@ -136,9 +136,12 @@ def read():
     ################################################### GENERAL ##################################################
     testcase = int(sys.argv[1])
     settings['start_frame'] = int(sys.argv[2])
-    settings['dt'] = float(sys.argv[3])
-    settings['E'] = float(sys.argv[4])
-    settings['scale'] = float(sys.argv[5])
+    # settings['dt'] = float(sys.argv[3])
+    # settings['E'] = float(sys.argv[4])
+    # settings['scale'] = float(sys.argv[5])
+    settings['dt'] = 0.04
+    settings['E'] = 1.e4
+    settings['scale'] = 1.
 
     directory = 'output/' + '_'.join(sys.argv[:2] + sys.argv[3:]) + '/'
     os.makedirs(directory + 'images/', exist_ok=True)
