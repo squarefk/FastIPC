@@ -100,8 +100,8 @@ class MPMSolver:
         lower = ti.Vector([-0.00075, -0.0012, -0.00015])
         upper = ti.Vector([0.00075, 0.0003, 0.00015])
         cell_size = self.dx * 0.5
-        print("?>>> ", *(ti.cast((upper - lower) / cell_size, ti.i32)))
-        for I in ti.grouped(ti.ndrange(*(ti.cast((upper - lower) / cell_size, ti.i32)))):
+        print("Particles Number: ", *(ti.cast((upper - lower) / cell_size + 0.5, ti.i32)))
+        for I in ti.grouped(ti.ndrange(*(ti.cast((upper - lower) / cell_size + 0.5, ti.i32)))):
             p = ti.atomic_add(self.n_particles[None], 1)
             d = ti.Vector([ti.random(real) for i in range(self.dim)])
             self.x[p] = lower + (ti.cast(I, real) + d) * cell_size
