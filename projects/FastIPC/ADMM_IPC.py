@@ -1287,7 +1287,7 @@ def reuse_admm_variables(alpha: real):
 
             a0, a1, b0, b1 = x[EEM[r, 0]], x[EEM[r, 1]], x[EEM[r, 2]], x[EEM[r, 3]]
             _a0, _a1, _b0, _b1 = x0[EEM[r, 0]], x0[EEM[r, 1]], x0[EEM[r, 2]], x0[EEM[r, 3]]
-            Q_EEM[r, 0] = min(max(ti.sqrt(EEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _b0, _a1, _b1, dHat2, kappa).norm()), min_Q), max_Q)
+            Q_EEM[r, 0] = min(max(ti.sqrt(EEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _a1, _b0, _b1, dHat2, kappa).norm()), min_Q), max_Q)
     ############################################### PPM ###############################################
     if ti.static(dim == 3):
         for r in range(n_PPM[None]):
@@ -1300,7 +1300,7 @@ def reuse_admm_variables(alpha: real):
 
             a0, a1, b0, b1 = x[PPM[r, 0]], x[PPM[r, 1]], x[PPM[r, 2]], x[PPM[r, 3]]
             _a0, _a1, _b0, _b1 = x0[PPM[r, 0]], x0[PPM[r, 1]], x0[PPM[r, 2]], x0[PPM[r, 3]]
-            Q_PPM[r, 0] = min(max(ti.sqrt(PPM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _b0, _a1, _b1, dHat2, kappa).norm()), min_Q), max_Q)
+            Q_PPM[r, 0] = min(max(ti.sqrt(PPM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _a1, _b0, _b1, dHat2, kappa).norm()), min_Q), max_Q)
     ############################################### PEM ###############################################
     if ti.static(dim == 3):
         for r in range(n_PEM[None]):
@@ -1313,7 +1313,7 @@ def reuse_admm_variables(alpha: real):
 
             a0, a1, b0, b1 = x[PEM[r, 0]], x[PEM[r, 1]], x[PEM[r, 2]], x[PEM[r, 3]]
             _a0, _a1, _b0, _b1 = x0[PEM[r, 0]], x0[PEM[r, 1]], x0[PEM[r, 2]], x0[PEM[r, 3]]
-            Q_PEM[r, 0] = min(max(ti.sqrt(PEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _b0, _a1, _b1, dHat2, kappa).norm()), min_Q), max_Q)
+            Q_PEM[r, 0] = min(max(ti.sqrt(PEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _a1, _b0, _b1, dHat2, kappa).norm()), min_Q), max_Q)
     # reuse y, r
     for c in range(old_n_PP[None]):
         for d in range(n_PP[None]):

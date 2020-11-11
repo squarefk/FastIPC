@@ -978,7 +978,7 @@ def reuse_admm_variables(alpha: real):
 
             a0, a1, b0, b1 = x[GEEM[r, 0]], x[GEEM[r, 1]], x[GEEM[r, 2]], x[GEEM[r, 3]]
             _a0, _a1, _b0, _b1 = x0[GEEM[r, 0]], x0[GEEM[r, 1]], x0[GEEM[r, 2]], x0[GEEM[r, 3]]
-            Q_GEEM[r, 0] = min(max(ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _b0, _a1, _b1, dHat2, kappa).norm()), min_Q), max_Q)
+            Q_GEEM[r, 0] = min(max(ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _a1, _b0, _b1, dHat2, kappa).norm()), min_Q), max_Q)
     # reuse y, r
     for c in range(old_n_GPE[None]):
         for d in range(n_GPE[None]):
