@@ -11,13 +11,15 @@ class MPMSolver:
     def __init__(self):
         self.n_particles = ti.field(ti.i32, shape=())
         self.dim = 3
-        self.dt = 5e-6
-        self.dx = 0.00001
+        self.dt = 0.00001
+        self.dx = 0.00002
         self.inv_dx = 1. / self.dx
         self.p_vol = (self.dx * 0.5) ** self.dim
         self.p_rho = 8909.
         self.p_mass = self.p_vol * self.p_rho
         self.res = 512
+        self.laser_power = 197.
+        self.laser_duration = 0.003
 
         #################### particles data ####################
         # position
@@ -190,7 +192,7 @@ class MPMSolver:
             r0 = 0.000064
             t = self.get_electrical_resistivity(T) / (1070.0 * 1e-9)
             alpha = 0.365 * (t**0.5) - 0.0667 * t + 0.006 * (t**1.5)
-            laser = (2. * alpha * 197) / (math.pi * (r0**2)) * ti.exp((-2 * (r**2)) / (r0**2)) * laser_on
+            laser = (2. * alpha * self.laser_power) / (math.pi * (r0**2)) * ti.exp((-2 * (r**2)) / (r0**2)) * laser_on
             for offset in ti.static(ti.grouped(self.stencil_range())):
                 weight = w[offset[0]][0] * w[offset[1]][1] * w[offset[2]][2]
                 self.grid_delta[base + offset] += (self.dx ** 2) / 4 * weight * (convection + radiation + evaporation + laser) * on_boundary
@@ -249,7 +251,7 @@ class MPMSolver:
         print('step1')
         self.step1()
         print('step2')
-        self.step2(1. if current_t < 0.003 else 0.)
+        self.step2(1. if current_t < self.laser_duration else 0.)
         print('step3')
         self.step3()
         print('step4')
@@ -264,7 +266,7 @@ class MPMSolver:
                 if 0 <= i < self.res and 0 <= j < self.res:
                     ti.atomic_max(self.img[i, j], T)
 
-ti.init(arch=ti.gpu, default_fp=real)
+ti.init(arch=ti.cpu, default_fp=real)
 
 mpm = MPMSolver()
 mpm.sample_particles()
