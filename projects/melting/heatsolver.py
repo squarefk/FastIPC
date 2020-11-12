@@ -1,6 +1,6 @@
 import taichi as ti
 import math
-import time
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -305,5 +305,6 @@ while current_t < 0.0045:
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!! FATAL NAN")
         break
     gui.set_image(mpm.img)
+    os.makedirs('outputs/', exist_ok=True)
     gui.show(f'outputs/{int(current_t / mpm.dt):06d}.png' )
 plt.show()
