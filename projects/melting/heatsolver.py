@@ -17,7 +17,7 @@ class MPMSolver:
         self.p_vol = (self.dx * 0.5) ** self.dim
         self.p_rho = 8909.
         self.p_mass = self.p_vol * self.p_rho
-        self.res = 512
+        self.img_res = 512
         self.laser_power = 197.
         self.laser_duration = 0.003
 
@@ -61,7 +61,7 @@ class MPMSolver:
             self.pid, offset=self.offset + (0, ))
 
         #################### visualization data ####################
-        self.img = ti.field(dtype=real, shape=(self.res, self.res))
+        self.img = ti.field(dtype=real, shape=(self.img_res, self.img_res))
         self.depth = ti.field(real, shape=())
         self.width = ti.field(real, shape=())
         self.min_T = ti.field(real, shape=())
@@ -261,9 +261,9 @@ class MPMSolver:
         for I in ti.grouped(self.grid_H):
             if self.grid_H[I] > 0:
                 T = (self.grid_delta[I] / self.grid_H[I] * self.dt + self.grid_theta[I]) / 1728.
-                i = I[0] + self.res // 2
-                j = I[1] + self.res // 2
-                if 0 <= i < self.res and 0 <= j < self.res:
+                i = I[0] + self.img_res // 2
+                j = I[1] + self.img_res // 2
+                if 0 <= i < self.img_res and 0 <= j < self.img_res:
                     ti.atomic_max(self.img[i, j], T)
 
 ti.init(arch=ti.cpu, default_fp=real)
