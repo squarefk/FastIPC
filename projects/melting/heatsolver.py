@@ -148,6 +148,7 @@ class MPMSolver:
                 self.grid_theta[I] = (1 / self.grid_H[I]) * self.grid_theta[I]
                 ti.atomic_min(self.min_T[None], self.grid_theta[I])
                 ti.atomic_max(self.max_T[None], self.grid_theta[I])
+        ti.atomic_max(self.min_T[None], 298.)
 
     @ti.kernel
     def step2(self, laser_on: real):
