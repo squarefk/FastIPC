@@ -955,7 +955,8 @@ def reuse_admm_variables(alpha: real):
             r_GPE[r, 0], r_GPE[r, 1] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
 
             p, e0, e1 = x[GPE[r, 0]], x[GPE[r, 1]], x[GPE[r, 2]]
-            Q_GPE[r, 0] = min(max(ti.sqrt(GPE_hessian(ti.Matrix.zero(real, dim), p - e0, p - e1, dHat2, kappa).norm()), min_Q), max_Q)
+            # Q_GPE[r, 0] = min(max(ti.sqrt(GPE_hessian(ti.Matrix.zero(real, dim), p - e0, p - e1, dHat2, kappa).norm()), min_Q), max_Q)
+            Q_GPE[r, 0] = ti.sqrt(GPE_hessian(ti.Matrix.zero(real, dim), p - e0, p - e1, dHat2, kappa).norm())
     ############################################### PT ###############################################
     if ti.static(dim == 3):
         for r in range(n_GPT[None]):
@@ -967,7 +968,8 @@ def reuse_admm_variables(alpha: real):
             r_GPT[r, 0], r_GPT[r, 1], r_GPT[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
 
             p, t0, t1, t2 = x[GPT[r, 0]], x[GPT[r, 1]], x[GPT[r, 2]], x[GPT[r, 3]]
-            Q_GPT[r, 0] = min(max(ti.sqrt(GPT_hessian(ti.Matrix.zero(real, dim), p - t0, p - t1, p - t2, dHat2, kappa).norm()), min_Q), max_Q)
+            # Q_GPT[r, 0] = min(max(ti.sqrt(GPT_hessian(ti.Matrix.zero(real, dim), p - t0, p - t1, p - t2, dHat2, kappa).norm()), min_Q), max_Q)
+            Q_GPT[r, 0] = ti.sqrt(GPT_hessian(ti.Matrix.zero(real, dim), p - t0, p - t1, p - t2, dHat2, kappa).norm())
     ############################################### EE ###############################################
     if ti.static(dim == 3):
         for r in range(n_GEE[None]):
@@ -979,7 +981,8 @@ def reuse_admm_variables(alpha: real):
             r_GEE[r, 0], r_GEE[r, 1], r_GEE[r, 2] = ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim), ti.Matrix.zero(real, dim)
 
             a0, a1, b0, b1 = x[GEE[r, 0]], x[GEE[r, 1]], x[GEE[r, 2]], x[GEE[r, 3]]
-            Q_GEE[r, 0] = min(max(ti.sqrt(GEE_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, dHat2, kappa).norm()), min_Q), max_Q)
+            # Q_GEE[r, 0] = min(max(ti.sqrt(GEE_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, dHat2, kappa).norm()), min_Q), max_Q)
+            Q_GEE[r, 0] = ti.sqrt(GEE_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, dHat2, kappa).norm())
     ############################################### EEM ###############################################
     if ti.static(dim == 3):
         for r in range(n_GEEM[None]):
@@ -992,7 +995,8 @@ def reuse_admm_variables(alpha: real):
 
             a0, a1, b0, b1 = x[GEEM[r, 0]], x[GEEM[r, 1]], x[GEEM[r, 2]], x[GEEM[r, 3]]
             _a0, _a1, _b0, _b1 = x0[GEEM[r, 0]], x0[GEEM[r, 1]], x0[GEEM[r, 2]], x0[GEEM[r, 3]]
-            Q_GEEM[r, 0] = min(max(ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _a1, _b0, _b1, dHat2, kappa).norm()), min_Q), max_Q)
+            # Q_GEEM[r, 0] = min(max(ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _a1, _b0, _b1, dHat2, kappa).norm()), min_Q), max_Q)
+            Q_GEEM[r, 0] = ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _a1, _b0, _b1, dHat2, kappa).norm())
     # reuse y, r
     for c in range(old_n_GPE[None]):
         for d in range(n_GPE[None]):

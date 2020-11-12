@@ -329,7 +329,7 @@ def read():
         add_object('input/Sharkey.obj')
         settings['boundary'] = find_boundary(settings['mesh_elements'])
 
-        thickness = 0.1
+        thickness = 0.2
         add_boundary([[0.5, 0.95], [1.1, 0.6 + thickness * 0.5], [2.1, 0.6 + thickness * 0.5], [2.7, 0.95]])
         add_boundary([[0.5, 0.25], [1.1, 0.6 - thickness * 0.5], [2.1, 0.6 - thickness * 0.5], [2.7, 0.25]])
 

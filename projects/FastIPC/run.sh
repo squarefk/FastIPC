@@ -1,10 +1,6 @@
-python3 ADMM_IPC.py 4
-python3 ADMM_IPC.py 5
-python3 ADMM_IPC.py 6
-python3 ADMM_IPC.py 7
-python3 ADMM_IPC.py 8
-python3 ADMM_IPC.py 9
-python3 ADMM_IPC.py 10
-python3 ADMM_IPC.py 11
-python3 ADMM_IPC.py 12
-python3 ADMM_IPC.py 13
+python3 ADMM_GIPC.py 1 0
+python3 ADMM_GIPC.py 2 0
+python3 ADMM_GIPC.py 3 0
+python3 ADMM_GIPC.py 4 0
+python3 ADMM_GIPC.py 5 0
+python3 ADMM_GIPC.py 6 0
