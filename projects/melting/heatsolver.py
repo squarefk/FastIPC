@@ -62,6 +62,8 @@ class MPMSolver:
         self.img = ti.field(dtype=real, shape=(self.res, self.res))
         self.depth = ti.field(real, shape=())
         self.width = ti.field(real, shape=())
+        self.min_T = ti.field(real, shape=())
+        self.max_T = ti.field(real, shape=())
 
     def stencil_range(self):
         return ti.ndrange(*((3, ) * self.dim))
@@ -139,9 +141,13 @@ class MPMSolver:
 
     @ti.kernel
     def step1(self):
+        self.min_T[None] = 1.e9
+        self.max_T[None] = -1.e9
         for I in ti.grouped(self.grid_H):
             if self.grid_H[I] > 0:
                 self.grid_theta[I] = (1 / self.grid_H[I]) * self.grid_theta[I]
+                ti.atomic_min(self.min_T[None], self.grid_theta[I])
+                ti.atomic_max(self.max_T[None], self.grid_theta[I])
 
     @ti.kernel
     def step2(self, laser_on: real):
@@ -149,7 +155,7 @@ class MPMSolver:
         ti.block_dim(256)
         for I in ti.grouped(self.pid):
             p = self.pid[I]
-            T = self.T[p]
+            T = max(min(self.T[p], self.max_T[None]), self.min_T[None])
             kappa = self.get_thermal_conductivity(T)
             base = ti.floor(self.x[p] * self.inv_dx - 0.5).cast(int)
             fx = self.x[p] * self.inv_dx - base.cast(real)
