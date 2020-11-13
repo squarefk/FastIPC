@@ -71,6 +71,7 @@ _data_col = np.zeros(MAX_LINEAR, dtype=np.int32)
 _data_val = np.zeros(MAX_LINEAR, dtype=np.float64)
 data_x = ti.field(real, shape=n_particles * dim)
 cnt = ti.field(ti.i32, shape=())
+rc = ti.field(real, shape=n_particles * dim)
 
 MAX_C = 100000
 GPE = ti.field(ti.i32, shape=(MAX_C, 3))
@@ -472,6 +473,8 @@ def solve_system(current_time):
         def before_solve():
             for i in range(n_particles):
                 xx[i] = x[i]
+            for i in range(n_elements):
+                zz[i] = z[i]
         before_solve()
 
     with Timer("Init DBC"):
@@ -734,65 +737,103 @@ def local_GEEM():
         y_GEEM[c, 0], y_GEEM[c, 1], y_GEEM[c, 2] = ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]])
 
 
-# @ti.kernel
-# def prime_residual() -> real:
-#     residual = 0.0
-#     for i in range(n_elements):
-#         currentT = compute_T(i)
-#         F = currentT @ restT[i].inverse()
-#         residual += (F - z[i]).norm_sqr() * W[i] * W[i]
-#     for c in range(cc[None]):
-#         residual += (x[constraints[c, 0]] - x[constraints[c, 1]] - y[c, 0]).norm_sqr() * Q[c] * Q[c]
-#         residual += (x[constraints[c, 0]] - x[constraints[c, 2]] - y[c, 1]).norm_sqr() * Q[c] * Q[c]
-#     return residual
-#
-#
-# @ti.kernel
-# def dual_residual() -> real:
-#     residual = 0.0
-#     for i in data_rhs:
-#         data_rhs[i] = 0
-#     for e in range(n_elements):
-#         A = restT[e].inverse()
-#         delta = z[e] - zz[e]
-#         for p in ti.static(range(3)):
-#             for i in ti.static(range(2)):
-#                 for j in ti.static(range(2)):
-#                     q = i
-#                     data_rhs[vertices[e, p] * 2 + q] += X2F(p, q, i, j, A) * delta[i, j] * W[e] * W[e]
-#         zz[e] = z[e]
-#     for i in data_rhs:
-#         residual += data_rhs[i] * data_rhs[i]
-#
-#     for i in data_rhs:
-#         data_rhs[i] = 0
-#
-#     for c in range(old_cc[None]):
-#         for j in ti.static(range(2)):
-#             data_rhs[constraints[c, 0] * 2 + j] += (- old_y(j)[c, 0]) * old_Q[c] * old_Q[c]
-#             data_rhs[constraints[c, 0] * 2 + j] += (- old_y(j)[c, 1]) * old_Q[c] * old_Q[c]
-#             data_rhs[constraints[c, 1] * 2 + j] -= (- old_y(j)[c, 0]) * old_Q[c] * old_Q[c]
-#             data_rhs[constraints[c, 2] * 2 + j] -= (- old_y(j)[c, 1]) * old_Q[c] * old_Q[c]
-#     for d in range(cc[None]):
-#         for j in ti.static(range(2)):
-#             data_rhs[constraints[d, 0] * 2 + j] += (y(j)[d, 0]) * Q[d] * Q[d]
-#             data_rhs[constraints[d, 0] * 2 + j] += (y(j)[d, 1]) * Q[d] * Q[d]
-#             data_rhs[constraints[d, 1] * 2 + j] -= (y(j)[d, 0]) * Q[d] * Q[d]
-#             data_rhs[constraints[d, 2] * 2 + j] -= (y(j)[d, 1]) * Q[d] * Q[d]
-#     for i in data_rhs:
-#         residual += data_rhs[i] * data_rhs[i]
-#     return residual
-#
-#
-# @ti.kernel
-# def X_residual() -> real:
-#     residual = 0.0
-#     for _ in range(1):
-#         for i in range(n_particles):
-#             residual = max(residual, (xx[i] - x[i]).norm_sqr())
-#             xx[i] = x[i]
-#     return residual
+@ti.kernel
+def prime_residual() -> real:
+    residual = 0.0
+    for i in range(n_elements):
+        currentT = compute_T(i, x)
+        F = currentT @ restT[i].inverse()
+        residual += (F - z[i]).norm_sqr() * W[i] * W[i]
+    for c in range(n_GPE[None]):
+        Q = Q_GPE[c, 0]
+        residual += (x[GPE[c, 0]] - x[GPE[c, 1]] - y_GPE[c, 0]).norm_sqr() * Q * Q
+        residual += (x[GPE[c, 0]] - x[GPE[c, 2]] - y_GPE[c, 1]).norm_sqr() * Q * Q
+    return residual
 
+
+@ti.kernel
+def dual_residual() -> real:
+    residual = 0.0
+    for i in rc:
+        rc[i] = 0
+    for e in range(n_elements):
+        A = restT[e].inverse()
+        delta = z[e] - zz[e]
+        for p in ti.static(range(dim + 1)):
+            for i in ti.static(range(dim)):
+                for j in ti.static(range(dim)):
+                    q = i
+                    rc[vertices[e, p] * 2 + q] += X2F(p, q, i, j, A) * delta[i, j] * W[e] * W[e]
+    for i in rc:
+        residual += rc[i] * rc[i]
+        rc[i] = 0
+    for c in range(old_n_GPE[None]):
+        Q = old_Q_GPE[c, 0]
+        exist = False
+        for d in range(n_GPE[None]):
+            if old_GPE[c, 0] == GPE[d, 0] and old_GPE[c, 1] == GPE[d, 1] and old_GPE[c, 2] == GPE[d, 2]:
+                exist = True
+                for j in ti.static(range(dim)):
+                    rc[GPE[d, 0] * dim + j] += (y_GPE(j)[d, 0] - old_y_GPE(j)[c, 0]) * Q * Q
+                    rc[GPE[d, 0] * dim + j] += (y_GPE(j)[d, 1] - old_y_GPE(j)[c, 1]) * Q * Q
+                    rc[GPE[d, 1] * dim + j] -= (y_GPE(j)[d, 0] - old_y_GPE(j)[c, 0]) * Q * Q
+                    rc[GPE[d, 2] * dim + j] -= (y_GPE(j)[d, 1] - old_y_GPE(j)[c, 1]) * Q * Q
+        if not exist:
+            y0 = x[old_GPE[c, 0]] - x[old_GPE[c, 1]]
+            y1 = x[old_GPE[c, 0]] - x[old_GPE[c, 2]]
+            for j in ti.static(range(dim)):
+                rc[old_GPE[c, 0] * dim + j] += (y0(j) - old_y_GPE(j)[c, 0]) * Q * Q
+                rc[old_GPE[c, 0] * dim + j] += (y1(j) - old_y_GPE(j)[c, 1]) * Q * Q
+                rc[old_GPE[c, 1] * dim + j] -= (y0(j) - old_y_GPE(j)[c, 0]) * Q * Q
+                rc[old_GPE[c, 2] * dim + j] -= (y1(j) - old_y_GPE(j)[c, 1]) * Q * Q
+    for d in range(n_GPE[None]):
+        Q = Q_GPE[d, 0]
+        exist = False
+        for c in range(old_n_GPE[None]):
+            if old_GPE[c, 0] == GPE[d, 0] and old_GPE[c, 1] == GPE[d, 1] and old_GPE[c, 2] == GPE[d, 2]:
+                exist = True
+        if not exist:
+            y0 = xx[GPE[d, 0]] - xx[GPE[d, 1]]
+            y1 = xx[GPE[d, 0]] - xx[GPE[d, 2]]
+            for j in ti.static(range(dim)):
+                rc[GPE[d, 0] * dim + j] += (y_GPE(j)[d, 0] - y0(j)) * Q * Q
+                rc[GPE[d, 0] * dim + j] += (y_GPE(j)[d, 1] - y1(j)) * Q * Q
+                rc[GPE[d, 1] * dim + j] -= (y_GPE(j)[d, 0] - y0(j)) * Q * Q
+                rc[GPE[d, 2] * dim + j] -= (y_GPE(j)[d, 1] - y1(j)) * Q * Q
+    for i in rc:
+        residual += rc[i] * rc[i]
+    return residual
+
+
+@ti.kernel
+def newton_gradient_residual() -> real:
+    residual = 0.0
+    for i in rc:
+        rc[i] = 0
+    for i in range(n_particles):
+        for d in ti.static(range(dim)):
+            rc[i * dim + d] += m[i] * (x(d)[i] - xTilde(d)[i])
+    for e in range(n_elements):
+        A = restT[e].inverse()
+        F = compute_T(e, x) @ A
+        vol0 = restT[e].determinant() / dim / (dim - 1)
+        P = elasticity_first_piola_kirchoff_stress(F, la, mu) * dt * dt * vol0
+        for p in ti.static(range(dim + 1)):
+            for i in ti.static(range(dim)):
+                for j in ti.static(range(dim)):
+                    q = i
+                    rc[vertices[e, p] * dim + q] += X2F(p, q, i, j, A) * P[i, j]
+    for c in range(n_GPE[None]):
+        p, e0, e1 = x[GPE[c, 0]], x[GPE[c, 1]], x[GPE[c, 2]]
+        g = extract_vec(GPE_gradient(ti.Matrix.zero(real, dim), p - e0, p - e1, dHat2, kappa), [2, 3, 4, 5])
+        for j in ti.static(range(dim)):
+            rc[GPE[c, 0] * dim + j] += g[0 * dim + j]
+            rc[GPE[c, 0] * dim + j] += g[1 * dim + j]
+            rc[GPE[c, 1] * dim + j] -= g[0 * dim + j]
+            rc[GPE[c, 2] * dim + j] -= g[1 * dim + j]
+    for i in rc:
+        residual += rc[i] * rc[i]
+    return residual
 
 @ti.kernel
 def dual_step():
@@ -1166,6 +1207,9 @@ if __name__ == "__main__":
                             local_GPT()
                             local_GEE()
                             local_GEEM()
+
+                    with Timer("Compute Residual"):
+                        print("Prime residual: ", prime_residual(), ", Dual residual: ", dual_residual(), ",Newton residual: ", newton_gradient_residual())
 
                     with Timer("Dual Step"):
                         dual_step()
