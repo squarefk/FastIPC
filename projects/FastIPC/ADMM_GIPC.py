@@ -1240,7 +1240,7 @@ if __name__ == "__main__":
                 write_image(f + 1)
             pickle.dump([x.to_numpy(), v.to_numpy()], open(directory + f'caches/{f + 1:06d}.p', 'wb'))
             Timer_Print()
-            # Plotter_Dump(directory, True, True)
+            Plotter_Dump(directory, True, True)
         end = time()
         print("!!!!!!!!!!!!!!!!!!!!!!!! ", end - start)
         # cmd = 'ffmpeg -framerate 36 -i "' + directory + 'images/%6d.png" -c:v libx264 -profile:v high -crf 10 -pix_fmt yuv420p -threads 20 ' + directory + 'video.mp4'

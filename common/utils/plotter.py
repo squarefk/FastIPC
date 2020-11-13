@@ -20,3 +20,4 @@ def Plotter_Dump(directory, plot=False, binary=True):
             plt.close(fig)
         if binary:
             pickle.dump(_plotter_data[key], open(directory + key + '.p', 'wb'))
+        _plotter_data[key] = []
