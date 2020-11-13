@@ -10,13 +10,13 @@ def Plotter_Record(key, value):
     _plotter_data[key].append(value)
 
 
-def Plotter_Dump(path, plot=False, binary=True):
+def Plotter_Dump(directory, plot=False, binary=True):
     for key in _plotter_data:
         if plot:
-            filename = path + '/' + key + '.png'
+            filename = directory + key + '.png'
             fig = plt.figure()
             plt.plot(_plotter_data[key])
             fig.savefig(filename)
             plt.close(fig)
         if binary:
-            pickle.dump(_plotter_data[key], open(path + '/' + key + '.p', 'wb'))
+            pickle.dump(_plotter_data[key], open(directory + key + '.p', 'wb'))

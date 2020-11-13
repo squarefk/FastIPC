@@ -1,17 +1,16 @@
 from reader import *
 from common.math.gipc import *
-from common.math.math_tools import *
 from common.utils.timer import *
 from common.utils.logger import *
+from common.utils.plotter import *
 from common.physics.fixed_corotated import *
 
 from hashlib import sha1
-import sys, os, math
 import taichi as ti
 import taichi_three as t3
 import numpy as np
-import matplotlib.pyplot as plt
 import pickle
+import math
 import scipy.sparse
 import scipy.sparse.linalg
 from sksparse.cholmod import *
@@ -1212,7 +1211,13 @@ if __name__ == "__main__":
                             local_GEEM()
 
                     with Timer("Compute Residual"):
-                        print("Prime residual: ", prime_residual(), ", Dual residual: ", dual_residual(), ",Newton residual: ", newton_gradient_residual())
+                        pr = prime_residual()
+                        dr = dual_residual()
+                        ngr = newton_gradient_residual()
+                        Plotter_Record('prime_residual_constant', math.log(pr))
+                        Plotter_Record('dual_residual_constant', math.log(dr))
+                        Plotter_Record('newton_gradient_residual_constant', math.log(ngr))
+                        print("Prime residual: ", pr, ", Dual residual: ", dr, ", Newton gradient residual: ", ngr)
 
                     with Timer("Dual Step"):
                         dual_step()
@@ -1235,6 +1240,7 @@ if __name__ == "__main__":
                 write_image(f + 1)
             pickle.dump([x.to_numpy(), v.to_numpy()], open(directory + f'caches/{f + 1:06d}.p', 'wb'))
             Timer_Print()
+            # Plotter_Dump(directory, True, True)
         end = time()
         print("!!!!!!!!!!!!!!!!!!!!!!!! ", end - start)
         # cmd = 'ffmpeg -framerate 36 -i "' + directory + 'images/%6d.png" -c:v libx264 -profile:v high -crf 10 -pix_fmt yuv420p -threads 20 ' + directory + 'video.mp4'
