@@ -27,7 +27,7 @@ gui = ti.GUI("Taichi Elements", res=512, background_color=0x112F41)
 mpm = MPMSolverImplicit(res=(128,128))
 
 
-mpm.add_cube(min_corner=(0.3, 0.55), max_corner=(0.7, 0.75), num_particles = 20000)
+mpm.add_cube(min_corner=(0.3, 0.7), max_corner=(0.7, 0.9), num_particles = 20000)
 
 # mpm.add_cube(min_corner=(0.3, 0.3), max_corner=(0.7, 0.5), num_particles = 20000)
 
@@ -35,12 +35,15 @@ mpm.add_cube(min_corner=(0.3, 0.55), max_corner=(0.7, 0.75), num_particles = 200
 
 mpm.add_analytic_box(min_corner=(0.4, 0.3), max_corner=(0.6, 0.5), rotation=3.1415926/4)
 
-mpm.add_analytic_box(min_corner=(0.0, 0.0), max_corner=(1.0, 0.1))
+mpm.add_analytic_box(min_corner=(0.0, 0.0), max_corner=(1.0, 0.05))
 
-for frame in range(100000):
-    # print(frame)
+
+mpm.load_state()
+
+for frame in range(200):
+    print("================== frame",frame,"===================")
     # mpm.step(8e-3)
-    mpm.step(8e-3)
+    mpm.step(1/24)
     particles = mpm.particle_info()
     gui.circles(particles['position'],
                 radius=1.5,

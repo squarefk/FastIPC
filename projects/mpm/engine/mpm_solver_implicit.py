@@ -4,6 +4,8 @@ import time
 from common.physics.fixed_corotated import *
 from common.math.math_tools import *
 
+from common.utils.timer import *
+
 import math
 
 import scipy.sparse
@@ -29,8 +31,8 @@ class MPMSolverImplicit:
 
         self.res = res
         self.n_particles = ti.field(dtype=ti.i32, shape=())
-        self.dx = size / res[0]
-        # self.dx = 0.0078125
+        # self.dx = size / res[0]
+        self.dx = 0.00502513
         self.inv_dx = 1.0/self.dx
         self.dt = 2e-2 * self.dx / size
         # self.dt = 0.001
@@ -47,6 +49,7 @@ class MPMSolverImplicit:
         self.p_C = ti.Matrix.field(self.dim, self.dim, dtype=real)
         # deformation gradient
         self.p_F = ti.Matrix.field(self.dim, self.dim, dtype=real)
+        self.p_Fp = ti.Matrix.field(self.dim, self.dim, dtype=real)
         self.p_F_backup = ti.Matrix.field(self.dim, self.dim, dtype=real)
         # determinant of plastic
         self.p_Jp = ti.field(dtype=real)
@@ -70,6 +73,7 @@ class MPMSolverImplicit:
         self.grid_v = ti.Vector.field(self.dim, dtype=real)
         self.grid_f = ti.Vector.field(self.dim, dtype=real)
         self.grid_idx = ti.field(dtype=ti.i32)
+        self.grid_dv = ti.Vector.field(self.dim, dtype=real)
         # grid node mass
         self.grid_m = ti.field(dtype=real)
 
@@ -92,6 +96,8 @@ class MPMSolverImplicit:
         block_component(self.grid_m)
         for v in self.grid_v.entries:
             block_component(v)
+        for dv in self.grid_dv.entries:
+            block_component(dv)
         for f in self.grid_f.entries:
             block_component(f)
         block_component(self.grid_idx)
@@ -103,7 +109,7 @@ class MPMSolverImplicit:
                           self.pid, offset=offset + (0, ))
 
         self.particle = ti.root.dynamic(ti.i, max_num_particles, 2**20)
-        self.particle.place(self.p_x, self.p_v, self.p_C, self.p_F, 
+        self.particle.place(self.p_x, self.p_v, self.p_C, self.p_F, self.p_Fp,
                                 self.p_Jp, self.p_vol, self.p_rho, self.p_mass,
                                 self.p_F_backup)
 
@@ -136,6 +142,7 @@ class MPMSolverImplicit:
         self.total_E = ti.field(real, shape=())
         self.dv = ti.field(real, shape=MAX_LINEAR)
         self.ddv = ti.field(real, shape=MAX_LINEAR)
+        self.DV = ti.field(real, shape=MAX_LINEAR)
         self.rhs = ti.field(real, shape=MAX_LINEAR)
 
         self.boundary = ti.field(ti.i32, shape=MAX_LINEAR)
@@ -166,6 +173,7 @@ class MPMSolverImplicit:
         ti.no_activate(self.particle)
         ti.block_dim(256)
         ti.cache_shared(*self.grid_v.entries)
+        ti.cache_shared(*self.grid_dv.entries)
         ti.cache_shared(self.grid_m)
         for I in ti.grouped(self.pid):
             p = self.pid[I]
@@ -177,14 +185,25 @@ class MPMSolverImplicit:
             # Quadratic kernels  [http://mpm.graphics   Eqn. 123, with x=fx, fx-1,fx-2]
             w = [0.5 * (1.5 - fx)**2, 0.75 - (fx - 1)**2, 0.5 * (fx - 0.5)**2]
 
-            # snow projection
-            U, sig, V = ti.svd(self.p_F[p])
-            for d in ti.static(range(self.dim)):
-                new_sig = min(max(sig[d, d], 1 - 2.5e-2),
-                                  1 + 4.5e-3)  # Plasticity
-                self.p_Jp[p] *= sig[d, d] / new_sig
-                sig[d, d] = new_sig
-            self.p_F[p] = U @ sig @ V.T()
+            # # snow projection
+            # U, sig, V = ti.svd(self.p_F[p])
+            # for d in ti.static(range(self.dim)):
+            #     new_sig = min(max(sig[d, d], 1 - 0.015),
+            #                       1 + 0.005)  # Plasticity
+            #     self.p_Jp[p] *= sig[d, d] / new_sig
+            #     # sig[d, d] = new_sig
+            # self.p_F[p] = U @ sig @ V.T()
+
+            plastic = True
+            if plastic:
+                U, sig, V = ti.svd(self.p_F[p])
+                sig_inv = ti.Matrix.identity(real, self.dim)
+                for d in ti.static(range(self.dim)):
+                    sig[d, d] = ti.min(ti.max(sig[d, d], 1 - 0.015), 1 + 0.005)  # Plasticity
+                    sig_inv[d, d] = 1 / sig[d ,d]
+                self.p_Fp[p] = V @ sig_inv @ U.transpose() @ self.p_F[p] @ self.p_Fp[p]
+                self.p_F[p] = U @ sig @ V.transpose()
+
 
             # Loop over 3x3 grid node neighborhood
             for offset in ti.static(ti.grouped(self.stencil_range())):
@@ -202,6 +221,7 @@ class MPMSolverImplicit:
             if self.grid_m[I] > 0:  # No need for epsilon here
                 self.grid_v[I] = (1 / self.grid_m[I]
                                   ) * self.grid_v[I]  # Momentum to velocity
+                self.grid_dv[I] = self.grid_v[I]
                 idx = self.num_active_grid[None].atomic_add(1) # Avoid error in parallel computing
                 # print(idx)
                 self.grid_idx[I] = idx
@@ -237,8 +257,8 @@ class MPMSolverImplicit:
             dw = [fx-1.5, -2*(fx-1), fx-0.5]
 
             # Hardening coefficient: snow gets harder when compressed
-            h = ti.exp(10 * (1.0 - self.p_Jp[p]))
-            h = 1.0
+            # h = ti.exp(7 * (1.0 - self.p_Jp[p]))
+            h = ti.exp(7 * (1.0 - self.p_Fp[p].determinant()))
             mu, la = self.mu_0 * h, self.lambda_0 * h
 
             # mu, la = self.mu_0, self.lambda_0
@@ -375,7 +395,7 @@ class MPMSolverImplicit:
                             dFdX[0,1] += dPdF[self.dim*v+0,self.dim*q+1]*wi[v]*wj[q]
                             dFdX[1,0] += dPdF[self.dim*v+1,self.dim*q+0]*wi[v]*wj[q]
                             dFdX[1,1] += dPdF[self.dim*v+1,self.dim*q+1]*wi[v]*wj[q]
-                    dFdX = dFdX * vol * self.dt * self.dt
+                    dFdX = dFdX * vol * dt * dt
 
 
                     ioffset = dofi*25+linear_offset(nodei-nodej)
@@ -428,8 +448,8 @@ class MPMSolverImplicit:
             m = self.grid_m[gid[0], gid[1]]
             f = self.grid_f[gid[0], gid[1]]
 
-            self.rhs[i*d+0] = self.dv[i*d+0] * m - self.dt * f[0]
-            self.rhs[i*d+1] = self.dv[i*d+1] * m - self.dt * f[1] - self.dt * m * g[1]           
+            self.rhs[i*d+0] = self.dv[i*d+0] * m - dt * f[0]
+            self.rhs[i*d+1] = self.dv[i*d+1] * m - dt * f[1] - dt * m * g[1]           
 
         ndof = self.num_active_grid[None]
         # padding = 3
@@ -444,7 +464,7 @@ class MPMSolverImplicit:
             #         self.rhs[i*self.dim+d] = 0
 
     @ti.kernel
-    def TotalEnergy(self) -> real:
+    def TotalEnergy(self, dt: real) -> real:
         '''
             Compute total elastic energy
         '''
@@ -454,7 +474,13 @@ class MPMSolverImplicit:
             F = self.p_F[p]
             la, mu = self.lambda_0, self.mu_0
             psi = elasticity_energy(F, la, mu)
-            e += psi
+            e += self.p_vol[p] * psi
+
+        for i in range(self.num_active_grid[None]):
+            dv = ti.Vector([self.DV[2*i], self.DV[2*i+1]])
+            gid = self.dof2idx[i]
+            e -= dt * dv.dot(self.gravity[None]) * self.grid_m[gid]
+
         return e
 
     def SolveLinearSystem(self, dt):
@@ -466,7 +492,8 @@ class MPMSolverImplicit:
         nentry = ndof * d * 25 * 4
         A = scipy.sparse.csr_matrix((self.data_val.to_numpy()[0:nentry], (self.data_row.to_numpy()[0:nentry], self.data_col.to_numpy()[0:nentry])), shape=(ndof*d,ndof*d))
         x = scipy.sparse.linalg.spsolve(A, -rhs)
-
+        # x, flag = scipy.sparse.linalg.cg(A, -rhs)
+        # assert flag == 0
 
         for i in range(ndof):
             self.data_x[i*d], self.data_x[i*d+1] = x[i*d], x[i*d+1]        
@@ -504,7 +531,7 @@ class MPMSolverImplicit:
                     dN[1] = w[offset[0]][0]*dw[offset[1]][1]*w[offset[2]][2] * self.inv_dx
                     dN[2] = w[offset[0]][0]*w[offset[1]][1]*dw[offset[2]][2] * self.inv_dx
                 new_F += g_v.outer_product(dN)
-            self.p_F[p] *= (ti.Matrix.identity(real, self.dim) + self.dt * new_F)
+            self.p_F[p] = (ti.Matrix.identity(real, self.dim) + dt * new_F) @ self.p_F[p]
 
     @ti.kernel
     def BackupStrain(self):
@@ -521,9 +548,14 @@ class MPMSolverImplicit:
         # rhs = np.zeros(ndof*d)
         # for i in range(ndof):
         #     f = self.grid_f[self.dof2idx[i][0],self.dof2idx[i][1]]
-        #     rhs[i*d], rhs[i*d+1] = f[0] * self.dt, f[1] * self.dt
+        #     rhs[i*d], rhs[i*d+1] = f[0] * dt, f[1] * dt
         #     m = self.grid_m[self.dof2idx[i][0], self.dof2idx[i][1]]
-        #     rhs[i*d+1] += (-10.0)*self.dt*m
+        #     rhs[i*d+1] += (-10.0)*dt*m
+
+    @ti.kernel
+    def UpdateDV(self, alpha:real):
+        for i in range(self.num_active_grid[None] * self.dim):
+            self.DV[i] = self.dv[i] + self.data_x[i] * alpha
 
     @ti.kernel
     def LineSearch(self, dt:real, alpha:real):
@@ -572,8 +604,9 @@ class MPMSolverImplicit:
                 self.dv[i*2+1] = vi[1]
             else:
                 g = self.gravity[None]
-                self.dv[i*2] = g[0]*self.dt
-                self.dv[i*2+1] = g[1]*self.dt
+                # g = ti.Vector.zero(real, self.dim)
+                self.dv[i*2] = g[0]*dt
+                self.dv[i*2+1] = g[1]*dt
 
 
 
@@ -583,13 +616,14 @@ class MPMSolverImplicit:
         self.rhs.fill(0)
         self.dv.fill(0)
         self.boundary.fill(0)
-        self.BuildInitial(self.dt)
+        self.BuildInitial(dt)
         # Newton iteration
         self.BackupStrain()
-        for iter in range(3):
-            print('Newton iter = ', iter)
+        for iter in range(1):
+            # print('Newton iter = ', iter)
+            self.UpdateDV(0.0)
             self.UpdateState(dt, 0)
-            E0 = self.TotalEnergy()
+            E0 = self.TotalEnergy(dt)
             print("E0 = ", E0)
             self.explicit_force(dt) 
             self.ComputeResidual(dt) # Compute g
@@ -600,35 +634,64 @@ class MPMSolverImplicit:
 
             self.SolveLinearSystem(dt)  # solve dx = H^(-1)g
 
-            # self.LineSearch(dt, 0.1)
+            # self.LineSearch(dt, 1.0)
 
-            alpha = 1.0
-            for _ in range(10):
-                self.RestoreStrain()
-                self.UpdateState(dt, alpha)
-                E = self.TotalEnergy()
-                # print("alpha=",alpha,"E=",E)
-                if E <= E0:
-                    break
-                alpha /= 2
-            print(alpha, E)
+            # alpha = 1.0
+            # for _ in range(10):
+            #     self.RestoreStrain()
+            #     self.UpdateDV(alpha)
+            #     self.UpdateState(dt, alpha)
+            #     E = self.TotalEnergy(dt)
+            #     # print("alpha=",alpha,"E=",E)
+            #     if E <= E0:
+            #         break
+            #     alpha /= 2
+            # print(alpha, E)
             
-            # self.RestoreStrain()
-            # self.UpdateState(dt, 1.0)
-            # E1 = self.TotalEnergy()
-            # self.RestoreStrain()
-            # self.UpdateState(dt, 0.1)
-            # E2 = self.TotalEnergy() 
-            # print("aaa", E1, E2)
-            self.LineSearch(dt, alpha)
+            self.RestoreStrain()
+            self.UpdateState(dt, 1.0)
+            E1 = self.TotalEnergy(dt)
+            self.RestoreStrain()
+            self.UpdateState(dt, 0.1)
+            E2 = self.TotalEnergy(dt) 
+            print("aaa", E1, E2)
+            self.LineSearch(dt, 1.0)
 
 
             self.RestoreStrain() 
 
-            ndof = self.num_active_grid[None]
-            print(np.linalg.norm(self.data_x.to_numpy()[0:ndof*self.dim]))       
+            # ndof = self.num_active_grid[None]
+            # rnorm = np.linalg.norm(self.rhs.to_numpy()[0:ndof*self.dim])
+            # print("norm", rnorm)
+            # if rnorm < 1e-10:
+            #     break       
         self.implicit_update(dt)
         # self.TotalEnergy()
+
+    def implicit_newton2(self, dt):
+        # perform one full newton
+        self.ddv.fill(0)
+        self.rhs.fill(0)
+        self.dv.fill(0)
+        self.boundary.fill(0)
+        self.BuildInitial(dt)
+        # Newton iteration
+        self.BackupStrain()
+        for iter in range(1):
+            with Timer("Build System"):
+                self.explicit_force(dt) 
+                self.ComputeResidual(dt) # Compute g
+                self.BuildMatrix(dt) # Compute H
+                self.data_col.fill(0)
+                self.data_row.fill(0)
+                self.build_T()
+            with Timer("Solve System"):
+                self.SolveLinearSystem(dt)  # solve dx = H^(-1)g
+
+            self.LineSearch(dt, 1.0)
+
+            Timer_Print()     
+        self.implicit_update(dt)
 
     # @ti.kernel
     # def grid_collision(self, dt: real):
@@ -654,6 +717,7 @@ class MPMSolverImplicit:
     def g2p(self, dt: real):
         ti.block_dim(256)
         ti.cache_shared(*self.grid_v.entries)
+        ti.cache_shared(*self.grid_dv.entries)
         ti.no_activate(self.particle)
         for I in ti.grouped(self.pid):
             p = self.pid[I]
@@ -666,6 +730,8 @@ class MPMSolverImplicit:
             ]
             dw = [fx-1.5, -2*(fx-1), fx-0.5]
             new_v = ti.Vector.zero(real, self.dim)
+            v_pic = ti.Vector.zero(real, self.dim)
+            v_flip = self.p_v[p]
             new_C = ti.Matrix.zero(real, self.dim, self.dim)
             new_F = ti.Matrix.zero(real, self.dim, self.dim)
             # loop over 3x3 grid node neighborhood
@@ -685,11 +751,17 @@ class MPMSolverImplicit:
                     dN[2] = w[offset[0]][0]*w[offset[1]][1]*dw[offset[2]][2] * self.inv_dx
 
                 new_v += weight * g_v
+                v_pic += weight * g_v
+                v_flip += weight * (g_v-self.grid_dv[base + offset])
+                # v_flip -= weight * (self.grid_dv[base + offset])
                 new_C += 4 * self.inv_dx * weight * g_v.outer_product(dpos)
                 new_F += g_v.outer_product(dN)
             self.p_v[p], self.p_C[p] = new_v, new_C
-            self.p_x[p] += dt * self.p_v[p]  # advection
-            self.p_F[p] *= (ti.Matrix.identity(real, self.dim) + self.dt * new_F)
+            self.p_v[p] = v_flip * 0.95 + v_pic * 0.05
+            # if v_flip.norm() > 1e-6:
+            #     print(v_flip.norm())
+            self.p_x[p] += dt * v_pic  # advection
+            self.p_F[p] = (ti.Matrix.identity(real, self.dim) + dt * new_F)@ self.p_F[p]
 
 
     @ti.kernel
@@ -724,9 +796,9 @@ class MPMSolverImplicit:
         self.p2g(dt)
         self.grid_normalization_and_gravity(dt)
 
-        if self.total_step[None] == 0:
-            print("Correct")
-            self.update_volume()
+        # if self.total_step[None] == 0:
+        #     print("Correct")
+        #     self.update_volume()
 
         self.explicit_force(dt)
         self.explicit_update(dt)
@@ -742,13 +814,12 @@ class MPMSolverImplicit:
         self.grid_normalization_and_gravity(dt)
         # self.explicit_force(dt) 
 
-        self.implicit_newton(dt)
+        self.implicit_newton2(dt)
 
         self.g2p(dt) 
 
     def step(self, frame_dt, print_stat=False):
-        begin_t = time.time()
-        substeps = int(frame_dt / self.dt) + 1
+        # begin_t = time.time()
 
         # max_v=self.getMaxVelocity()
         # cfl = 0.01
@@ -756,17 +827,52 @@ class MPMSolverImplicit:
         # min_dt = 1e-6
         # self.dt=ti.max(min_dt,ti.min(max_dt,cfl*self.dx/ti.max(max_v,1e-2)))
         # self.dt = 2e-2 * self.dx
-        self.dt = 0.001
-        print("dt =", self.dt," dx =", self.dx)
+        # self.dt = 0.001
 
-        for i in range(substeps):
-            dt = frame_dt / substeps
+        # substeps = int(frame_dt / self.dt) + 1
+        # print("dt =", self.dt," dx =", self.dx, substeps)
 
-            self.advanceOneStepExplicit(dt)        
+        # for i in range(substeps):
+        #     dt = frame_dt / substeps
 
-            # self.advanceOneStepNewton(dt)
+        #     # self.advanceOneStepExplicit(dt)        
 
+        #     self.advanceOneStepNewton(dt)
+
+        #     self.total_step[None] += 1
+
+        frame_done = False
+        frame_time = 0.0
+        # self.simulation_info()
+        while not frame_done:
+            dt = self.dt
+
+            max_v=self.getMaxVelocity()
+            print("max velocity:  ", max_v)
+            cfl = 0.1
+            max_dt = 0.005
+            min_dt = 1e-6
+            dt=ti.max(min_dt,ti.min(max_dt,cfl*self.dx/ti.max(max_v,1e-2)))
+
+            # dt = 0.001
+
+            if frame_dt - frame_time < dt * 1.001:
+                frame_done = True
+                dt = frame_dt - frame_time
+            else:
+                if frame_dt - frame_time < 2 * dt:
+                    dt = (frame_dt - frame_time) / 2.0
+
+
+            # self.advanceOneStepExplicit(dt)
+            self.advanceOneStepNewton(dt)
+
+            
+            frame_time += dt
             self.total_step[None] += 1
+            print(int((frame_time / frame_dt)*1000)/10, "%         dt = ", dt)
+            
+
 
 
     ########### MPM functions ###########
@@ -827,6 +933,7 @@ class MPMSolverImplicit:
             self.p_x[i] = x
             self.p_v[i] = ti.Vector.zero(real, self.dim)
             self.p_F[i] = ti.Matrix.identity(real, self.dim)
+            self.p_Fp[i] = ti.Matrix.identity(real, self.dim)
             self.p_Jp[i] = 1.0
             self.p_vol[i] = area_per_particle
             self.p_rho[i] = 2
@@ -851,6 +958,11 @@ class MPMSolverImplicit:
             'velocity': np_v,
         }
 
+    def simulation_info(self):
+        i = 0
+        print(self.p_mass[i], self.p_vol[i], self.p_x[i][0], self.p_x[i][1], \
+            self.p_v[i][0], self.p_v[i][1], self.p_F[i][0,0], self.p_F[i][0,1], \
+                self.p_F[i][1,0], self.p_F[i][1,1])
 
     ########### Analytic Collision Objects ###########
   
@@ -885,6 +997,7 @@ class MPMSolverImplicit:
                 offset = I * self.dx - ti.Vector(point)
                 n = ti.Vector(normal)
                 if offset.dot(n) < 0:
+                    # self.grid_dv[I] = ti.Vector.zero(real, self.dim)
                     self.grid_v[I] = ti.Vector.zero(real, self.dim)
 
         self.grid_collidable_objects.append(collide) 
@@ -943,3 +1056,17 @@ class MPMSolverImplicit:
             
         self.analytic_collision.append(particleCollision)
         self.grid_collidable_objects.append(gridCollision)
+
+
+    def load_state(self):
+        filename = 'test1.txt'
+        with open(filename,"r") as f:
+            for i in range(20000):
+                line = f.readline().split()
+                data = [float(x) for x in line]
+                # print(data)
+                self.p_mass[i] = data[0]
+                self.p_vol[i] = data[1]
+                self.p_x[i] = ti.Vector([data[2], data[3]])
+                self.p_v[i] = ti.Vector([data[4], data[5]])
+                self.p_F[i] = ti.Matrix([[data[6], data[7]],[data[8], data[9]]])
