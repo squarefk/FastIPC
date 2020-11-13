@@ -884,6 +884,7 @@ def backup_admm_variables():
         old_y_GEEM[c, 0], old_y_GEEM[c, 1], old_y_GEEM[c, 2] = y_GEEM[c, 0], y_GEEM[c, 1], y_GEEM[c, 2]
         old_r_GEEM[c, 0], old_r_GEEM[c, 1], old_r_GEEM[c, 2] = r_GEEM[c, 0], r_GEEM[c, 1], r_GEEM[c, 2]
         old_Q_GEEM[c, 0], old_Q_GEEM[c, 1], old_Q_GEEM[c, 2] = Q_GEEM[c, 0], Q_GEEM[c, 1], Q_GEEM[c, 2]
+    # n_GPE[None], n_GPT[None], n_GEE[None], n_GEEM[None] = 0, 0, 0, 0
 
 
 @ti.kernel
@@ -1044,7 +1045,9 @@ def reuse_admm_variables(alpha: real):
             if old_GPE[c, 0] == GPE[d, 0] and old_GPE[c, 1] == GPE[d, 1] and old_GPE[c, 2] == GPE[d, 2]:
                 k = 1.
                 if ti.static(update_dbdf):
-                    k = old_Q_GPE[c, 0] / Q_GPE[c, 0]
+                    # a, b = old_y_GPE[c, 0], old_y_GPE[c, 1]
+                    # Q_GPE[d, 0] = ti.sqrt(GPE_hessian(ti.Matrix.zero(real, dim), a, b, dHat2, kappa).norm())
+                    k = old_Q_GPE[c, 0] / Q_GPE[d, 0]
                 else:
                     Q_GPE[d, 0], Q_GPE[d, 1] = old_Q_GPE[c, 0], old_Q_GPE[c, 1]
                 y_GPE[d, 0], y_GPE[d, 1] = old_y_GPE[c, 0], old_y_GPE[c, 1]
