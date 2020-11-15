@@ -56,7 +56,7 @@ def sampleCircle2D(centerPoint, radius, N, maxArea):
     pts = np.stack([centerPoint[0] + radius * np.cos(theta), centerPoint[1] + radius * np.sin(theta)], axis=1)
     A = dict(vertices=pts)    
     #args = 'qa' + str(maxArea)
-    args = 'qa0.00005'
+    args = 'qa0.0000075'
     B = tr.triangulate(A, args)
 
     return np.array(B.get('vertices'))

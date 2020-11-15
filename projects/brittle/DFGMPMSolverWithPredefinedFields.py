@@ -4,7 +4,7 @@ import math
 from common.utils.timer import *
 
 @ti.data_oriented
-class DFGMPMSolver:
+class DFGMPMSolverWithPredefinedFields:
     #define structs here
     # Surface boundary conditions
 
@@ -54,6 +54,8 @@ class DFGMPMSolver:
         self.useFrictionalContact = useFrictionalContact
         self.verbose = verbose
         self.useAPIC = useAPIC
+
+        self.fieldFlags = ti.Vector.field(2, dtype=int, shape=())
 
         self.gridPostProcess = [] #hold function callbacks for post processing velocity
 
@@ -171,10 +173,10 @@ class DFGMPMSolver:
         for i, j in self.grid_m:
             self.grid_v[i, j, 0] = [0, 0] #field 1 vel
             self.grid_v[i, j, 1] = [0, 0] #field 2 vel
-            self.grid_n[i, j, 0] = [0, 0] #field 1 normal
-            self.grid_n[i, j, 1] = [0, 0] #field 2 normal
-            self.grid_f[i, j, 0] = [0, 0] #f1 nodal force
-            self.grid_f[i, j, 1] = [0, 0] #f2 nodal force
+            self.grid_n[i, j, 0] = [0.0, 0.0] #field 1 normal
+            self.grid_n[i, j, 1] = [0.0, 0.0] #field 2 normal
+            self.grid_f[i, j, 0] = [0.0, 0.0] #f1 nodal force
+            self.grid_f[i, j, 1] = [0.0, 0.0] #f2 nodal force
             self.grid_m[i, j] = [0, 0] #stacked to contain mass for each field
             self.gridSeparability[i, j] = [0, 0, 0, 0] #stackt fields, and we use the space to add up the numerator and denom for each field
             self.gridMaxDamage[i, j] = [0, 0] #stackt fields
@@ -193,103 +195,103 @@ class DFGMPMSolver:
         for I in ti.grouped(self.particleAF):
             self.particleAF[I] = [-1, -1, -1, -1, -1, -1, -1, -1, -1]
     
-    @ti.kernel
-    def backGridSort(self):
-        #Sort particles into backGrid
-        for p in range(self.numParticles):
-            cell = self.backGridIdx(self.x[p]) #grab cell idx (vector of ints)
-            offs = ti.atomic_add(self.gridNumParticles[cell], 1) #atomically add one to our grid cell's particle count NOTE: returns the OLD value before add
-            self.backGrid[cell, offs] = p #place particle idx into the grid cell bucket at the correct place in the cell's neighbor list (using offs)
+    # @ti.kernel
+    # def backGridSort(self):
+    #     #Sort particles into backGrid
+    #     for p in range(self.numParticles):
+    #         cell = self.backGridIdx(self.x[p]) #grab cell idx (vector of ints)
+    #         offs = ti.atomic_add(self.gridNumParticles[cell], 1) #atomically add one to our grid cell's particle count NOTE: returns the OLD value before add
+    #         self.backGrid[cell, offs] = p #place particle idx into the grid cell bucket at the correct place in the cell's neighbor list (using offs)
 
-    @ti.kernel
-    def particleNeighborSorting(self):
-        #Sort into particle neighbor lists
-        #See https://github.com/taichi-dev/taichi/blob/master/examples/pbf2d.py for reference
-        for p_i in range(self.numParticles):
-            pos = self.x[p_i]
-            cell = self.backGridIdx(pos)
-            nb_i = 0
-            for offs in ti.static(ti.grouped(ti.ndrange((-1,2),(-1,2)))):
-                cellToCheck = cell + offs
-                if self.isInGrid(cellToCheck):
-                    for j in range(self.gridNumParticles[cellToCheck]): #iterate over all particles in this cell
-                        p_j = self.backGrid[cellToCheck, j]
-                        if nb_i < self.maxNeighbors and p_j != p_i and (pos - self.x[p_j]).norm() < self.rp:
-                            self.particleNeighbors[p_i, nb_i] = p_j
-                            nb_i += 1
-            self.particleNumNeighbors[p_i] = nb_i
+    # @ti.kernel
+    # def particleNeighborSorting(self):
+    #     #Sort into particle neighbor lists
+    #     #See https://github.com/taichi-dev/taichi/blob/master/examples/pbf2d.py for reference
+    #     for p_i in range(self.numParticles):
+    #         pos = self.x[p_i]
+    #         cell = self.backGridIdx(pos)
+    #         nb_i = 0
+    #         for offs in ti.static(ti.grouped(ti.ndrange((-1,2),(-1,2)))):
+    #             cellToCheck = cell + offs
+    #             if self.isInGrid(cellToCheck):
+    #                 for j in range(self.gridNumParticles[cellToCheck]): #iterate over all particles in this cell
+    #                     p_j = self.backGrid[cellToCheck, j]
+    #                     if nb_i < self.maxNeighbors and p_j != p_i and (pos - self.x[p_j]).norm() < self.rp:
+    #                         self.particleNeighbors[p_i, nb_i] = p_j
+    #                         nb_i += 1
+    #         self.particleNumNeighbors[p_i] = nb_i
 
-    @ti.kernel
-    def surfaceDetection(self):
-        #Surface Detection (set sp values before DGs!!!)
-        #NOTE: Set whether this particle is a surface particle or not by comparing the kernel sum, S(x), against a user threshold
-        for p in range(self.numParticles):
-            S = 0.0
-            pos = self.x[p]
-            for i in range(self.particleNumNeighbors[p]):
-                xp_i = self.particleNeighbors[p, i] #index of curr neighbor
-                xp = self.x[xp_i] #grab neighbor position
-                rBar = self.computeRBar(pos, xp)
-                S += self.computeOmega(rBar)
-            if(S <= self.st[p]):
-                self.sp[p] = 1
-            elif(self.sp[p] != 1):
-                self.sp[p] = 0
+    # @ti.kernel
+    # def surfaceDetection(self):
+    #     #Surface Detection (set sp values before DGs!!!)
+    #     #NOTE: Set whether this particle is a surface particle or not by comparing the kernel sum, S(x), against a user threshold
+    #     for p in range(self.numParticles):
+    #         S = 0.0
+    #         pos = self.x[p]
+    #         for i in range(self.particleNumNeighbors[p]):
+    #             xp_i = self.particleNeighbors[p, i] #index of curr neighbor
+    #             xp = self.x[xp_i] #grab neighbor position
+    #             rBar = self.computeRBar(pos, xp)
+    #             S += self.computeOmega(rBar)
+    #         if(S <= self.st[p]):
+    #             self.sp[p] = 1
+    #         elif(self.sp[p] != 1):
+    #             self.sp[p] = 0
 
-    @ti.kernel
-    def computeParticleDG(self):
-        #Compute DG for all particles and for all grid nodes 
-        # NOTE: grid node DG is based on max of mapped particle DGs, in this loop we simply create a list of candidates, then we will take max after
-        for p in range(self.numParticles):
-            pos = self.x[p]
-            DandS = ti.Vector([0.0, 0.0]) #hold D and S in here (no temporary atomic scalar variables in taichi...)
-            nablaD = ti.Vector([0.0, 0.0])
-            nablaS = ti.Vector([0.0, 0.0])
-            for i in range(self.particleNumNeighbors[p]): #iterate over neighbors of particle p
+    # @ti.kernel
+    # def computeParticleDG(self):
+    #     #Compute DG for all particles and for all grid nodes 
+    #     # NOTE: grid node DG is based on max of mapped particle DGs, in this loop we simply create a list of candidates, then we will take max after
+    #     for p in range(self.numParticles):
+    #         pos = self.x[p]
+    #         DandS = ti.Vector([0.0, 0.0]) #hold D and S in here (no temporary atomic scalar variables in taichi...)
+    #         nablaD = ti.Vector([0.0, 0.0])
+    #         nablaS = ti.Vector([0.0, 0.0])
+    #         for i in range(self.particleNumNeighbors[p]): #iterate over neighbors of particle p
 
-                xp_i = self.particleNeighbors[p, i] #index of curr neighbor
-                xp = self.x[xp_i] #grab neighbor position
-                rBar = self.computeRBar(pos, xp)
-                rBarGrad = self.computeRBarGrad(pos, xp)
-                omega = self.computeOmega(rBar)
-                omegaPrime = self.computeOmegaPrime(rBar)
+    #             xp_i = self.particleNeighbors[p, i] #index of curr neighbor
+    #             xp = self.x[xp_i] #grab neighbor position
+    #             rBar = self.computeRBar(pos, xp)
+    #             rBarGrad = self.computeRBarGrad(pos, xp)
+    #             omega = self.computeOmega(rBar)
+    #             omegaPrime = self.computeOmegaPrime(rBar)
 
-                #Add onto the sums for D, S, nablaD, nablaS
-                maxD = max(self.Dp[xp_i], self.sp[xp_i])
-                deltaDS = ti.Vector([(maxD * omega), omega])
-                DandS += deltaDS
-                nablaD += (maxD * omegaPrime * rBarGrad)
-                nablaS += (omegaPrime * rBarGrad)
+    #             #Add onto the sums for D, S, nablaD, nablaS
+    #             maxD = max(self.Dp[xp_i], self.sp[xp_i])
+    #             deltaDS = ti.Vector([(maxD * omega), omega])
+    #             DandS += deltaDS
+    #             nablaD += (maxD * omegaPrime * rBarGrad)
+    #             nablaS += (omegaPrime * rBarGrad)
 
-            nablaDBar = (nablaD * DandS[1] - DandS[0] * nablaS) / (DandS[1]**2) #final particle DG
-            self.particleDG[p] = nablaDBar #store particle DG
+    #         nablaDBar = (nablaD * DandS[1] - DandS[0] * nablaS) / (DandS[1]**2) #final particle DG
+    #         self.particleDG[p] = nablaDBar #store particle DG
 
-            #Now iterate over the grid nodes particle p maps to to set Di!
-            base = (pos * self.invDx - 0.5).cast(int)
-            for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
-                offset = ti.Vector([i, j])
-                gridIdx = base + offset
-                currGridDG = self.gridDG[gridIdx] # grab current grid Di
+    #         #Now iterate over the grid nodes particle p maps to to set Di!
+    #         base = (pos * self.invDx - 0.5).cast(int)
+    #         for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
+    #             offset = ti.Vector([i, j])
+    #             gridIdx = base + offset
+    #             currGridDG = self.gridDG[gridIdx] # grab current grid Di
 
-                if(nablaDBar.norm() > currGridDG.norm()): #save this particle's index as a potential candidate for new maximum
-                    offs = ti.atomic_add(self.maxHelperCount[gridIdx], 1) #this lets us keep a dynamically sized list by tracking the index
-                    self.maxHelper[gridIdx, offs] = p #add this particle index to the list!
+    #             if(nablaDBar.norm() > currGridDG.norm()): #save this particle's index as a potential candidate for new maximum
+    #                 offs = ti.atomic_add(self.maxHelperCount[gridIdx], 1) #this lets us keep a dynamically sized list by tracking the index
+    #                 self.maxHelper[gridIdx, offs] = p #add this particle index to the list!
 
-    @ti.kernel
-    def computeGridDG(self):
-        #Now iterate over all active grid nodes and compute the maximum of candidate DGs
-        for i, j in self.maxHelperCount:
-            currMaxDG = self.gridDG[i,j] # grab current grid Di
-            currMaxNorm = currMaxDG.norm()
+    # @ti.kernel
+    # def computeGridDG(self):
+    #     #Now iterate over all active grid nodes and compute the maximum of candidate DGs
+    #     for i, j in self.maxHelperCount:
+    #         currMaxDG = self.gridDG[i,j] # grab current grid Di
+    #         currMaxNorm = currMaxDG.norm()
 
-            for k in range(self.maxHelperCount[i,j]):
-                p_i = self.maxHelper[i,j,k] #grab particle index
-                candidateDG = self.particleDG[p_i]
-                if(candidateDG.norm() > currMaxNorm):
-                    currMaxNorm = candidateDG.norm()
-                    currMaxDG = candidateDG
+    #         for k in range(self.maxHelperCount[i,j]):
+    #             p_i = self.maxHelper[i,j,k] #grab particle index
+    #             candidateDG = self.particleDG[p_i]
+    #             if(candidateDG.norm() > currMaxNorm):
+    #                 currMaxNorm = candidateDG.norm()
+    #                 currMaxDG = candidateDG
 
-            self.gridDG[i,j] = currMaxDG #set to be the max we found
+    #         self.gridDG[i,j] = currMaxDG #set to be the max we found
 
     @ti.kernel
     def massP2G(self):
@@ -313,60 +315,55 @@ class DFGMPMSolver:
                 maxD = max(self.Dp[p], self.sp[p]) #use max of damage and surface particle markers so we detect green case correctly
 
                 #Set Active Fields for each grid node! 
-                if self.particleDG[p].dot(self.gridDG[gridIdx]) >= 0:
-                    offs = ti.atomic_add(self.activeFieldsCount[gridIdx, 0], 1) #this lets us keep a dynamically sized list by tracking the index
-                    self.activeFields[gridIdx, 0, offs] = p #add this particle index to the list!
+                if self.material[p] == 0:
+                    #offs = ti.atomic_add(self.activeFieldsCount[gridIdx, 0], 1) #this lets us keep a dynamically sized list by tracking the index
+                    #self.activeFields[gridIdx, 0, offs] = p #add this particle index to the list!
                     self.grid_m[gridIdx][0] += weight * self.mp[p] #add mass to active field for this particle
-                    self.gridSeparability[gridIdx][0] += weight * maxD * self.mp[p] #numerator, field 1
-                    self.gridSeparability[gridIdx][2] += weight * self.mp[p] #denom, field 1
-                    self.particleAF[p][i*3 + j] = 0 #set this particle's AF to 0 for this grid node
+                    #self.gridSeparability[gridIdx][0] += weight * maxD * self.mp[p] #numerator, field 1
+                    #self.gridSeparability[gridIdx][2] += weight * self.mp[p] #denom, field 1
                 else:
-                    offs = ti.atomic_add(self.activeFieldsCount[gridIdx, 1], 1)
-                    self.activeFields[gridIdx, 1, offs] = p
+                    #offs = ti.atomic_add(self.activeFieldsCount[gridIdx, 1], 1)
+                    #self.activeFields[gridIdx, 1, offs] = p
                     self.grid_m[gridIdx][1] += weight * self.mp[p] #add mass to active field for this particle
-                    self.gridSeparability[gridIdx][1] += weight * maxD * self.mp[p] #numerator, field 2
-                    self.gridSeparability[gridIdx][3] += weight * self.mp[p] #denom, field 2
-                    self.particleAF[p][i*3 + j] = 1 #set this particle's AF to 1 for this grid node
+                    #self.gridSeparability[gridIdx][1] += weight * maxD * self.mp[p] #numerator, field 2
+                    #self.gridSeparability[gridIdx][3] += weight * self.mp[p] #denom, field 2
 
-    @ti.kernel
-    def computeSeparability(self):
-        #Iterate grid nodes to compute separability condition and maxDamage (both for each field)
-        for i, j in self.gridSeparability:
-            gridIdx = ti.Vector([i, j])
+    # @ti.kernel
+    # def computeSeparability(self):
+    #     #Iterate grid nodes to compute separability condition and maxDamage (both for each field)
+    #     for i, j in self.gridSeparability:
+    #         gridIdx = ti.Vector([i, j])
 
-            #Compute seperability for field 1 and store as idx 0
-            self.gridSeparability[gridIdx][0] /= self.gridSeparability[gridIdx][2] #divide numerator by denominator
+    #         #Compute seperability for field 1 and store as idx 0
+    #         self.gridSeparability[gridIdx][0] /= self.gridSeparability[gridIdx][2] #divide numerator by denominator
 
-            #Compute seperability for field 2 and store as idx 1
-            self.gridSeparability[gridIdx][1] /= self.gridSeparability[gridIdx][3] #divide numerator by denominator
+    #         #Compute seperability for field 2 and store as idx 1
+    #         self.gridSeparability[gridIdx][1] /= self.gridSeparability[gridIdx][3] #divide numerator by denominator
 
-            #Compute maximum damage for grid node active fields
-            max1 = 0.0
-            max2 = 0.0
-            for k in range(self.activeFieldsCount[gridIdx, 0]):
-                p_i = self.activeFields[gridIdx, 0, k]
-                p_d = max(self.Dp[p_i], self.sp[p_i]) #TODO is this right?
-                if p_d > max1:
-                    max1 = p_d
-            for k in range(self.activeFieldsCount[gridIdx, 1]):
-                p_i = self.activeFields[gridIdx, 1, k]
-                p_d = max(self.Dp[p_i], self.sp[p_i])
-                if p_d > max2:
-                    max2 = p_d
-            self.gridMaxDamage[gridIdx][0] = max1
-            self.gridMaxDamage[gridIdx][1] = max2
+    #         #Compute maximum damage for grid node active fields
+    #         max1 = 0.0
+    #         max2 = 0.0
+    #         for k in range(self.activeFieldsCount[gridIdx, 0]):
+    #             p_i = self.activeFields[gridIdx, 0, k]
+    #             p_d = max(self.Dp[p_i], self.sp[p_i]) #TODO is this right?
+    #             if p_d > max1:
+    #                 max1 = p_d
+    #         for k in range(self.activeFieldsCount[gridIdx, 1]):
+    #             p_i = self.activeFields[gridIdx, 1, k]
+    #             p_d = max(self.Dp[p_i], self.sp[p_i])
+    #             if p_d > max2:
+    #                 max2 = p_d
+    #         self.gridMaxDamage[gridIdx][0] = max1
+    #         self.gridMaxDamage[gridIdx][1] = max2
 
-            # if(i * self.nGrid + j == 1151):
-            #     print("node 1151 field one count:", self.activeFieldsCount[gridIdx, 0], "field two count:", self.activeFieldsCount[gridIdx, 1])
-
-            #NOTE: separable[i,j] = -1 for one field, 0 for two non-separable fields, and 1 for two separable fields
-            if self.grid_m[i,j][0] > 0 and self.grid_m[i,j][1] > 0:
-                minSep = self.gridSeparability[i,j][0] if self.gridSeparability[i,j][0] < self.gridSeparability[i,j][1] else self.gridSeparability[i,j][1]
-                maxMax = self.gridMaxDamage[i,j][0] if self.gridMaxDamage[i,j][0] > self.gridMaxDamage[i,j][1] else self.gridMaxDamage[i,j][1]
-                if maxMax == 1.0 and minSep > self.dMin:
-                    self.separable[i,j] = 1
-                else:
-                    self.separable[i,j] = 0
+    #         #NOTE: separable[i,j] = -1 for one field, 0 for two non-separable fields, and 1 for two separable fields
+    #         if self.grid_m[i,j][0] > 0 and self.grid_m[i,j][1] > 0:
+    #             minSep = self.gridSeparability[i,j][0] if self.gridSeparability[i,j][0] < self.gridSeparability[i,j][1] else self.gridSeparability[i,j][1]
+    #             maxMax = self.gridMaxDamage[i,j][0] if self.gridMaxDamage[i,j][0] > self.gridMaxDamage[i,j][1] else self.gridMaxDamage[i,j][1]
+    #             if maxMax == 1.0 and minSep > self.dMin:
+    #                 self.separable[i,j] = 1
+    #             else:
+    #                 self.separable[i,j] = 0
 
     @ti.kernel
     def momentumP2GandForces(self):
@@ -406,54 +403,39 @@ class DFGMPMSolver:
 
                 force = -self.Vp[p] * kirchoff @ dweight
 
-                if self.separable[gridIdx] == -1: 
-                    #treat node as one field
-                    if(self.useAPIC):
-                        self.grid_v[gridIdx, 0] += self.mp[p] * weight * (self.v[p] + self.C[p] @ dpos) #momentum transfer (APIC)
-                    else:
-                        self.grid_v[gridIdx, 0] += self.mp[p] * weight * self.v[p] #momentum transfer (PIC)
-
-                    self.grid_v[gridIdx, 0] += self.dt * force #add force to update velocity, don't divide by mass bc this is actually updating MOMENTUM
-
-                    self.grid_n[gridIdx, 0] += dweight * self.mp[p] #add to the normal for this field at this grid node, remember we need to normalize it later!
-
+                #treat node as having two fields
+                fieldIdx = self.material[p] #grab the field that this particle is in for this node
+                
+                if(self.useAPIC):
+                    self.grid_v[gridIdx, fieldIdx] += self.mp[p] * weight * (self.v[p] + self.C[p] @ dpos) #momentum transfer (APIC)
                 else:
-                    #treat node as having two fields
-                    fieldIdx = self.particleAF[p][i*3 + j] #grab the field that this particle is in for this node
-                    
-                    if(self.useAPIC):
-                        self.grid_v[gridIdx, fieldIdx] += self.mp[p] * weight * (self.v[p] + self.C[p] @ dpos) #momentum transfer (APIC)
-                    else:
-                        self.grid_v[gridIdx, fieldIdx] += self.mp[p] * weight * self.v[p] #momentum transfer (PIC)
-                    
-                    self.grid_v[gridIdx, fieldIdx] += self.dt * force #add force to update velocity, don't divide by mass bc this is actually updating MOMENTUM
-                    self.grid_n[gridIdx, fieldIdx] += dweight * self.mp[p] #add to the normal for this field at this grid node, remember we need to normalize it later!
+                    self.grid_v[gridIdx, fieldIdx] += self.mp[p] * weight * self.v[p] #momentum transfer (PIC)
+                
+                self.grid_v[gridIdx, fieldIdx] += self.dt * force #add force to update velocity, don't divide by mass bc this is actually updating MOMENTUM
+                self.grid_n[gridIdx, fieldIdx] += dweight * self.mp[p] #add to the normal for this field at this grid node, remember we need to normalize it later!
 
     @ti.kernel
     def addGravity(self):
-         #Add Gravity
+        #Add Gravity
         for i, j in self.grid_m:
-            if self.separable[i,j] != -1:
-                self.grid_v[i, j, 0] += self.dt * self.gravity[None] * self.grid_m[i,j][0] # gravity (single field version)
-            else:
-                self.grid_v[i, j, 0] += self.dt * self.gravity[None] * self.grid_m[i, j][0] # gravity, field 1
-                self.grid_v[i, j, 1] += self.dt * self.gravity[None] * self.grid_m[i, j][1] # gravity, field 2
+            self.grid_v[i, j, 0] += self.dt * self.gravity[None] * self.grid_m[i, j][0] # gravity, field 1
+            self.grid_v[i, j, 1] += self.dt * self.gravity[None] * self.grid_m[i, j][1] # gravity, field 2
 
     @ti.kernel
     def computeContactForces(self):
         #Frictional Contact Forces
         for i,j in self.grid_m:
-            if self.separable[i,j] != -1: #only apply these forces to nodes with two fields
-                #momentium
-                q_1 = self.grid_v[i, j, 0]
-                q_2 = self.grid_v[i, j, 1]
-                q_cm = q_1 + q_2 
+            #momentium
+            q_1 = self.grid_v[i, j, 0]
+            q_2 = self.grid_v[i, j, 1]
+            q_cm = q_1 + q_2 
 
-                #mass
-                m_1 = self.grid_m[i, j][0]
-                m_2 = self.grid_m[i, j][1]
-                m_cm = m_1 + m_2
+            #mass
+            m_1 = self.grid_m[i, j][0]
+            m_2 = self.grid_m[i, j][1]
+            m_cm = m_1 + m_2
 
+            if m_1 > 0 and m_2 > 0:
                 #velocity
                 v_1 = self.grid_v[i, j, 0] / m_1
                 v_2 = self.grid_v[i, j, 1] / m_2
@@ -492,146 +474,41 @@ class DFGMPMSolver:
                 tanDirection1 = ti.Vector([0.0, 0.0]) if fTanSign1 == 0.0 else fTanComp1.normalized() #prevent nan directions
                 tanDirection2 = ti.Vector([0.0, 0.0]) if fTanSign2 == 0.0 else fTanComp2.normalized()
 
-                scale = 1e15
-
-                #if(i * self.nGrid + j == 883):# and self.verbose):
-
+                self.fieldFlags[None] = [0,0]
+            
+                if((v_cm - v_1).dot(n_cm1) + (v_cm - v_2).dot(n_cm2) < 0):
+                    tanMin = self.fricCoeff * abs(fNormal1) if self.fricCoeff * abs(fNormal1) < abs(fTanMag1) else abs(fTanMag1)
+                    f_c1 += (fNormal1 * n_cm1)# + (tanMin * fTanSign1 * tanDirection1)
+                    tanMin = self.fricCoeff * abs(fNormal2) if self.fricCoeff * abs(fNormal2) < abs(fTanMag2) else abs(fTanMag2)
+                    f_c2 += (fNormal2 * n_cm2)# + (tanMin * fTanSign2 * tanDirection2)
                     
-                    # print('Data for grid node', i*self.nGrid + j, ':')
-                    # print('q_1:', q_1*scale)
-                    # print('q_2:', q_2*scale)
-                    # print('q_cm:', q_cm*scale)
-                    # print()
-                    # print('m_1:', m_1*scale)
-                    # print('m_2:', m_2*scale)
-                    # print('m_cm:', m_cm*scale)
-                    # print()
-                    # print('v_1:', v_1*scale)
-                    # print('v_2:', v_2*scale)
-                    # print('v_cm:', v_cm*scale)
-                    # print()
-                    # print('n_1:', n_1*scale)
-                    # print('n_2:', n_2*scale)
-                    # print('n_cm1:', n_cm1*scale)
-                    # print('n_cm2:', n_cm2*scale)
-                    # print('s_cm1:', s_cm1*scale)
-                    # print('s_cm2:', s_cm2*scale)
-                    # print()
-                    # print('m1/dt:', m_1 / self.dt)
-                    # print('m2/dt:', m_2 / self.dt)
-                    # print('vcm-v1 dot n_cm1:', (v_cm - v_1).dot(n_cm1)*scale)
-                    # print('vcm-v1 dot s_cm1:', (v_cm - v_1).dot(s_cm1)*scale)
-                    # print('vcm-v2 dot n_cm2:', (v_cm - v_2).dot(n_cm2)*scale)
-                    # print('vcm-v2 dot s_cm2:', (v_cm - v_2).dot(s_cm2)*scale)
-                    # print('fNormal1:', fNormal1*scale)
-                    # print('fNormal2:', fNormal2*scale)
-                    # print('fTan1:', fTan1*scale)
-                    # print('fTan2:', fTan2*scale)
-                    # print('fTanSign1:', fTanSign1)
-                    # print('fTanSign2:', fTanSign2)
-                    # print('tanDirection1:', tanDirection1)
-                    # print('tanDirection2:', tanDirection2)
 
-                fieldOne = 0
-                fieldTwo = 0
-
-                if self.separable[i,j] == 1:            
-                    #two fields and are separable
-                    # if (v_cm - v_1).dot(n_cm1) > 0:
-                    #     tanMin = self.fricCoeff * abs(fNormal1) if self.fricCoeff * abs(fNormal1) < abs(fTanMag1) else abs(fTanMag1)
-                    #     f_c1 += (fNormal1 * n_cm1) + (tanMin * fTanSign1 * tanDirection1)
-                    #     fieldOne = 1
-                
-                    # if (v_cm - v_2).dot(n_cm2) > 0:
-                    #     tanMin = self.fricCoeff * abs(fNormal2) if self.fricCoeff * abs(fNormal2) < abs(fTanMag2) else abs(fTanMag2)
-                    #     f_c2 += (fNormal2 * n_cm2) + (tanMin * fTanSign2 * tanDirection2)
-                    #     fieldTwo = 1
-
-                    if (v_cm - v_1).dot(n_cm1) + (v_cm - v_2).dot(n_cm2) < 0:
-                        tanMin1 = self.fricCoeff * abs(fNormal1) if self.fricCoeff * abs(fNormal1) < abs(fTanMag1) else abs(fTanMag1)
-                        f_c1 += (fNormal1 * n_cm1) + (tanMin1 * fTanSign1 * tanDirection1)
-                        fieldOne = 1
-                        tanMin1 = self.fricCoeff * abs(fNormal2) if self.fricCoeff * abs(fNormal2) < abs(fTanMag2) else abs(fTanMag2)
-                        f_c2 += (fNormal2 * n_cm2) + (tanMin1 * fTanSign2 * tanDirection2)
-                        fieldTwo = 1        
-
-                    if(i * self.nGrid + j == 883 and fieldOne & fieldTwo and self.verbose):
-                        print('m_1:', m_1)
-                        print('m_2:', m_2)
-                        print('m1/dt:', m_1 / self.dt)
-                        print('m2/dt:', m_2 / self.dt)
-                        print('v_1:', v_1)
-                        print('v_2:', v_2)
-                        print('v_cm:', v_cm)
-                        print('n_cm1:', n_cm1)
-                        print('n_cm2:', n_cm2)
-                        print('fNormal1:', fNormal1)
-                        print('fNormal2:', fNormal2)
-                        print('vcm-v1 dot n_cm1:', (v_cm - v_1).dot(n_cm1))
-                        print('vcm-v2 dot n_cm2:', (v_cm - v_2).dot(n_cm2))
-                        v1New = v_1 + (self.dt * (-f_c2 / m_1))
-                        v2New = v_2 + (self.dt * (-f_c1 / m_2))
-                        print('vcm-v1New dot n_cm1:', (v_cm - v1New).dot(n_cm1)) 
-                        print('vcm-v2New dot n_cm2:', (v_cm - v2New).dot(n_cm2))
-                        print()
-
-
-                else:
-                    #two fields but not separable, treat as one field, but each gets an update
-                    #NOTE: yellow node update reduces to v1 = v_cm, v2 = v_cm
-                    f_c1 = v_cm #we're now updating velocity (divide out mass before adding friction force)
-                    f_c2 = v_cm
-
-                if (fieldOne ^ fieldTwo):
-                    print('ERROR ERROR ERROR: fieldOne:', fieldOne, 'fieldTwo:', fieldTwo)
+                # if (fieldOne ^ fieldTwo):
+                #     print('ERROR only one force computed: fieldOne:', fieldOne, 'fieldTwo:', fieldTwo)
 
                 #Now save these forces for later
                 self.grid_f[i,j,0] = f_c1
                 self.grid_f[i,j,1] = f_c2
 
-    # @ti.kernel
-    # def addFrictionForces(self):
-    #     #Use contact forces to update velocity
-    #     for i, j in self.grid_m:
-    #         if(self.separable[i,j] != -1 and self.useFrictionalContact):
-    #             if self.separable[i,j] == 1:
-    #                 self.grid_v[i,j,0] += self.dt * self.grid_f[i,j,1] # use field 2 force to update field 1 particles (for green nodes, ie separable contact)
-    #                 self.grid_v[i,j,1] += self.dt * self.grid_f[i,j,0] # use field 1 force to update field 2 particles
-    #             else:
-    #                 # self.grid_v[i,j,0] += self.dt * self.grid_f[i,j,0] #use field 1 for field 1 (yellow nodes)
-    #                 # self.grid_v[i,j,1] += self.dt * self.grid_f[i,j,1] #field 2 for field 2 (yellow)
-    #                 self.grid_v[i,j,0] = self.grid_f[i,j,0] #stored v_cm * m_1, so we just set to this!
-    #                 self.grid_v[i,j,1] = self.grid_f[i,j,1] #stored v_cm * m_2, so we just set to this!
-
     @ti.kernel
     def momentumToVelocityAndAddContact(self):
         #Convert Momentum to Velocity And Add Friction Forces
         for i, j in self.grid_m:    
-            if self.separable[i,j] == -1:
-                #treat as one field
-                nodalMass = self.grid_m[i,j][0]
-                if nodalMass > 0: #if there is mass at this node
-                    self.grid_v[i, j, 0] = (1 / nodalMass) * self.grid_v[i, j, 0] # Momentum to velocity
-                    
-            else:
-                #treat node as having two fields
-                nodalMass1 = self.grid_m[i,j][0]
-                nodalMass2 = self.grid_m[i,j][1]
-                if nodalMass1 > 0 and nodalMass2 > 0: #if there is mass at this node
-                    self.grid_v[i, j, 0] = (1 / nodalMass1) * self.grid_v[i, j, 0] # Momentum to velocity, field 1
-                    self.grid_v[i, j, 1] = (1 / nodalMass2) * self.grid_v[i, j, 1] # Momentum to velocity, field 2
+            #treat node as having two fields
+            nodalMass1 = self.grid_m[i,j][0]
+            nodalMass2 = self.grid_m[i,j][1]
+            if nodalMass1 > 0:
+                self.grid_v[i, j, 0] = (1 / nodalMass1) * self.grid_v[i, j, 0] # Momentum to velocity, field 1
+                if self.useFrictionalContact: 
+                    #print('updating v1 using fct1')
+                    self.grid_v[i,j,0] += (self.grid_f[i,j,0] / nodalMass1) * self.dt # use field 1 force to update field 1 particles (for green nodes, ie separable contact)
 
-                    if(self.useFrictionalContact):
-                        if self.separable[i,j] == 1:
-                            self.grid_v[i,j,0] += (self.grid_f[i,j,0] / nodalMass1) * self.dt # use field 2 force to update field 1 particles (for green nodes, ie separable contact)
-                            self.grid_v[i,j,1] += (self.grid_f[i,j,1] / nodalMass2) * self.dt # use field 1 force to update field 2 particles
-                            #self.grid_v[i,j,0] += (-self.grid_f[i,j,1] / nodalMass1) * self.dt # use field 2 force to update field 1 particles (for green nodes, ie separable contact)
-                            #self.grid_v[i,j,1] += (-self.grid_f[i,j,0] / nodalMass2) * self.dt # use field 1 force to update field 2 particles
-                        else:
-                            # self.grid_v[i,j,0] += self.dt * self.grid_f[i,j,0] #use field 1 for field 1 (yellow nodes)
-                            # self.grid_v[i,j,1] += self.dt * self.grid_f[i,j,1] #field 2 for field 2 (yellow)
-                            self.grid_v[i,j,0] = self.grid_f[i,j,0] #stored v_cm * m_1, so we just set to this!
-                            self.grid_v[i,j,1] = self.grid_f[i,j,1] #stored v_cm * m_2, so we just set to this!
+            if nodalMass2 > 0: #if there is mass at this node
+                self.grid_v[i, j, 1] = (1 / nodalMass2) * self.grid_v[i, j, 1] # Momentum to velocity, field 2
+                if self.useFrictionalContact: 
+                    #print('updating v2 using fct2')
+                    self.grid_v[i,j,1] += (self.grid_f[i,j,1] / nodalMass2) * self.dt # use field 2 force to update field 2 particles
+                
 
 
     @ti.kernel
@@ -656,22 +533,16 @@ class DFGMPMSolver:
                 dweight[0] = self.invDx * dw[i][0] * w[j][1]
                 dweight[1] = self.invDx * w[i][0] * dw[j][1]
 
-                if self.separable[gridIdx] == -1:
-                    #treat as one field
+                #node has two fields so choose the correct velocity contribution from the node
+                fieldIdx = self.material[p] #grab the field that this particle is in for this node
+                if fieldIdx == 0:
                     new_v += weight * g_v
                     new_C += 4 * self.invDx * weight * g_v.outer_product(dpos)
                     new_F += g_v.outer_product(dweight)
                 else:
-                    #node has two fields so choose the correct velocity contribution from the node
-                    fieldIdx = self.particleAF[p][i*3 + j] #grab the field that this particle is in for this node
-                    if fieldIdx == 0:
-                        new_v += weight * g_v
-                        new_C += 4 * self.invDx * weight * g_v.outer_product(dpos)
-                        new_F += g_v.outer_product(dweight)
-                    else:
-                        new_v += weight * g_v2
-                        new_C += 4 * self.invDx * weight * g_v2.outer_product(dpos)
-                        new_F += g_v2.outer_product(dweight)
+                    new_v += weight * g_v2
+                    new_C += 4 * self.invDx * weight * g_v2.outer_product(dpos)
+                    new_F += g_v2.outer_product(dweight)
 
             self.v[p], self.C[p] = new_v, new_C
             self.x[p] += self.dt * self.v[p] # advection
@@ -692,70 +563,60 @@ class DFGMPMSolver:
         @ti.kernel
         def collide():
             for I in ti.grouped(self.grid_m):
-                if self.separable[I] == -1:
-                    #treat as one field
-                    nodalMass = self.grid_m[I][0]
-                    if nodalMass > 0:
-                        offset = I * self.dx - ti.Vector(center)
-                        n = ti.Vector(normal)
-                        if offset.dot(n) < 0:
-                            if ti.static(surface == self.surfaceSticky):
-                                self.grid_v[I,0] = ti.Vector.zero(ti.f64, self.dim) #if sticky, set velocity to all zero
+                
+                #treat as two fields
+                nodalMass1 = self.grid_m[I][0]
+                nodalMass2 = self.grid_m[I][1]
+                if nodalMass1 > 0:
+                    offset = I * self.dx - ti.Vector(center)
+                    n = ti.Vector(normal)
+                    if offset.dot(n) < 0:
+                        if ti.static(surface == self.surfaceSticky):
+                            self.grid_v[I,0] = ti.Vector.zero(ti.f64, self.dim) #if sticky, set velocity to all zero
+
+                        else:
+                            v1 = self.grid_v[I,0] #divide out the mass to get velocity
+
+                            normal_component1 = n.dot(v1)
+
+                            if ti.static(surface == self.surfaceSlip):
+                                # Project out all normal component
+                                v1 = v1 - n * normal_component1
                             else:
-                                v = self.grid_v[I,0] #divide out the mass to get velocity
-                                normal_component = n.dot(v)
+                                # Project out only inward normal component
+                                v1 = v1 - n * min(normal_component1, 0)
 
-                                if ti.static(surface == self.surfaceSlip):
-                                    # Project out all normal component
-                                    v = v - n * normal_component
-                                else:
-                                    # Project out only inward normal component
-                                    v = v - n * min(normal_component, 0)
+                            if normal_component1 < 0 and v1.norm() > 1e-30:
+                                # apply friction here
+                                v1 = v1.normalized() * max(0, v1.norm() + normal_component1 * friction)
 
-                                if normal_component < 0 and v.norm() > 1e-30:
-                                    # apply friction here
-                                    v = v.normalized() * max(0, v.norm() + normal_component * friction)
+                            self.grid_v[I,0] = v1
 
-                                self.grid_v[I,0] = v
+                if nodalMass2 > 0:
+                    offset = I * self.dx - ti.Vector(center)
+                    n = ti.Vector(normal)
+                    if offset.dot(n) < 0:
+                        if ti.static(surface == self.surfaceSticky):
+                            self.grid_v[I,1] = ti.Vector.zero(ti.f64, self.dim) #both fields get zero
 
-                else:
-                    #treat as two fields
-                    nodalMass1 = self.grid_m[I][0]
-                    nodalMass2 = self.grid_m[I][1]
-                    if nodalMass1 > 0 and nodalMass2 > 0:
-                        offset = I * self.dx - ti.Vector(center)
-                        n = ti.Vector(normal)
-                        if offset.dot(n) < 0:
-                            if ti.static(surface == self.surfaceSticky):
-                                self.grid_v[I,0] = ti.Vector.zero(ti.f64, self.dim) #if sticky, set velocity to all zero
-                                self.grid_v[I,1] = ti.Vector.zero(ti.f64, self.dim) #both fields get zero
+                        else:
+                            v2 = self.grid_v[I,1] #divide out the mass to get velocity
 
+                            normal_component2 = n.dot(v2)
+
+                            if ti.static(surface == self.surfaceSlip):
+                                # Project out all normal component
+                                v2 = v2 - n * normal_component2
                             else:
-                                v1 = self.grid_v[I,0] #divide out the mass to get velocity
-                                v2 = self.grid_v[I,1] #divide out the mass to get velocity
+                                # Project out only inward normal component
+                                v2 = v2 - n * min(normal_component2, 0)
 
-                                normal_component1 = n.dot(v1)
-                                normal_component2 = n.dot(v2)
 
-                                if ti.static(surface == self.surfaceSlip):
-                                    # Project out all normal component
-                                    v1 = v1 - n * normal_component1
-                                    v2 = v2 - n * normal_component2
-                                else:
-                                    # Project out only inward normal component
-                                    v1 = v1 - n * min(normal_component1, 0)
-                                    v2 = v2 - n * min(normal_component2, 0)
+                            if normal_component2 < 0 and v2.norm() > 1e-30:
+                                # apply friction here
+                                v2 = v2.normalized() * max(0, v2.norm() + normal_component2 * friction)
 
-                                if normal_component1 < 0 and v1.norm() > 1e-30:
-                                    # apply friction here
-                                    v1 = v1.normalized() * max(0, v1.norm() + normal_component1 * friction)
-
-                                if normal_component2 < 0 and v2.norm() > 1e-30:
-                                    # apply friction here
-                                    v2 = v2.normalized() * max(0, v2.norm() + normal_component2 * friction)
-
-                                self.grid_v[I,0] = v1
-                                self.grid_v[I,1] = v2
+                            self.grid_v[I,1] = v2
 
         self.gridPostProcess.append(collide)
 
@@ -766,20 +627,20 @@ class DFGMPMSolver:
 
         with Timer("Reinitialize Structures"):
             self.reinitializeStructures()
-        with Timer("Back Grid Sort"):
-            self.backGridSort()
-        with Timer("Particle Neighbor Sorting"):
-            self.particleNeighborSorting()
-        with Timer("Surface Detection"):
-            self.surfaceDetection()
-        with Timer("Compute Particle DGs"):
-            self.computeParticleDG()
-        with Timer("Compute Grid DGs"):
-            self.computeGridDG()
+        # with Timer("Back Grid Sort"):
+        #     self.backGridSort()
+        # with Timer("Particle Neighbor Sorting"):
+        #     self.particleNeighborSorting()
+        # with Timer("Surface Detection"):
+        #     self.surfaceDetection()
+        # with Timer("Compute Particle DGs"):
+        #     self.computeParticleDG()
+        # with Timer("Compute Grid DGs"):
+        #     self.computeGridDG()
         with Timer("Mass P2G"):
             self.massP2G()
-        with Timer("Compute Separability"):
-            self.computeSeparability()
+        # with Timer("Compute Separability"):
+        #     self.computeSeparability()
         with Timer("Momentum P2G and Forces"):
             self.momentumP2GandForces()
         with Timer("Add Gravity"):
@@ -800,7 +661,6 @@ class DFGMPMSolver:
         self.gravity[None] = [0, self.gravMag]
         for i in range(self.numParticles):
             self.x[i] = [ti.cast(arr[i,0], ti.f64), ti.cast(arr[i,1], ti.f64)]
-            self.material[i] = 0
             self.v[i] = [0, 0]
             self.F[i] = ti.Matrix([[1, 0], [0, 1]])
             self.Jp[i] = 1
@@ -820,6 +680,8 @@ class DFGMPMSolver:
                     self.mp[idx] = ti.cast(pMasses[i], ti.f64)
                     self.Vp[idx] = ti.cast(pVols[i], ti.f64)
                     self.st[idx] = ti.cast(surfaceThresholds[i], ti.f64)
+                    if i == 0: self.material[idx] = 0
+                    if i == 1: self.material[idx] = 1 #set two separate fields using the materials list
                     idx += 1 
 
     def writeData(self, frame: ti.i32, s: ti.i32):
@@ -833,9 +695,11 @@ class DFGMPMSolver:
         np_x = self.x.to_numpy()
         writer = ti.PLYWriter(num_vertices=self.numParticles)
         writer.add_vertex_pos(np_x[:,0], np_x[:, 1], np.zeros(self.numParticles)) #add position
-        writer.add_vertex_channel("m_p", "double", self.mp.to_numpy()) #add damage
+        writer.add_vertex_channel("vx", "double", self.v.to_numpy()[:,0]) #add particle v x
+        writer.add_vertex_channel("vy", "double", self.v.to_numpy()[:,1]) #add particle v y
         writer.add_vertex_channel("Dp", "double", self.Dp.to_numpy()) #add damage
         writer.add_vertex_channel("sp", "int", self.sp.to_numpy()) #add surface tracking
+        writer.add_vertex_channel("field", "int", self.material.to_numpy()) #add surface tracking
         writer.add_vertex_channel("DGx", "double", self.particleDG.to_numpy()[:,0]) #add particle DG x
         writer.add_vertex_channel("DGy", "double", self.particleDG.to_numpy()[:,1]) #add particle DG y
         if(s == -1):
@@ -865,11 +729,11 @@ class DFGMPMSolver:
                 gridVelocities[gridIdx, 3] = self.grid_v[i, j, 1][1]
                 gridMasses[gridIdx, 0] = self.grid_m[i,j][0]
                 gridMasses[gridIdx, 1] = self.grid_m[i,j][1]
-                gridNormals[gridIdx, 0] = self.grid_n[i, j, 0][0]
-                gridNormals[gridIdx, 1] = self.grid_n[i, j, 0][1]
-                gridNormals[gridIdx, 2] = self.grid_n[i, j, 1][0]
-                gridNormals[gridIdx, 3] = self.grid_n[i, j, 1][1]
                 if self.separable[i,j] != -1:
+                    gridNormals[gridIdx, 0] = self.grid_n[i, j, 0][0]
+                    gridNormals[gridIdx, 1] = self.grid_n[i, j, 0][1]
+                    gridNormals[gridIdx, 2] = self.grid_n[i, j, 1][0]
+                    gridNormals[gridIdx, 3] = self.grid_n[i, j, 1][1]
                     gridFrictionForces[gridIdx, 0] = self.grid_f[i, j, 0][0]
                     gridFrictionForces[gridIdx, 1] = self.grid_f[i, j, 0][1]
                     gridFrictionForces[gridIdx, 2] = self.grid_f[i, j, 1][0]

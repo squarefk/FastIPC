@@ -3,7 +3,6 @@ import numpy as np
 from common.utils.particleSampling import *
 from common.utils.cfl import *
 from projects.brittle.DFGMPMSolver import *
-from projects.brittle.HalfSpace import *
 import math
 
 ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
@@ -19,7 +18,7 @@ ppc = 9
 rho = 10
 E, nu = 1000.0, 0.2 # Young's modulus and Poisson's ratio
 
-surfaceThreshold = 10 #10 works
+surfaceThreshold = 11 #10 works
 
 c1 = [0.2, 0.2]
 c2 = [0.5, 0.2]
@@ -62,19 +61,22 @@ maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.7 * maxDt
 
 useFrictionalContact = True
-verbose = False
+frictionCoefficient = 0.4
+verbose = True
 useAPIC = False
 
 initVel = [0,0]
 initialVelocity = []
 particleMasses = []
 particleVolumes = []
+surfaceThresholds = []
 for i in range(8):
     initialVelocity.append(initVel)
     particleMasses.append(pVol * rho)
     particleVolumes.append(pVol)
+    surfaceThresholds.append(surfaceThreshold)
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useFrictionalContact, verbose, useAPIC)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC)
 
 #Collision Objects
 groundCenter = (0, 0.05)
