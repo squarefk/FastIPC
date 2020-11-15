@@ -131,7 +131,7 @@ else:
 block = grid.pointer(indices, grid_block_size // leaf_block_size)
 block.dense(indices, leaf_block_size).dynamic(ti.indices(dim), 1024 * 1024, chunk_size=leaf_block_size**dim * 8).place(pid, offset=offset + (0, ))
 
-update_dbdf = True
+update_dbdf = False
 update_dpdf = False
 
 
@@ -1040,129 +1040,130 @@ def reuse_admm_variables(alpha: real):
             Q_GEEM[r, 0] = ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _a1, _b0, _b1, dHat2, kappa).norm())
     # reuse y, r
 
-    if update_dbdf:
-        tmpn = n_GPE[None]
-        for _ in range(1):
-            for _d in range(tmpn):
-                d = tmpn - _d - 1
-                local_outside = False
-                for c in range(old_n_GPE[None]):
-                    if old_GPE[c, 0] == GPE[d, 0] and old_GPE[c, 1] == GPE[d, 1] and old_GPE[c, 2] == GPE[d, 2]:
+    if ti.static(update_dbdf):
+        if ti.static(dim == 2):
+            tmpn = n_GPE[None]
+            for _ in range(1):
+                for _d in range(tmpn):
+                    d = tmpn - _d - 1
+                    local_outside = False
+                    for c in range(old_n_GPE[None]):
+                        if old_GPE[c, 0] == GPE[d, 0] and old_GPE[c, 1] == GPE[d, 1] and old_GPE[c, 2] == GPE[d, 2]:
+                            a, b = old_y_GPE[c, 0], old_y_GPE[c, 1]
+                            if ti.sqrt(GPE_hessian(ti.Matrix.zero(real, dim), a, b, dHat2, kappa).norm()) == 0:
+                                local_outside = True
+                    if local_outside:
+                        e = n_GPE[None] - 1
+                        n_GPE[None] -= 1
+                        GPE[d, 0], GPE[d, 1], GPE[d, 2], GPE[e, 0], GPE[e, 1], GPE[e, 2] = GPE[e, 0], GPE[e, 1], GPE[e, 2], GPE[d, 0], GPE[d, 1], GPE[d, 2]
+                        Q_GPE[d, 0], Q_GPE[d, 1], Q_GPE[e, 0], Q_GPE[e, 1] = Q_GPE[e, 0], Q_GPE[e, 1], Q_GPE[d, 0], Q_GPE[d, 1]
+                        y_GPE[d, 0], y_GPE[d, 1], y_GPE[e, 0], y_GPE[e, 1] = y_GPE[e, 0], y_GPE[e, 1], y_GPE[d, 0], y_GPE[d, 1]
+                        r_GPE[d, 0], r_GPE[d, 1], r_GPE[e, 0], r_GPE[e, 1] = r_GPE[e, 0], r_GPE[e, 1], r_GPE[d, 0], r_GPE[d, 1]
+        if ti.static(dim == 3):
+            tmpn = n_GPT[None]
+            for _ in range(1):
+                for _d in range(tmpn):
+                    d = tmpn - _d - 1
+                    local_outside = False
+                    for c in range(old_n_GPT[None]):
+                        if old_GPT[c, 0] == GPT[d, 0] and old_GPT[c, 1] == GPT[d, 1] and old_GPT[c, 2] == GPT[d, 2] and old_GPT[c, 3] == GPT[d, 3]:
+                            a, b, c = old_y_GPT[c, 0], old_y_GPT[c, 1], old_y_GPT[c, 2]
+                            if ti.sqrt(GPT_hessian(ti.Matrix.zero(real, dim), a, b, c, dHat2, kappa).norm()) == 0:
+                                local_outside = True
+                    if local_outside:
+                        e = n_GPT[None] - 1
+                        n_GPT[None] -= 1
+                        GPT[d, 0], GPT[d, 1], GPT[d, 2], GPT[d, 3], GPT[e, 0], GPT[e, 1], GPT[e, 2], GPT[e, 3] = GPT[e, 0], GPT[e, 1], GPT[e, 2], GPT[e, 3], GPT[d, 0], GPT[d, 1], GPT[d, 2], GPT[d, 3]
+                        Q_GPT[d, 0], Q_GPT[d, 1], Q_GPT[d, 2], Q_GPT[e, 0], Q_GPT[e, 1], Q_GPT[e, 2] = Q_GPT[e, 0], Q_GPT[e, 1], Q_GPT[e, 2], Q_GPT[d, 0], Q_GPT[d, 1], Q_GPT[d, 2]
+                        y_GPT[d, 0], y_GPT[d, 1], y_GPT[d, 2], y_GPT[e, 0], y_GPT[e, 1], y_GPT[e, 2] = y_GPT[e, 0], y_GPT[e, 1], y_GPT[e, 2], y_GPT[d, 0], y_GPT[d, 1], y_GPT[d, 2]
+                        r_GPT[d, 0], r_GPT[d, 1], r_GPT[d, 2], r_GPT[e, 0], r_GPT[e, 1], r_GPT[e, 2] = r_GPT[e, 0], r_GPT[e, 1], r_GPT[e, 2], r_GPT[d, 0], r_GPT[d, 1], r_GPT[d, 2]
+            tmpn = n_GEE[None]
+            for _ in range(1):
+                for _d in range(tmpn):
+                    d = tmpn - _d - 1
+                    local_outside = False
+                    for c in range(old_n_GEE[None]):
+                        if old_GEE[c, 0] == GEE[d, 0] and old_GEE[c, 1] == GEE[d, 1] and old_GEE[c, 2] == GEE[d, 2] and old_GEE[c, 3] == GEE[d, 3]:
+                            a, b, c = old_y_GEE[c, 0], old_y_GEE[c, 1], old_y_GEE[c, 2]
+                            if ti.sqrt(GEE_hessian(ti.Matrix.zero(real, dim), a, b, c, dHat2, kappa).norm()) == 0:
+                                local_outside = True
+                    if local_outside:
+                        e = n_GEE[None] - 1
+                        n_GEE[None] -= 1
+                        GEE[d, 0], GEE[d, 1], GEE[d, 2], GEE[d, 3], GEE[e, 0], GEE[e, 1], GEE[e, 2], GEE[e, 3] = GEE[e, 0], GEE[e, 1], GEE[e, 2], GEE[e, 3], GEE[d, 0], GEE[d, 1], GEE[d, 2], GEE[d, 3]
+                        Q_GEE[d, 0], Q_GEE[d, 1], Q_GEE[d, 2], Q_GEE[e, 0], Q_GEE[e, 1], Q_GEE[e, 2] = Q_GEE[e, 0], Q_GEE[e, 1], Q_GEE[e, 2], Q_GEE[d, 0], Q_GEE[d, 1], Q_GEE[d, 2]
+                        y_GEE[d, 0], y_GEE[d, 1], y_GEE[d, 2], y_GEE[e, 0], y_GEE[e, 1], y_GEE[e, 2] = y_GEE[e, 0], y_GEE[e, 1], y_GEE[e, 2], y_GEE[d, 0], y_GEE[d, 1], y_GEE[d, 2]
+                        r_GEE[d, 0], r_GEE[d, 1], r_GEE[d, 2], r_GEE[e, 0], r_GEE[e, 1], r_GEE[e, 2] = r_GEE[e, 0], r_GEE[e, 1], r_GEE[e, 2], r_GEE[d, 0], r_GEE[d, 1], r_GEE[d, 2]
+            tmpn = n_GEEM[None]
+            for _ in range(1):
+                for _d in range(tmpn):
+                    d = tmpn - _d - 1
+                    local_outside = False
+                    for c in range(old_n_GEEM[None]):
+                        if old_GEEM[c, 0] == GEEM[d, 0] and old_GEEM[c, 1] == GEEM[d, 1] and old_GEEM[c, 2] == GEEM[d, 2] and old_GEEM[c, 3] == GEEM[d, 3]:
+                            a, b, c = old_y_GEEM[c, 0], old_y_GEEM[c, 1], old_y_GEEM[c, 2]
+                            _a0, _a1, _b0, _b1 = x0[GEEM[d, 0]], x0[GEEM[d, 1]], x0[GEEM[d, 2]], x0[GEEM[d, 3]]
+                            if ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), a, b, c, _a0, _a1, _b0, _b1, dHat2, kappa).norm()) == 0:
+                                local_outside = True
+                    if local_outside:
+                        e = n_GEEM[None] - 1
+                        n_GEEM[None] -= 1
+                        GEEM[d, 0], GEEM[d, 1], GEEM[d, 2], GEEM[d, 3], GEEM[e, 0], GEEM[e, 1], GEEM[e, 2], GEEM[e, 3] = GEEM[e, 0], GEEM[e, 1], GEEM[e, 2], GEEM[e, 3], GEEM[d, 0], GEEM[d, 1], GEEM[d, 2], GEEM[d, 3]
+                        Q_GEEM[d, 0], Q_GEEM[d, 1], Q_GEEM[d, 2], Q_GEEM[e, 0], Q_GEEM[e, 1], Q_GEEM[e, 2] = Q_GEEM[e, 0], Q_GEEM[e, 1], Q_GEEM[e, 2], Q_GEEM[d, 0], Q_GEEM[d, 1], Q_GEEM[d, 2]
+                        y_GEEM[d, 0], y_GEEM[d, 1], y_GEEM[d, 2], y_GEEM[e, 0], y_GEEM[e, 1], y_GEEM[e, 2] = y_GEEM[e, 0], y_GEEM[e, 1], y_GEEM[e, 2], y_GEEM[d, 0], y_GEEM[d, 1], y_GEEM[d, 2]
+                        r_GEEM[d, 0], r_GEEM[d, 1], r_GEEM[d, 2], r_GEEM[e, 0], r_GEEM[e, 1], r_GEEM[e, 2] = r_GEEM[e, 0], r_GEEM[e, 1], r_GEEM[e, 2], r_GEEM[d, 0], r_GEEM[d, 1], r_GEEM[d, 2]
+
+    if ti.static(dim == 2):
+        for c in range(old_n_GPE[None]):
+            for d in range(n_GPE[None]):
+                if old_GPE[c, 0] == GPE[d, 0] and old_GPE[c, 1] == GPE[d, 1] and old_GPE[c, 2] == GPE[d, 2]:
+                    k = 1.
+                    if ti.static(update_dbdf):
                         a, b = old_y_GPE[c, 0], old_y_GPE[c, 1]
-                        if ti.sqrt(GPE_hessian(ti.Matrix.zero(real, dim), a, b, dHat2, kappa).norm()) == 0:
-                            local_outside = True
-                if local_outside:
-                    e = n_GPE[None] - 1
-                    n_GPE[None] -= 1
-                    GPE[d, 0], GPE[d, 1], GPE[d, 2], GPE[e, 0], GPE[e, 1], GPE[e, 2] = GPE[e, 0], GPE[e, 1], GPE[e, 2], GPE[d, 0], GPE[d, 1], GPE[d, 2]
-                    Q_GPE[d, 0], Q_GPE[d, 1], Q_GPE[e, 0], Q_GPE[e, 1] = Q_GPE[e, 0], Q_GPE[e, 1], Q_GPE[d, 0], Q_GPE[d, 1]
-                    y_GPE[d, 0], y_GPE[d, 1], y_GPE[e, 0], y_GPE[e, 1] = y_GPE[e, 0], y_GPE[e, 1], y_GPE[d, 0], y_GPE[d, 1]
-                    r_GPE[d, 0], r_GPE[d, 1], r_GPE[e, 0], r_GPE[e, 1] = r_GPE[e, 0], r_GPE[e, 1], r_GPE[d, 0], r_GPE[d, 1]
-        tmpn = n_GPT[None]
-        for _ in range(1):
-            for _d in range(tmpn):
-                d = tmpn - _d - 1
-                local_outside = False
-                for c in range(old_n_GPT[None]):
-                    if old_GPT[c, 0] == GPT[d, 0] and old_GPT[c, 1] == GPT[d, 1] and old_GPT[c, 2] == GPT[d, 2] and old_GPT[c, 3] == GPT[d, 3]:
+                        Q_GPE[d, 0] = ti.sqrt(GPE_hessian(ti.Matrix.zero(real, dim), a, b, dHat2, kappa).norm())
+                        k = old_Q_GPE[c, 0] / Q_GPE[d, 0]
+                    else:
+                        Q_GPE[d, 0], Q_GPE[d, 1] = old_Q_GPE[c, 0], old_Q_GPE[c, 1]
+                    y_GPE[d, 0], y_GPE[d, 1] = old_y_GPE[c, 0], old_y_GPE[c, 1]
+                    r_GPE[d, 0], r_GPE[d, 1] = old_r_GPE[c, 0] * k, old_r_GPE[c, 1] * k
+    if ti.static(dim == 3):
+        for c in range(old_n_GPT[None]):
+            for d in range(n_GPT[None]):
+                if old_GPT[c, 0] == GPT[d, 0] and old_GPT[c, 1] == GPT[d, 1] and old_GPT[c, 2] == GPT[d, 2] and old_GPT[c, 3] == GPT[d, 3]:
+                    k = 1.
+                    if ti.static(update_dbdf):
                         a, b, c = old_y_GPT[c, 0], old_y_GPT[c, 1], old_y_GPT[c, 2]
-                        if ti.sqrt(GPT_hessian(ti.Matrix.zero(real, dim), a, b, c, dHat2, kappa).norm()) == 0:
-                            local_outside = True
-                if local_outside:
-                    e = n_GPT[None] - 1
-                    n_GPT[None] -= 1
-                    GPT[d, 0], GPT[d, 1], GPT[d, 2], GPT[d, 3], GPT[e, 0], GPT[e, 1], GPT[e, 2], GPT[e, 3] = GPT[e, 0], GPT[e, 1], GPT[e, 2], GPT[e, 3], GPT[d, 0], GPT[d, 1], GPT[d, 2], GPT[d, 3]
-                    Q_GPT[d, 0], Q_GPT[d, 1], Q_GPT[d, 2], Q_GPT[e, 0], Q_GPT[e, 1], Q_GPT[e, 2] = Q_GPT[e, 0], Q_GPT[e, 1], Q_GPT[e, 2], Q_GPT[d, 0], Q_GPT[d, 1], Q_GPT[d, 2]
-                    y_GPT[d, 0], y_GPT[d, 1], y_GPT[d, 2], y_GPT[e, 0], y_GPT[e, 1], y_GPT[e, 2] = y_GPT[e, 0], y_GPT[e, 1], y_GPT[e, 2], y_GPT[d, 0], y_GPT[d, 1], y_GPT[d, 2]
-                    r_GPT[d, 0], r_GPT[d, 1], r_GPT[d, 2], r_GPT[e, 0], r_GPT[e, 1], r_GPT[e, 2] = r_GPT[e, 0], r_GPT[e, 1], r_GPT[e, 2], r_GPT[d, 0], r_GPT[d, 1], r_GPT[d, 2]
-
-        tmpn = n_GEE[None]
-        for _ in range(1):
-            for _d in range(tmpn):
-                d = tmpn - _d - 1
-                local_outside = False
-                for c in range(old_n_GEE[None]):
-                    if old_GEE[c, 0] == GEE[d, 0] and old_GEE[c, 1] == GEE[d, 1] and old_GEE[c, 2] == GEE[d, 2] and old_GEE[c, 3] == GEE[d, 3]:
+                        Q_GPT[d, 0] = ti.sqrt(GPT_hessian(ti.Matrix.zero(real, dim), a, b, c, dHat2, kappa).norm())
+                        k = old_Q_GPT[c, 0] / Q_GPT[d, 0]
+                    else:
+                        Q_GPT[d, 0], Q_GPT[d, 1], Q_GPT[d, 2] = old_Q_GPT[c, 0], old_Q_GPT[c, 1], old_Q_GPT[c, 2]
+                    y_GPT[d, 0], y_GPT[d, 1], y_GPT[d, 2] = old_y_GPT[c, 0], old_y_GPT[c, 1], old_y_GPT[c, 2]
+                    r_GPT[d, 0], r_GPT[d, 1], r_GPT[d, 2] = old_r_GPT[c, 0] * k, old_r_GPT[c, 1] * k, old_r_GPT[c, 2] * k
+        for c in range(old_n_GEE[None]):
+            for d in range(n_GEE[None]):
+                if old_GEE[c, 0] == GEE[d, 0] and old_GEE[c, 1] == GEE[d, 1] and old_GEE[c, 2] == GEE[d, 2] and old_GEE[c, 3] == GEE[d, 3]:
+                    k = 1.
+                    if ti.static(update_dbdf):
                         a, b, c = old_y_GEE[c, 0], old_y_GEE[c, 1], old_y_GEE[c, 2]
-                        if ti.sqrt(GEE_hessian(ti.Matrix.zero(real, dim), a, b, c, dHat2, kappa).norm()) == 0:
-                            local_outside = True
-                if local_outside:
-                    e = n_GEE[None] - 1
-                    n_GEE[None] -= 1
-                    GEE[d, 0], GEE[d, 1], GEE[d, 2], GEE[d, 3], GEE[e, 0], GEE[e, 1], GEE[e, 2], GEE[e, 3] = GEE[e, 0], GEE[e, 1], GEE[e, 2], GEE[e, 3], GEE[d, 0], GEE[d, 1], GEE[d, 2], GEE[d, 3]
-                    Q_GEE[d, 0], Q_GEE[d, 1], Q_GEE[d, 2], Q_GEE[e, 0], Q_GEE[e, 1], Q_GEE[e, 2] = Q_GEE[e, 0], Q_GEE[e, 1], Q_GEE[e, 2], Q_GEE[d, 0], Q_GEE[d, 1], Q_GEE[d, 2]
-                    y_GEE[d, 0], y_GEE[d, 1], y_GEE[d, 2], y_GEE[e, 0], y_GEE[e, 1], y_GEE[e, 2] = y_GEE[e, 0], y_GEE[e, 1], y_GEE[e, 2], y_GEE[d, 0], y_GEE[d, 1], y_GEE[d, 2]
-                    r_GEE[d, 0], r_GEE[d, 1], r_GEE[d, 2], r_GEE[e, 0], r_GEE[e, 1], r_GEE[e, 2] = r_GEE[e, 0], r_GEE[e, 1], r_GEE[e, 2], r_GEE[d, 0], r_GEE[d, 1], r_GEE[d, 2]
-
-        tmpn = n_GEEM[None]
-        for _ in range(1):
-            for _d in range(tmpn):
-                d = tmpn - _d - 1
-                local_outside = False
-                for c in range(old_n_GEEM[None]):
-                    if old_GEEM[c, 0] == GEEM[d, 0] and old_GEEM[c, 1] == GEEM[d, 1] and old_GEEM[c, 2] == GEEM[d, 2] and old_GEEM[c, 3] == GEEM[d, 3]:
+                        Q_GEE[d, 0] = ti.sqrt(GEE_hessian(ti.Matrix.zero(real, dim), a, b, c, dHat2, kappa).norm())
+                        k = old_Q_GEE[c, 0] / Q_GEE[d, 0]
+                    else:
+                        Q_GEE[d, 0], Q_GEE[d, 1], Q_GEE[d, 2] = old_Q_GEE[c, 0], old_Q_GEE[c, 1], old_Q_GEE[c, 2]
+                    y_GEE[d, 0], y_GEE[d, 1], y_GEE[d, 2] = old_y_GEE[c, 0], old_y_GEE[c, 1], old_y_GEE[c, 2]
+                    r_GEE[d, 0], r_GEE[d, 1], r_GEE[d, 2] = old_r_GEE[c, 0] * k, old_r_GEE[c, 1] * k, old_r_GEE[c, 2] * k
+        for c in range(old_n_GEEM[None]):
+            for d in range(n_GEEM[None]):
+                if old_GEEM[c, 0] == GEEM[d, 0] and old_GEEM[c, 1] == GEEM[d, 1] and old_GEEM[c, 2] == GEEM[d, 2] and old_GEEM[c, 3] == GEEM[d, 3]:
+                    k = 1.
+                    if ti.static(update_dbdf):
                         a, b, c = old_y_GEEM[c, 0], old_y_GEEM[c, 1], old_y_GEEM[c, 2]
                         _a0, _a1, _b0, _b1 = x0[GEEM[d, 0]], x0[GEEM[d, 1]], x0[GEEM[d, 2]], x0[GEEM[d, 3]]
-                        if ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), a, b, c, _a0, _a1, _b0, _b1, dHat2, kappa).norm()) == 0:
-                            local_outside = True
-                if local_outside:
-                    e = n_GEEM[None] - 1
-                    n_GEEM[None] -= 1
-                    GEEM[d, 0], GEEM[d, 1], GEEM[d, 2], GEEM[d, 3], GEEM[e, 0], GEEM[e, 1], GEEM[e, 2], GEEM[e, 3] = GEEM[e, 0], GEEM[e, 1], GEEM[e, 2], GEEM[e, 3], GEEM[d, 0], GEEM[d, 1], GEEM[d, 2], GEEM[d, 3]
-                    Q_GEEM[d, 0], Q_GEEM[d, 1], Q_GEEM[d, 2], Q_GEEM[e, 0], Q_GEEM[e, 1], Q_GEEM[e, 2] = Q_GEEM[e, 0], Q_GEEM[e, 1], Q_GEEM[e, 2], Q_GEEM[d, 0], Q_GEEM[d, 1], Q_GEEM[d, 2]
-                    y_GEEM[d, 0], y_GEEM[d, 1], y_GEEM[d, 2], y_GEEM[e, 0], y_GEEM[e, 1], y_GEEM[e, 2] = y_GEEM[e, 0], y_GEEM[e, 1], y_GEEM[e, 2], y_GEEM[d, 0], y_GEEM[d, 1], y_GEEM[d, 2]
-                    r_GEEM[d, 0], r_GEEM[d, 1], r_GEEM[d, 2], r_GEEM[e, 0], r_GEEM[e, 1], r_GEEM[e, 2] = r_GEEM[e, 0], r_GEEM[e, 1], r_GEEM[e, 2], r_GEEM[d, 0], r_GEEM[d, 1], r_GEEM[d, 2]
-
-
-    for c in range(old_n_GPE[None]):
-        for d in range(n_GPE[None]):
-            if old_GPE[c, 0] == GPE[d, 0] and old_GPE[c, 1] == GPE[d, 1] and old_GPE[c, 2] == GPE[d, 2]:
-                k = 1.
-                if ti.static(update_dbdf):
-                    a, b = old_y_GPE[c, 0], old_y_GPE[c, 1]
-                    Q_GPE[d, 0] = ti.sqrt(GPE_hessian(ti.Matrix.zero(real, dim), a, b, dHat2, kappa).norm())
-                    k = old_Q_GPE[c, 0] / Q_GPE[d, 0]
-                else:
-                    Q_GPE[d, 0], Q_GPE[d, 1] = old_Q_GPE[c, 0], old_Q_GPE[c, 1]
-                y_GPE[d, 0], y_GPE[d, 1] = old_y_GPE[c, 0], old_y_GPE[c, 1]
-                r_GPE[d, 0], r_GPE[d, 1] = old_r_GPE[c, 0] * k, old_r_GPE[c, 1] * k
-    for c in range(old_n_GPT[None]):
-        for d in range(n_GPT[None]):
-            if old_GPT[c, 0] == GPT[d, 0] and old_GPT[c, 1] == GPT[d, 1] and old_GPT[c, 2] == GPT[d, 2] and old_GPT[c, 3] == GPT[d, 3]:
-                k = 1.
-                if ti.static(update_dbdf):
-                    a, b, c = old_y_GPT[c, 0], old_y_GPT[c, 1], old_y_GPT[c, 2]
-                    Q_GPT[d, 0] = ti.sqrt(GPT_hessian(ti.Matrix.zero(real, dim), a, b, c, dHat2, kappa).norm())
-                    k = old_Q_GPT[c, 0] / Q_GPT[d, 0]
-                else:
-                    Q_GPT[d, 0], Q_GPT[d, 1], Q_GPT[d, 2] = old_Q_GPT[c, 0], old_Q_GPT[c, 1], old_Q_GPT[c, 2]
-                y_GPT[d, 0], y_GPT[d, 1], y_GPT[d, 2] = old_y_GPT[c, 0], old_y_GPT[c, 1], old_y_GPT[c, 2]
-                r_GPT[d, 0], r_GPT[d, 1], r_GPT[d, 2] = old_r_GPT[c, 0] * k, old_r_GPT[c, 1] * k, old_r_GPT[c, 2] * k
-    for c in range(old_n_GEE[None]):
-        for d in range(n_GEE[None]):
-            if old_GEE[c, 0] == GEE[d, 0] and old_GEE[c, 1] == GEE[d, 1] and old_GEE[c, 2] == GEE[d, 2] and old_GEE[c, 3] == GEE[d, 3]:
-                k = 1.
-                if ti.static(update_dbdf):
-                    a, b, c = old_y_GEE[c, 0], old_y_GEE[c, 1], old_y_GEE[c, 2]
-                    Q_GEE[d, 0] = ti.sqrt(GEE_hessian(ti.Matrix.zero(real, dim), a, b, c, dHat2, kappa).norm())
-                    k = old_Q_GEE[c, 0] / Q_GEE[d, 0]
-                else:
-                    Q_GEE[d, 0], Q_GEE[d, 1], Q_GEE[d, 2] = old_Q_GEE[c, 0], old_Q_GEE[c, 1], old_Q_GEE[c, 2]
-                y_GEE[d, 0], y_GEE[d, 1], y_GEE[d, 2] = old_y_GEE[c, 0], old_y_GEE[c, 1], old_y_GEE[c, 2]
-                r_GEE[d, 0], r_GEE[d, 1], r_GEE[d, 2] = old_r_GEE[c, 0] * k, old_r_GEE[c, 1] * k, old_r_GEE[c, 2] * k
-    for c in range(old_n_GEEM[None]):
-        for d in range(n_GEEM[None]):
-            if old_GEEM[c, 0] == GEEM[d, 0] and old_GEEM[c, 1] == GEEM[d, 1] and old_GEEM[c, 2] == GEEM[d, 2] and old_GEEM[c, 3] == GEEM[d, 3]:
-                k = 1.
-                if ti.static(update_dbdf):
-                    a, b, c = old_y_GEEM[c, 0], old_y_GEEM[c, 1], old_y_GEEM[c, 2]
-                    _a0, _a1, _b0, _b1 = x0[GEEM[d, 0]], x0[GEEM[d, 1]], x0[GEEM[d, 2]], x0[GEEM[d, 3]]
-                    Q_GEEM[d, 0] = ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), a, b, c, _a0, _a1, _b0, _b1, dHat2, kappa).norm())
-                    k = old_Q_GEEM[c, 0] / Q_GEEM[d, 0]
-                else:
-                    Q_GEEM[d, 0], Q_GEEM[d, 1], Q_GEEM[d, 2] = old_Q_GEEM[c, 0], old_Q_GEEM[c, 1], old_Q_GEEM[c, 2]
-                y_GEEM[d, 0], y_GEEM[d, 1], y_GEEM[d, 2] = old_y_GEEM[c, 0], old_y_GEEM[c, 1], old_y_GEEM[c, 2]
-                r_GEEM[d, 0], r_GEEM[d, 1], r_GEEM[d, 2] = old_r_GEEM[c, 0] * k, old_r_GEEM[c, 1] * k, old_r_GEEM[c, 2] * k
+                        Q_GEEM[d, 0] = ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), a, b, c, _a0, _a1, _b0, _b1, dHat2, kappa).norm())
+                        k = old_Q_GEEM[c, 0] / Q_GEEM[d, 0]
+                    else:
+                        Q_GEEM[d, 0], Q_GEEM[d, 1], Q_GEEM[d, 2] = old_Q_GEEM[c, 0], old_Q_GEEM[c, 1], old_Q_GEEM[c, 2]
+                    y_GEEM[d, 0], y_GEEM[d, 1], y_GEEM[d, 2] = old_y_GEEM[c, 0], old_y_GEEM[c, 1], old_y_GEEM[c, 2]
+                    r_GEEM[d, 0], r_GEEM[d, 1], r_GEEM[d, 2] = old_r_GEEM[c, 0] * k, old_r_GEEM[c, 1] * k, old_r_GEEM[c, 2] * k
 
 
 @ti.kernel
