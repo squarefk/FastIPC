@@ -1067,8 +1067,8 @@ def reuse_admm_variables(alpha: real):
                     local_outside = False
                     for c in range(old_n_GPT[None]):
                         if old_GPT[c, 0] == GPT[d, 0] and old_GPT[c, 1] == GPT[d, 1] and old_GPT[c, 2] == GPT[d, 2] and old_GPT[c, 3] == GPT[d, 3]:
-                            a, b, c = old_y_GPT[c, 0], old_y_GPT[c, 1], old_y_GPT[c, 2]
-                            if ti.sqrt(GPT_hessian(ti.Matrix.zero(real, dim), a, b, c, dHat2, kappa).norm()) == 0:
+                            p, q, r = old_y_GPT[c, 0], old_y_GPT[c, 1], old_y_GPT[c, 2]
+                            if ti.sqrt(GPT_hessian(ti.Matrix.zero(real, dim), p, q, r, dHat2, kappa).norm()) == 0:
                                 local_outside = True
                     if local_outside:
                         e = n_GPT[None] - 1
@@ -1084,8 +1084,8 @@ def reuse_admm_variables(alpha: real):
                     local_outside = False
                     for c in range(old_n_GEE[None]):
                         if old_GEE[c, 0] == GEE[d, 0] and old_GEE[c, 1] == GEE[d, 1] and old_GEE[c, 2] == GEE[d, 2] and old_GEE[c, 3] == GEE[d, 3]:
-                            a, b, c = old_y_GEE[c, 0], old_y_GEE[c, 1], old_y_GEE[c, 2]
-                            if ti.sqrt(GEE_hessian(ti.Matrix.zero(real, dim), a, b, c, dHat2, kappa).norm()) == 0:
+                            p, q, r = old_y_GEE[c, 0], old_y_GEE[c, 1], old_y_GEE[c, 2]
+                            if ti.sqrt(GEE_hessian(ti.Matrix.zero(real, dim), p, q, r, dHat2, kappa).norm()) == 0:
                                 local_outside = True
                     if local_outside:
                         e = n_GEE[None] - 1
@@ -1101,9 +1101,9 @@ def reuse_admm_variables(alpha: real):
                     local_outside = False
                     for c in range(old_n_GEEM[None]):
                         if old_GEEM[c, 0] == GEEM[d, 0] and old_GEEM[c, 1] == GEEM[d, 1] and old_GEEM[c, 2] == GEEM[d, 2] and old_GEEM[c, 3] == GEEM[d, 3]:
-                            a, b, c = old_y_GEEM[c, 0], old_y_GEEM[c, 1], old_y_GEEM[c, 2]
+                            p, q, r = old_y_GEEM[c, 0], old_y_GEEM[c, 1], old_y_GEEM[c, 2]
                             _a0, _a1, _b0, _b1 = x0[GEEM[d, 0]], x0[GEEM[d, 1]], x0[GEEM[d, 2]], x0[GEEM[d, 3]]
-                            if ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), a, b, c, _a0, _a1, _b0, _b1, dHat2, kappa).norm()) == 0:
+                            if ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), p, q, r, _a0, _a1, _b0, _b1, dHat2, kappa).norm()) == 0:
                                 local_outside = True
                     if local_outside:
                         e = n_GEEM[None] - 1
@@ -1132,8 +1132,8 @@ def reuse_admm_variables(alpha: real):
                 if old_GPT[c, 0] == GPT[d, 0] and old_GPT[c, 1] == GPT[d, 1] and old_GPT[c, 2] == GPT[d, 2] and old_GPT[c, 3] == GPT[d, 3]:
                     k = 1.
                     if ti.static(update_dbdf):
-                        a, b, c = old_y_GPT[c, 0], old_y_GPT[c, 1], old_y_GPT[c, 2]
-                        Q_GPT[d, 0] = ti.sqrt(GPT_hessian(ti.Matrix.zero(real, dim), a, b, c, dHat2, kappa).norm())
+                        p, q, r = old_y_GPT[c, 0], old_y_GPT[c, 1], old_y_GPT[c, 2]
+                        Q_GPT[d, 0] = ti.sqrt(GPT_hessian(ti.Matrix.zero(real, dim), p, q, r, dHat2, kappa).norm())
                         k = old_Q_GPT[c, 0] / Q_GPT[d, 0]
                     else:
                         Q_GPT[d, 0], Q_GPT[d, 1], Q_GPT[d, 2] = old_Q_GPT[c, 0], old_Q_GPT[c, 1], old_Q_GPT[c, 2]
@@ -1144,8 +1144,8 @@ def reuse_admm_variables(alpha: real):
                 if old_GEE[c, 0] == GEE[d, 0] and old_GEE[c, 1] == GEE[d, 1] and old_GEE[c, 2] == GEE[d, 2] and old_GEE[c, 3] == GEE[d, 3]:
                     k = 1.
                     if ti.static(update_dbdf):
-                        a, b, c = old_y_GEE[c, 0], old_y_GEE[c, 1], old_y_GEE[c, 2]
-                        Q_GEE[d, 0] = ti.sqrt(GEE_hessian(ti.Matrix.zero(real, dim), a, b, c, dHat2, kappa).norm())
+                        p, q, r = old_y_GEE[c, 0], old_y_GEE[c, 1], old_y_GEE[c, 2]
+                        Q_GEE[d, 0] = ti.sqrt(GEE_hessian(ti.Matrix.zero(real, dim), p, q, r, dHat2, kappa).norm())
                         k = old_Q_GEE[c, 0] / Q_GEE[d, 0]
                     else:
                         Q_GEE[d, 0], Q_GEE[d, 1], Q_GEE[d, 2] = old_Q_GEE[c, 0], old_Q_GEE[c, 1], old_Q_GEE[c, 2]
@@ -1156,9 +1156,9 @@ def reuse_admm_variables(alpha: real):
                 if old_GEEM[c, 0] == GEEM[d, 0] and old_GEEM[c, 1] == GEEM[d, 1] and old_GEEM[c, 2] == GEEM[d, 2] and old_GEEM[c, 3] == GEEM[d, 3]:
                     k = 1.
                     if ti.static(update_dbdf):
-                        a, b, c = old_y_GEEM[c, 0], old_y_GEEM[c, 1], old_y_GEEM[c, 2]
+                        p, q, r = old_y_GEEM[c, 0], old_y_GEEM[c, 1], old_y_GEEM[c, 2]
                         _a0, _a1, _b0, _b1 = x0[GEEM[d, 0]], x0[GEEM[d, 1]], x0[GEEM[d, 2]], x0[GEEM[d, 3]]
-                        Q_GEEM[d, 0] = ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), a, b, c, _a0, _a1, _b0, _b1, dHat2, kappa).norm())
+                        Q_GEEM[d, 0] = ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), p, q, r, _a0, _a1, _b0, _b1, dHat2, kappa).norm())
                         k = old_Q_GEEM[c, 0] / Q_GEEM[d, 0]
                     else:
                         Q_GEEM[d, 0], Q_GEEM[d, 1], Q_GEEM[d, 2] = old_Q_GEEM[c, 0], old_Q_GEEM[c, 1], old_Q_GEEM[c, 2]
