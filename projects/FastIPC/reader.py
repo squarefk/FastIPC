@@ -141,7 +141,7 @@ def read():
     # settings['scale'] = float(sys.argv[5])
     settings['dt'] = 0.04
     settings['E'] = 1.e4
-    settings['scale'] = 1.
+    settings['scale'] = .5
 
     directory = 'output/' + '_'.join(sys.argv[:2] + sys.argv[3:]) + '/'
     os.makedirs(directory + 'images/', exist_ok=True)
@@ -345,6 +345,8 @@ def read():
             return dirichlet_fixed, dirichlet_value
         settings['dirichlet'] = dirichlet_generator
         adjust_camera()
+        settings['mesh_scale'] *= 1.5
+        settings['mesh_offset'] += [0., 0.]
         return settings
     elif testcase == 5:
         # noodles

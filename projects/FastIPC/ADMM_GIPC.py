@@ -682,10 +682,10 @@ def local_GEE():
             if iter & 31 == 0:
                 print("local GEE iters:", iter, ", residual:", p.norm_sqr())
 
-            _a0, _a1, _b0, _b1 = ti.Vector([0., 0., 0.]), ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]])
-            _da0, _da1, _db0, _db1 = ti.Vector([0., 0., 0.]), ti.Vector([p[0], p[1], p[2]]), ti.Vector([p[3], p[4], p[5]]), ti.Vector([p[6], p[7], p[8]])
-            dist2 = PT_dist2(_a0, _a1, _b0, _b1, PT_type(_a0, _a1, _b0, _b1))
-            alpha = edge_edge_ccd(_a0, _a1, _b0, _b1, _da0, _da1, _db0, _db1, 0.2, dist2)
+            a0, a1, b0, b1 = ti.Vector([0., 0., 0.]), ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]])
+            da0, da1, db0, db1 = ti.Vector([0., 0., 0.]), ti.Vector([p[0], p[1], p[2]]), ti.Vector([p[3], p[4], p[5]]), ti.Vector([p[6], p[7], p[8]])
+            dist2 = EE_dist2(a0, a1, b0, b1, EE_type(a0, a1, b0, b1))
+            alpha = edge_edge_ccd(a0, a1, b0, b1, da0, da1, db0, db1, 0.2, dist2)
 
             pos0 = pos
             E0 = GEE_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
@@ -720,10 +720,10 @@ def local_GEEM():
             if iter & 31 == 0:
                 print("local GEEM iters:", iter, ", residual:", p.norm_sqr())
 
-            _a0, _a1, _b0, _b1 = ti.Vector([0., 0., 0.]), ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]])
-            _da0, _da1, _db0, _db1 = ti.Vector([0., 0., 0.]), ti.Vector([p[0], p[1], p[2]]), ti.Vector([p[3], p[4], p[5]]), ti.Vector([p[6], p[7], p[8]])
-            dist2 = PT_dist2(_a0, _a1, _b0, _b1, PT_type(_a0, _a1, _b0, _b1))
-            alpha = edge_edge_ccd(_a0, _a1, _b0, _b1, _da0, _da1, _db0, _db1, 0.2, dist2)
+            a0, a1, b0, b1 = ti.Vector([0., 0., 0.]), ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]])
+            da0, da1, db0, db1 = ti.Vector([0., 0., 0.]), ti.Vector([p[0], p[1], p[2]]), ti.Vector([p[3], p[4], p[5]]), ti.Vector([p[6], p[7], p[8]])
+            dist2 = EE_dist2(a0, a1, b0, b1, EE_type(a0, a1, b0, b1))
+            alpha = edge_edge_ccd(a0, a1, b0, b1, da0, da1, db0, db1, 0.2, dist2)
 
             pos0 = pos
             E0 = GEEM_energy(op, ti.Vector([pos[0], pos[1], pos[2]]), ti.Vector([pos[3], pos[4], pos[5]]), ti.Vector([pos[6], pos[7], pos[8]]), _a0, _a1, _b0, _b1, dHat2, kappa) + (pos - posTilde).norm_sqr() * Q * Q / 2
@@ -982,7 +982,7 @@ def remove_duplicated_constraints():
 
 
 @ti.kernel
-def reuse_admm_variables(alpha: real):
+def compute_admm_variables(alpha: real):
     # xTilde initiated y, r
     min_Q = ti.sqrt(PP_hessian(ti.Matrix.zero(real, dim), ti.Matrix.one(real, dim) * 9e-1 * dHat, dHat2, kappa).norm()) / 10
     max_Q = ti.sqrt(PP_hessian(ti.Matrix.zero(real, dim), ti.Matrix.one(real, dim) * 1e-4 * dHat, dHat2, kappa).norm()) * 10
@@ -1038,8 +1038,10 @@ def reuse_admm_variables(alpha: real):
             _a0, _a1, _b0, _b1 = x0[GEEM[r, 0]], x0[GEEM[r, 1]], x0[GEEM[r, 2]], x0[GEEM[r, 3]]
             # Q_GEEM[r, 0] = min(max(ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _a1, _b0, _b1, dHat2, kappa).norm()), min_Q), max_Q)
             Q_GEEM[r, 0] = ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), a0 - a1, a0 - b0, a0 - b1, _a0, _a1, _b0, _b1, dHat2, kappa).norm())
-    # reuse y, r
 
+
+@ti.kernel
+def cleanup_admm_variables():
     if ti.static(update_dbdf):
         if ti.static(dim == 2):
             tmpn = n_GPE[None]
@@ -1113,6 +1115,10 @@ def reuse_admm_variables(alpha: real):
                         y_GEEM[d, 0], y_GEEM[d, 1], y_GEEM[d, 2], y_GEEM[e, 0], y_GEEM[e, 1], y_GEEM[e, 2] = y_GEEM[e, 0], y_GEEM[e, 1], y_GEEM[e, 2], y_GEEM[d, 0], y_GEEM[d, 1], y_GEEM[d, 2]
                         r_GEEM[d, 0], r_GEEM[d, 1], r_GEEM[d, 2], r_GEEM[e, 0], r_GEEM[e, 1], r_GEEM[e, 2] = r_GEEM[e, 0], r_GEEM[e, 1], r_GEEM[e, 2], r_GEEM[d, 0], r_GEEM[d, 1], r_GEEM[d, 2]
 
+
+@ti.kernel
+def reuse_admm_variables():
+    # reuse y, r
     if ti.static(dim == 2):
         for c in range(old_n_GPE[None]):
             for d in range(n_GPE[None]):
@@ -1120,7 +1126,9 @@ def reuse_admm_variables(alpha: real):
                     k = 1.
                     if ti.static(update_dbdf):
                         a, b = old_y_GPE[c, 0], old_y_GPE[c, 1]
-                        Q_GPE[d, 0] = ti.sqrt(GPE_hessian(ti.Matrix.zero(real, dim), a, b, dHat2, kappa).norm())
+                        tmp = ti.sqrt(GPE_hessian(ti.Matrix.zero(real, dim), a, b, dHat2, kappa).norm())
+                        if tmp > 0:
+                            Q_GPE[d, 0] = tmp
                         k = old_Q_GPE[c, 0] / Q_GPE[d, 0]
                     else:
                         Q_GPE[d, 0], Q_GPE[d, 1] = old_Q_GPE[c, 0], old_Q_GPE[c, 1]
@@ -1133,7 +1141,9 @@ def reuse_admm_variables(alpha: real):
                     k = 1.
                     if ti.static(update_dbdf):
                         p, q, r = old_y_GPT[c, 0], old_y_GPT[c, 1], old_y_GPT[c, 2]
-                        Q_GPT[d, 0] = ti.sqrt(GPT_hessian(ti.Matrix.zero(real, dim), p, q, r, dHat2, kappa).norm())
+                        tmp = ti.sqrt(GPT_hessian(ti.Matrix.zero(real, dim), p, q, r, dHat2, kappa).norm())
+                        if tmp > 0:
+                            Q_GPT[d, 0] = tmp
                         k = old_Q_GPT[c, 0] / Q_GPT[d, 0]
                     else:
                         Q_GPT[d, 0], Q_GPT[d, 1], Q_GPT[d, 2] = old_Q_GPT[c, 0], old_Q_GPT[c, 1], old_Q_GPT[c, 2]
@@ -1145,7 +1155,9 @@ def reuse_admm_variables(alpha: real):
                     k = 1.
                     if ti.static(update_dbdf):
                         p, q, r = old_y_GEE[c, 0], old_y_GEE[c, 1], old_y_GEE[c, 2]
-                        Q_GEE[d, 0] = ti.sqrt(GEE_hessian(ti.Matrix.zero(real, dim), p, q, r, dHat2, kappa).norm())
+                        tmp = ti.sqrt(GEE_hessian(ti.Matrix.zero(real, dim), p, q, r, dHat2, kappa).norm())
+                        if tmp > 0:
+                            Q_GEE[d, 0] = tmp
                         k = old_Q_GEE[c, 0] / Q_GEE[d, 0]
                     else:
                         Q_GEE[d, 0], Q_GEE[d, 1], Q_GEE[d, 2] = old_Q_GEE[c, 0], old_Q_GEE[c, 1], old_Q_GEE[c, 2]
@@ -1158,7 +1170,9 @@ def reuse_admm_variables(alpha: real):
                     if ti.static(update_dbdf):
                         p, q, r = old_y_GEEM[c, 0], old_y_GEEM[c, 1], old_y_GEEM[c, 2]
                         _a0, _a1, _b0, _b1 = x0[GEEM[d, 0]], x0[GEEM[d, 1]], x0[GEEM[d, 2]], x0[GEEM[d, 3]]
-                        Q_GEEM[d, 0] = ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), p, q, r, _a0, _a1, _b0, _b1, dHat2, kappa).norm())
+                        tmp = ti.sqrt(GEEM_hessian(ti.Matrix.zero(real, dim), p, q, r, _a0, _a1, _b0, _b1, dHat2, kappa).norm())
+                        if tmp > 0:
+                            Q_GEEM[d, 0] = tmp
                         k = old_Q_GEEM[c, 0] / Q_GEEM[d, 0]
                     else:
                         Q_GEEM[d, 0], Q_GEEM[d, 1], Q_GEEM[d, 2] = old_Q_GEEM[c, 0], old_Q_GEEM[c, 1], old_Q_GEEM[c, 2]
@@ -1266,7 +1280,9 @@ if __name__ == "__main__":
                             grid.deactivate_all()
                             find_constraints_3D_EE()
                         remove_duplicated_constraints()
-                        reuse_admm_variables(alpha)
+                        compute_admm_variables(alpha)
+                        cleanup_admm_variables()
+                        reuse_admm_variables()
                         if update_dpdf:
                             update_dpdf_and_dbdf()
 
