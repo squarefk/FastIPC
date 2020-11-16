@@ -10,7 +10,7 @@ import math
 
 import scipy.sparse
 import scipy.sparse.linalg
-
+from projects.mpm.engine.sparse_matrix import SparseMatrix, CGSolver
 ##############################################################################
 real = ti.f64
 
@@ -147,6 +147,8 @@ class MPMSolverImplicit:
 
         self.boundary = ti.field(ti.i32, shape=MAX_LINEAR)
 
+        self.matrix = SparseMatrix()
+        self.cgsolver = CGSolver()
 
         self.analytic_collision = []
         self.grid_collidable_objects = []
@@ -466,37 +468,77 @@ class MPMSolverImplicit:
     @ti.kernel
     def TotalEnergy(self, dt: real) -> real:
         '''
-            Compute total elastic energy
+            Compute total energy
         '''
-        e = 0.0
+        ee = 0.0
         for I in ti.grouped(self.pid):
             p = self.pid[I]
             F = self.p_F[p]
             la, mu = self.lambda_0, self.mu_0
             psi = elasticity_energy(F, la, mu)
-            e += self.p_vol[p] * psi
+            ee += self.p_vol[p] * psi
 
+        ke = 0.0
         for i in range(self.num_active_grid[None]):
             dv = ti.Vector([self.DV[2*i], self.DV[2*i+1]])
             gid = self.dof2idx[i]
-            e -= dt * dv.dot(self.gravity[None]) * self.grid_m[gid]
+            # ke += dv.dot(dv) * self.grid_m[gid]
 
-        return e
+        ge = 0.0
+        for i in range(self.num_active_grid[None]):
+            dv = ti.Vector([self.DV[2*i], self.DV[2*i+1]])
+            gid = self.dof2idx[i]
+            # ge -= dt * dv.dot(self.gravity[None]) * self.grid_m[gid]
+
+        return ee + ke / 2 + ge
 
     def SolveLinearSystem(self, dt):
         ndof = self.num_active_grid[None]
         d = self.dim
-        rhs = np.zeros(ndof*d)
-        rhs = self.rhs.to_numpy()[0:ndof*d]
 
-        nentry = ndof * d * 25 * 4
-        A = scipy.sparse.csr_matrix((self.data_val.to_numpy()[0:nentry], (self.data_row.to_numpy()[0:nentry], self.data_col.to_numpy()[0:nentry])), shape=(ndof*d,ndof*d))
-        x = scipy.sparse.linalg.spsolve(A, -rhs)
-        # x, flag = scipy.sparse.linalg.cg(A, -rhs)
-        # assert flag == 0
+
+        # rhs = np.zeros(ndof*d)
+        # rhs = self.rhs.to_numpy()[0:ndof*d]
+
+        # nentry = ndof * d * 25 * 4
+        # A = scipy.sparse.csr_matrix((self.data_val.to_numpy()[0:nentry], (self.data_row.to_numpy()[0:nentry], self.data_col.to_numpy()[0:nentry])), shape=(ndof*d,ndof*d))
+        # x = scipy.sparse.linalg.spsolve(A, -rhs)
+        # # x, flag = scipy.sparse.linalg.cg(A, -rhs)
+        # # assert flag == 0
+
+        # for i in range(ndof):
+        #     self.data_x[i*d], self.data_x[i*d+1] = x[i*d], x[i*d+1]
+
+
+        self.matrix.prepareColandVal(ndof)
+        self.matrix.setFromColandVal(self.entryCol, self.entryVal, ndof)
+        # self.matrix.setIdentity(ndof*d)
+
+        self.cgsolver.compute(self.matrix)
+        self.cgsolver.solve(self.rhs)
 
         for i in range(ndof):
-            self.data_x[i*d], self.data_x[i*d+1] = x[i*d], x[i*d+1]        
+            self.data_x[i*d], self.data_x[i*d+1] = -self.cgsolver.x[i*d], -self.cgsolver.x[i*d+1] 
+
+
+
+
+        # self.matrix.setFromTriplets(self.data_row.to_numpy()[0:nentry], self.data_col.to_numpy()[0:nentry], self.data_val.to_numpy()[0:nentry], shape_=(ndof*d,ndof*d))
+        # print(A[0,0], A[1,1], A[2,2], A[3,3])
+        # for i in range(1000):
+        #     print(i, self.data_row[i], self.data_col[i], self.data_val[i])
+
+        # print(self.matrix.toFullMatrix()[0:10,0:10])
+        # print(A[0:10,0:10])
+        # print(A[0,0], A[0,1], A[1,0], A[1,1])
+        # print(A[2,2], A[2,3], A[3,2], A[3,3])
+        # print(A[0,24], A[1,24])
+        # print(self.matrix[0,0], self.matrix[0,1], self.matrix[1,0], self.matrix[1,1])
+        # print(self.matrix[2,2], self.matrix[2,3], self.matrix[3,2], self.matrix[3,3])
+        # print(self.matrix[0,24], self.matrix[1,24])
+
+        # for i in range(20):
+        #     print(i, x[i], self.cgsolver.x[i])   
 
     @ti.kernel
     def UpdateState(self, dt:real, alpha:real):
@@ -649,12 +691,16 @@ class MPMSolverImplicit:
             # print(alpha, E)
             
             self.RestoreStrain()
+            self.UpdateDV(1.0)
             self.UpdateState(dt, 1.0)
             E1 = self.TotalEnergy(dt)
+
             self.RestoreStrain()
+            self.UpdateDV(0.1)
             self.UpdateState(dt, 0.1)
             E2 = self.TotalEnergy(dt) 
             print("aaa", E1, E2)
+            print(E1<E0, E2<E0, E1<E2)
             self.LineSearch(dt, 1.0)
 
 
