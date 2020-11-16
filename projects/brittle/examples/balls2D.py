@@ -6,8 +6,6 @@ from projects.brittle.DFGMPMSolver import *
 import math
 
 ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
-#ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=20) #CPU, parallel
-#ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10.0
 outputPath = "../output/balls2D/brittle.ply"
@@ -16,19 +14,42 @@ fps = 24
 endFrame = fps * 10
 ppc = 9
 rho = 10
-E, nu = 1000.0, 0.2 # Young's modulus and Poisson's ratio
+E, nu = 5000.0, 0.2 # Young's modulus and Poisson's ratio
 
-surfaceThreshold = 11 #10 works
+surfaceThreshold = 15 #12 works for rad = 0.08 and 0.03
 
-c1 = [0.2, 0.2]
-c2 = [0.5, 0.2]
-c3 = [0.8, 0.2]
-c4 = [0.3, 0.5]
-c5 = [0.7, 0.5]
-c6 = [0.2, 0.8]
-c7 = [0.5, 0.8]
-c8 = [0.8, 0.8]
-radius = 0.1
+c1 = [0.14, 0.14]
+c2 = [0.32, 0.14]
+c3 = [0.5, 0.14]
+c4 = [0.68, 0.14]
+c5 = [0.86, 0.14]
+
+c6 = [0.23, 0.32]
+c7 = [0.41, 0.32]
+c8 = [0.59, 0.32]
+c9 = [0.77, 0.32]
+
+c10 = [0.86, 0.5]
+c11 = [0.14, 0.5]
+c12 = [0.32, 0.5]
+c13 = [0.5, 0.5]
+c14 = [0.68, 0.5]
+
+c15 = [0.23, 0.68]
+c16 = [0.41, 0.68]
+c17 = [0.59, 0.68]
+c18 = [0.77, 0.68]
+
+c19 = [0.68, 0.86]
+c20 = [0.86, 0.86]
+c21 = [0.14, 0.86]
+c22 = [0.32, 0.86]
+c23 = [0.5, 0.86]
+
+# c24 = [0.68, 0.86]
+# c25 = [0.86, 0.86]
+
+radius = 0.03
 nSubDivs = 64
 maxArea = 0.0001
 
@@ -42,7 +63,24 @@ circle5 = sampleCircle2D(c5, radius, nSubDivs, maxArea)
 circle6 = sampleCircle2D(c6, radius, nSubDivs, maxArea)
 circle7 = sampleCircle2D(c7, radius, nSubDivs, maxArea)
 circle8 = sampleCircle2D(c8, radius, nSubDivs, maxArea)
-particleCounts = [len(vertices), len(circle2), len(circle3), len(circle4), len(circle5), len(circle6), len(circle7), len(circle8)]
+circle9 = sampleCircle2D(c9, radius, nSubDivs, maxArea)
+circle10 = sampleCircle2D(c10, radius, nSubDivs, maxArea)
+circle11 = sampleCircle2D(c11, radius, nSubDivs, maxArea)
+circle12 = sampleCircle2D(c12, radius, nSubDivs, maxArea)
+circle13 = sampleCircle2D(c13, radius, nSubDivs, maxArea)
+circle14 = sampleCircle2D(c14, radius, nSubDivs, maxArea)
+circle15 = sampleCircle2D(c15, radius, nSubDivs, maxArea)
+circle16 = sampleCircle2D(c16, radius, nSubDivs, maxArea)
+circle17 = sampleCircle2D(c17, radius, nSubDivs, maxArea)
+circle18 = sampleCircle2D(c18, radius, nSubDivs, maxArea)
+circle19 = sampleCircle2D(c19, radius, nSubDivs, maxArea)
+circle20 = sampleCircle2D(c20, radius, nSubDivs, maxArea)
+circle21 = sampleCircle2D(c21, radius, nSubDivs, maxArea)
+circle22 = sampleCircle2D(c22, radius, nSubDivs, maxArea)
+circle23 = sampleCircle2D(c23, radius, nSubDivs, maxArea)
+# circle24 = sampleCircle2D(c24, radius, nSubDivs, maxArea)
+# circle25 = sampleCircle2D(c25, radius, nSubDivs, maxArea)
+
 vertices = np.concatenate((vertices, circle2))
 vertices = np.concatenate((vertices, circle3))
 vertices = np.concatenate((vertices, circle4))
@@ -50,10 +88,28 @@ vertices = np.concatenate((vertices, circle5))
 vertices = np.concatenate((vertices, circle6))
 vertices = np.concatenate((vertices, circle7))
 vertices = np.concatenate((vertices, circle8))
+vertices = np.concatenate((vertices, circle9))
+vertices = np.concatenate((vertices, circle10))
+vertices = np.concatenate((vertices, circle11))
+vertices = np.concatenate((vertices, circle12))
+vertices = np.concatenate((vertices, circle13))
+vertices = np.concatenate((vertices, circle14))
+vertices = np.concatenate((vertices, circle15))
+vertices = np.concatenate((vertices, circle16))
+vertices = np.concatenate((vertices, circle17))
+vertices = np.concatenate((vertices, circle18))
+vertices = np.concatenate((vertices, circle19))
+vertices = np.concatenate((vertices, circle20))
+vertices = np.concatenate((vertices, circle21))
+vertices = np.concatenate((vertices, circle22))
+vertices = np.concatenate((vertices, circle23))
+# vertices = np.concatenate((vertices, circle24))
+# vertices = np.concatenate((vertices, circle25))
 
 vol = radius * radius * math.pi
 pVol = vol / len(circle2)
-dx = (ppc * pVol)**0.5
+#dx = (ppc * pVol)**0.5
+dx = 0.01
 
 #compute maxDt
 cfl = 0.4
@@ -62,21 +118,24 @@ dt = 0.7 * maxDt
 
 useFrictionalContact = True
 frictionCoefficient = 0.4
-verbose = True
+verbose = False
 useAPIC = False
+flipPicRatio = 0.95 #0 for full PIC, 1 for full FLIP
 
 initVel = [0,0]
 initialVelocity = []
 particleMasses = []
 particleVolumes = []
 surfaceThresholds = []
-for i in range(8):
+particleCounts = []
+for i in range(23):
+    particleCounts.append(len(circle2))
     initialVelocity.append(initVel)
     particleMasses.append(pVol * rho)
     particleVolumes.append(pVol)
     surfaceThresholds.append(surfaceThreshold)
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Collision Objects
 groundCenter = (0, 0.05)

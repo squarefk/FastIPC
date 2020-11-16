@@ -22,7 +22,7 @@ class DFGMPMSolver:
     }
 
     #define constructor here
-    def __init__(self, endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient = 0.0, verbose = False, useAPIC = False):
+    def __init__(self, endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient = 0.0, verbose = False, useAPIC = False, flipPicRatio = 0.0):
         
         #Simulation Parameters
         self.endFrame = endFrame
@@ -54,6 +54,9 @@ class DFGMPMSolver:
         self.useFrictionalContact = useFrictionalContact
         self.verbose = verbose
         self.useAPIC = useAPIC
+        self.flipPicRatio = flipPicRatio #default to 0 which means full PIC
+        if flipPicRatio < 0.0 or flipPicRatio > 1.0:
+            raise ValueError('flipPicRatio must be between 0 and 1')
 
         self.gridPostProcess = [] #hold function callbacks for post processing velocity
 
@@ -80,6 +83,7 @@ class DFGMPMSolver:
         self.Vp = ti.field(dtype=float, shape=self.numParticles) # particle volumes
         self.Jp = ti.field(dtype=float, shape=self.numParticles) # plastic deformation
         self.grid_v = ti.Vector.field(2, dtype=float, shape=(self.nGrid, self.nGrid, 2)) # grid node momentum/velocity, store two vectors at each grid node (for each field)
+        self.grid_vn = ti.Vector.field(2, dtype=float, shape=(self.nGrid, self.nGrid, 2)) # use this to store grid v_i^n so we can use this for FLIP
         self.grid_m = ti.Vector.field(2, dtype=float, shape=(self.nGrid, self.nGrid)) # grid node mass is nGrid x nGrid x 2, each grid node has a mass for each field
         self.gravity = ti.Vector.field(2, dtype=float, shape=())
 
@@ -171,6 +175,8 @@ class DFGMPMSolver:
         for i, j in self.grid_m:
             self.grid_v[i, j, 0] = [0, 0] #field 1 vel
             self.grid_v[i, j, 1] = [0, 0] #field 2 vel
+            self.grid_vn[i, j, 0] = [0, 0] #field 1 vel v_i^n
+            self.grid_vn[i, j, 1] = [0, 0] #field 2 vel v_i^n
             self.grid_n[i, j, 0] = [0, 0] #field 1 normal
             self.grid_n[i, j, 1] = [0, 0] #field 2 normal
             self.grid_f[i, j, 0] = [0, 0] #f1 nodal force
@@ -410,8 +416,10 @@ class DFGMPMSolver:
                     #treat node as one field
                     if(self.useAPIC):
                         self.grid_v[gridIdx, 0] += self.mp[p] * weight * (self.v[p] + self.C[p] @ dpos) #momentum transfer (APIC)
+                        self.grid_vn[gridIdx, 0] += self.mp[p] * weight * (self.v[p] + self.C[p] @ dpos) #momentum transfer (APIC) for saving v_i^n
                     else:
                         self.grid_v[gridIdx, 0] += self.mp[p] * weight * self.v[p] #momentum transfer (PIC)
+                        self.grid_vn[gridIdx, 0] += self.mp[p] * weight * self.v[p] #momentum transfer (PIC) for saving v_i^n
 
                     self.grid_v[gridIdx, 0] += self.dt * force #add force to update velocity, don't divide by mass bc this is actually updating MOMENTUM
 
@@ -423,8 +431,10 @@ class DFGMPMSolver:
                     
                     if(self.useAPIC):
                         self.grid_v[gridIdx, fieldIdx] += self.mp[p] * weight * (self.v[p] + self.C[p] @ dpos) #momentum transfer (APIC)
+                        self.grid_vn[gridIdx, fieldIdx] += self.mp[p] * weight * (self.v[p] + self.C[p] @ dpos) #momentum transfer (APIC) for saving v_i^n
                     else:
                         self.grid_v[gridIdx, fieldIdx] += self.mp[p] * weight * self.v[p] #momentum transfer (PIC)
+                        self.grid_vn[gridIdx, fieldIdx] += self.mp[p] * weight * self.v[p] #momentum transfer (PIC) for saving v_i^n
                     
                     self.grid_v[gridIdx, fieldIdx] += self.dt * force #add force to update velocity, don't divide by mass bc this is actually updating MOMENTUM
                     self.grid_n[gridIdx, fieldIdx] += dweight * self.mp[p] #add to the normal for this field at this grid node, remember we need to normalize it later!
@@ -589,20 +599,6 @@ class DFGMPMSolver:
                 self.grid_f[i,j,0] = f_c1
                 self.grid_f[i,j,1] = f_c2
 
-    # @ti.kernel
-    # def addFrictionForces(self):
-    #     #Use contact forces to update velocity
-    #     for i, j in self.grid_m:
-    #         if(self.separable[i,j] != -1 and self.useFrictionalContact):
-    #             if self.separable[i,j] == 1:
-    #                 self.grid_v[i,j,0] += self.dt * self.grid_f[i,j,1] # use field 2 force to update field 1 particles (for green nodes, ie separable contact)
-    #                 self.grid_v[i,j,1] += self.dt * self.grid_f[i,j,0] # use field 1 force to update field 2 particles
-    #             else:
-    #                 # self.grid_v[i,j,0] += self.dt * self.grid_f[i,j,0] #use field 1 for field 1 (yellow nodes)
-    #                 # self.grid_v[i,j,1] += self.dt * self.grid_f[i,j,1] #field 2 for field 2 (yellow)
-    #                 self.grid_v[i,j,0] = self.grid_f[i,j,0] #stored v_cm * m_1, so we just set to this!
-    #                 self.grid_v[i,j,1] = self.grid_f[i,j,1] #stored v_cm * m_2, so we just set to this!
-
     @ti.kernel
     def momentumToVelocityAndAddContact(self):
         #Convert Momentum to Velocity And Add Friction Forces
@@ -611,7 +607,8 @@ class DFGMPMSolver:
                 #treat as one field
                 nodalMass = self.grid_m[i,j][0]
                 if nodalMass > 0: #if there is mass at this node
-                    self.grid_v[i, j, 0] = (1 / nodalMass) * self.grid_v[i, j, 0] # Momentum to velocity
+                    self.grid_v[i, j, 0] = (1 / nodalMass) * self.grid_v[i, j, 0] # Momentum to velocity for v_i^n+1
+                    self.grid_vn[i, j, 0] = (1 / nodalMass) * self.grid_vn[i, j, 0] # Momentum to velocity for v_i^n
                     
             else:
                 #treat node as having two fields
@@ -620,6 +617,8 @@ class DFGMPMSolver:
                 if nodalMass1 > 0 and nodalMass2 > 0: #if there is mass at this node
                     self.grid_v[i, j, 0] = (1 / nodalMass1) * self.grid_v[i, j, 0] # Momentum to velocity, field 1
                     self.grid_v[i, j, 1] = (1 / nodalMass2) * self.grid_v[i, j, 1] # Momentum to velocity, field 2
+                    self.grid_vn[i, j, 0] = (1 / nodalMass1) * self.grid_vn[i, j, 0] # Momentum to velocity, field 1 for v_i^n
+                    self.grid_vn[i, j, 1] = (1 / nodalMass2) * self.grid_vn[i, j, 1] # Momentum to velocity, field 2 for v_i^n
 
                     if(self.useFrictionalContact):
                         if self.separable[i,j] == 1:
@@ -642,14 +641,18 @@ class DFGMPMSolver:
             fx = self.x[p] * self.invDx - base.cast(float)
             w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1.0) ** 2, 0.5 * (fx - 0.5) ** 2]
             dw = [fx - 1.5, -2.0 * (fx - 1), fx - 0.5]
-            new_v = ti.Vector.zero(float, 2)
+            new_v_PIC = ti.Vector.zero(float, 2) #contain PIC velocity
+            new_v_FLIP = ti.Vector.zero(float, 2) #contain FLIP velocity
+            new_v = ti.Vector.zero(float, 2) #contain the blend velocity
             new_C = ti.Matrix.zero(float, 2, 2)
             new_F = ti.Matrix.zero(float, 2, 2)
             for i, j in ti.static(ti.ndrange(3, 3)): # loop over 3x3 grid node neighborhood
                 dpos = ti.Vector([i, j]).cast(float) - fx
                 gridIdx = base + ti.Vector([i, j])
-                g_v = self.grid_v[gridIdx, 0]
-                g_v2 = self.grid_v[gridIdx, 1] #for field 2
+                g_v_n = self.grid_vn[gridIdx, 0] #v_i^n field 1
+                g_v2_n = self.grid_vn[gridIdx, 1] #v_i^n field 2
+                g_v_np1 = self.grid_v[gridIdx, 0] #v_i^n+1 field 1
+                g_v2_np1 = self.grid_v[gridIdx, 1] #v_i^n+1 field 2
                 weight = w[i][0] * w[j][1]
 
                 dweight = ti.Vector.zero(float,2)
@@ -658,23 +661,33 @@ class DFGMPMSolver:
 
                 if self.separable[gridIdx] == -1:
                     #treat as one field
-                    new_v += weight * g_v
-                    new_C += 4 * self.invDx * weight * g_v.outer_product(dpos)
-                    new_F += g_v.outer_product(dweight)
+                    new_v_PIC += weight * g_v_np1
+                    new_v_FLIP += weight * (g_v_np1 - g_v_n)
+                    new_C += 4 * self.invDx * weight * g_v_np1.outer_product(dpos)
+                    new_F += g_v_np1.outer_product(dweight)
                 else:
                     #node has two fields so choose the correct velocity contribution from the node
                     fieldIdx = self.particleAF[p][i*3 + j] #grab the field that this particle is in for this node
                     if fieldIdx == 0:
-                        new_v += weight * g_v
-                        new_C += 4 * self.invDx * weight * g_v.outer_product(dpos)
-                        new_F += g_v.outer_product(dweight)
+                        new_v_PIC += weight * g_v_np1
+                        new_v_FLIP += weight * (g_v_np1 - g_v_n)
+                        new_C += 4 * self.invDx * weight * g_v_np1.outer_product(dpos)
+                        new_F += g_v_np1.outer_product(dweight)
                     else:
-                        new_v += weight * g_v2
-                        new_C += 4 * self.invDx * weight * g_v2.outer_product(dpos)
-                        new_F += g_v2.outer_product(dweight)
+                        new_v_PIC += weight * g_v2_np1
+                        new_v_FLIP += weight * (g_v2_np1 - g_v2_n)
+                        new_C += 4 * self.invDx * weight * g_v2_np1.outer_product(dpos)
+                        new_F += g_v2_np1.outer_product(dweight)
 
-            self.v[p], self.C[p] = new_v, new_C
-            self.x[p] += self.dt * self.v[p] # advection
+            #Finish computing FLIP velocity: v_p^n+1 = v_p^n + dt (v_i^n+1 - v_i^n) * wip
+            new_v_FLIP = self.v[p] + (self.dt * new_v_FLIP)
+
+            #Compute the blend
+            new_v = (self.flipPicRatio * new_v_FLIP) + ((1.0 - self.flipPicRatio) * new_v_PIC)
+
+            self.v[p], self.C[p] = new_v, new_C #set v_p n+1 to be the blended velocity
+
+            self.x[p] += self.dt * new_v_PIC # advection, use PIC velocity for advection regardless of PIC, FLIP, or APIC
             self.F[p] = (ti.Matrix.identity(float, 2) + (self.dt * new_F)) @ self.F[p] #updateF (explicitMPM way)
 
     #------------Collision Objects---------------
@@ -786,7 +799,6 @@ class DFGMPMSolver:
             self.addGravity()
         with Timer("Frictional Contact"):
             self.computeContactForces()
-            #self.addFrictionForces()
         with Timer("Momentum to Velocity & Add Friction"):
             self.momentumToVelocityAndAddContact()
         with Timer("Boundaries"):
