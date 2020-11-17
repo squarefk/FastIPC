@@ -48,7 +48,7 @@ verbose = False
 useAPIC = False
 frictionCoefficient = 0.4
 flipPicRatio = 0.95
-useRankineDamage = True
+useRankineDamage = False
 
 solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC, flipPicRatio, useRankineDamage)
 

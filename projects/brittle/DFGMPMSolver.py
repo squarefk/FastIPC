@@ -22,7 +22,7 @@ class DFGMPMSolver:
     }
 
     #define constructor here
-    def __init__(self, endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient = 0.0, verbose = False, useAPIC = False, flipPicRatio = 0.0, useRankineDamage = False, cf = 2000.0, sigmaCrit = 1.0, Gf = 1.0):
+    def __init__(self, endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient = 0.0, verbose = False, useAPIC = False, flipPicRatio = 0.0):
         
         #Simulation Parameters
         self.endFrame = endFrame
@@ -58,16 +58,23 @@ class DFGMPMSolver:
         if flipPicRatio < 0.0 or flipPicRatio > 1.0:
             raise ValueError('flipPicRatio must be between 0 and 1')
         self.gridPostProcess = [] #hold function callbacks for post processing velocity
-
-        #Damage Parameters
-        self.useRankineDamage = useRankineDamage
-        self.sigmaCrit = sigmaCrit
         self.l0 = 0.5 * dx #as usual, close to the sqrt(2) * dx that they use
-        self.Gf = Gf
-        HsBar = (sigmaCrit * sigmaCrit) / (2 * E * Gf)
+
+        #Rankine Damage Parameters
+        self.useRankineDamage = False
+        self.Gf = 1.0
+        self.sigmaCrit = 1.0
+        HsBar = (self.sigmaCrit * self.sigmaCrit) / (2 * E * self.Gf)
         self.Hs = (HsBar * self.l0) / (1 - (HsBar * self.l0))
-        self.cf = cf
-        self.timeToFail = self.cf / self.l0
+
+        #Time to Failure Damage Parameters, many of these will be set later when we add the damage model
+        self.useTimeToFailureDamage = False
+        self.cf = 1.0
+        self.timeToFail = 1.0
+        self.sigmaF = ti.field(dtype=float, shape=self.numParticles) #each particle can have different sigmaF based on Weibull dist
+        self.m = 1.0
+        self.vRef = 1.0
+        self.sigmaFRef = 1.0
 
         #Neighbor Search Variables - NOTE: if these values are too low, we get data races!!! Try to keep these as high as possible (RIP to ur RAM)
         self.maxNeighbors = 1024
@@ -144,6 +151,69 @@ class DFGMPMSolver:
     def kirchoff_NeoHookean(self, F, J, mu, la):
         #compute Kirchoff stress using compressive NeoHookean elasticity (Eq 22. in Homel2016 but Kirchoff stress)
         return J * ((((la * (ti.log(J) / J)) - (mu / J)) * ti.Matrix.identity(float, 2)) + ((mu / J) * F @ F.transpose()))
+
+    ##########
+
+    #Math Tools
+    @ti.func
+    def eigenDecomposition2D(self, M):
+        e = ti.Vector([0.0, 0.0])
+        v1 = ti.Vector([0.0, 0.0])
+        v2 = ti.Vector([0.0, 0.0])
+        
+        x11 = M[0,0]
+        x12 = M[0,1]
+        x21 = M[1,0]
+        x22 = M[1,1]
+
+        if x11 != 0.0 or x12 != 0.0 or x21 != 0.0 or x22 != 0.0: #only go ahead with the computation if M is not all zero
+            a = 0.5 * (x11 + x22)
+            b = 0.5 * (x11 - x22)
+            c = x21
+
+            c_squared = c*c
+            m = (b*b + c_squared)**0.5
+            k = (x11 * x22) - c_squared
+
+            if a >= 0.0:
+                e[0] = a + m
+                e[1] = k / e[0] if e[0] != 0.0 else 0.0
+            else:
+                e[1] = a - m
+                e[0] = k / e[1] if e[1] != 0.0 else 0.0
+
+            #exhange sort
+            if e[1] > e[0]:
+                temp = e[0]
+                e[0] = e[1]
+                e[1] = temp
+
+            v1 = ti.Vector([m+b, c]).normalized() if b >= 0 else ti.Vector([-c, b-m]).normalized()
+            v2 = ti.Vector([-v1[1], v1[0]])
+
+            reconstructed = e[0] * v1.outer_product(v1) + e[1] * v2.outer_product(v2)
+
+            print('eigenDecomp:')
+            print('M:', M)
+            print('reconst:',reconstructed)
+            print('e', e)
+            print('v1', v1)
+            print('v2', v2)
+
+            if((M - reconstructed).norm() > 1e-6):
+                ValueError('eigen decomposition was incorrect')
+
+        return e, v1, v2
+
+    @ti.kernel
+    def testEigenDecomp(self):
+        A = ti.Matrix([[0.0, 0.0],[0.0, 0.0]])
+        self.eigenDecomposition2D(A)
+        for i in range(10):
+            base = -5.0
+            interval = 10.0
+            A = ti.Matrix([[base + (interval*ti.random()),base + (interval*ti.random())],[base + (interval*ti.random()),base + (interval*ti.random())]])
+            self.eigenDecomposition2D(A)
 
     ##########
 
@@ -414,25 +484,23 @@ class DFGMPMSolver:
             kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, self.mu, self.la)
 
             #----DAMAGE ROUTINES BEGIN----
-            if(self.useRankineDamage):
+            if(self.useTimeToFailureDamage):
                 #Get cauchy stress and its eigenvalues and eigenvectors
-                kirchoff = self.kirchoff_NeoHookean(self.F[p], J, self.mu, self.la) #compute kirchoff stress using the NH model from homel2016
-                U2, sig2, V2 = ti.svd(kirchoff / J) #divide out J to get cauchy stress
-                maxEigVal = sig2[0,0]
-                for d in ti.static(range(2)):
-                    if sig2[d,d] > maxEigVal: maxEigVal = sig2[d,d] #compute max eigenvalue 
+                kirchoff = self.kirchoff_NeoHookean(self.F[p], J, self.mu, self.la) #compute kirchoff stress using the NH model from homel2016                
+                e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
                 
-                #Update Particle Damage
-                # if(maxEigVal > self.sigmaCrit):
-                #     dNew = (1 + self.Hs) * (1 - (self.sigmaCrit / maxEigVal))
-                #     self.Dp[p] = dNew
+                maxEigVal = e[0] if e[0] > e[1] else e[1] #e[0] is enforced to be larger though... so this is prob unnecessary
+                
+                #Update Particle Damage (only if maxEigVal is greater than this particle's sigmaF)
+                if(maxEigVal > self.sigmaF[p]): 
+                    dNew = self.Dp[p] + (self.dt / self.timeToFail)
+                    self.Dp[p] = dNew if dNew < 1.0 else 1.0
 
-                #     #Reconstruct tensile scaled Cauchy stress
-                #     for d in ti.static(range(2)):
-                #         if sig[d,d] > 0: sig[d,d] *= (1 - dNew) #scale tensile eigenvalues using the new damage
-                dNew = self.Dp[p] + (self.dt / self.timeToFail)
-                self.Dp[p] = dNew if dNew < 1 else 1
-                
+                    #Reconstruct tensile scaled Cauchy stress
+                    for d in ti.static(range(2)):
+                        if e[d] > 0: e[d] *= (1 - dNew) #scale tensile eigenvalues using the new damage
+
+                    kirchoff = J * (e[0] * v1.outer_product(v1) + e[1] * v2.outer_product(v2))
 
             #----DAMAGE ROUTINES END----
 
@@ -809,6 +877,18 @@ class DFGMPMSolver:
 
         self.gridPostProcess.append(collide)
 
+    #----------------Damage Stuff------------------
+
+    def addTimeToFailureDamage(self, cf, sigmaFRef, vRef, m):
+
+        #Set up parameters from python scope so we can later compute the weibull distribution in the reset kernel (ti.random only usable in kernels)
+        self.useTimeToFailureDamage = True
+        self.cf = cf
+        self.timeToFail = self.cf / self.l0
+        self.sigmaFRef = sigmaFRef
+        self.vRef = vRef
+        self.m = m
+
     #------------Simulation Routines---------------
 
     #Simulation substep
@@ -860,6 +940,7 @@ class DFGMPMSolver:
             #     self.Dp[i] = 1
             #     self.material[i] = 1
         
+        #Set different settings for different objects (initVel, mass, volume, and surfaceThreshold for example)
         for serial in range(1):
             idx = 0
             for i in range(self.numObjects):
@@ -870,6 +951,13 @@ class DFGMPMSolver:
                     self.Vp[idx] = ti.cast(pVols[i], ti.f64)
                     self.st[idx] = ti.cast(surfaceThresholds[i], ti.f64)
                     idx += 1 
+
+        #Now set up damage settings
+        if(self.useTimeToFailureDamage):
+            #Compute Weibull Distributed SigmaF for TimeToFailure Model
+            for p in range(self.numParticles):
+                R = ti.cast(ti.random(ti.f32), ti.f64) #ti.random is broken for f64, so use f32
+                self.sigmaF[p] = self.sigmaFRef * ( ((self.vRef * ti.log(R)) / (self.Vp[p] * ti.log(0.5)))**(1.0 / self.m) )
 
     def writeData(self, frame: ti.i32, s: ti.i32):
         
@@ -884,6 +972,7 @@ class DFGMPMSolver:
         writer.add_vertex_pos(np_x[:,0], np_x[:, 1], np.zeros(self.numParticles)) #add position
         writer.add_vertex_channel("m_p", "double", self.mp.to_numpy()) #add damage
         writer.add_vertex_channel("Dp", "double", self.Dp.to_numpy()) #add damage
+        writer.add_vertex_channel("sigmaF", "double", self.sigmaF.to_numpy()) #add sigmaF
         writer.add_vertex_channel("sp", "int", self.sp.to_numpy()) #add surface tracking
         writer.add_vertex_channel("DGx", "double", self.particleDG.to_numpy()[:,0]) #add particle DG x
         writer.add_vertex_channel("DGy", "double", self.particleDG.to_numpy()[:,1]) #add particle DG y

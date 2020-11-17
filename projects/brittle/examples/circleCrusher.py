@@ -4,7 +4,8 @@ from common.utils.particleSampling import *
 from common.utils.cfl import *
 from projects.brittle.DFGMPMSolver import *
 
-ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+#ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10.0
 outputPath = "../output/circleCrusher/brittle.ply"
@@ -32,27 +33,29 @@ vol = radius * radius * math.pi
 pVol = vol / len(vertices)
 particleMasses = [pVol * rho]
 particleVolumes = [pVol]
+particleCounts = [len(vertices)]
+initialVelocity = [[0,0]]
 dx = 0.01
 
 #compute maxDt
 cfl = 0.4
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
-dt = 0.7 * maxDt
+dt = 0.9 * maxDt
 
 useFrictionalContact = True
 verbose = False
 useAPIC = False
 frictionCoefficient = 0.4
 flipPicRatio = 0.95
-useRankineDamage = True
-sigmaCrit = 140 * 10**6 #Pa
-Gf = 1.0
+
+solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC, flipPicRatio)
+
+#Add Damage Model
 cf = 2000 #m/s
-
-particleCounts = [len(vertices)]
-initialVelocity = [[0,0]]
-
-solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC, flipPicRatio, useRankineDamage, cf)
+sigmaFRef = 140 * 10**6 #Pa
+vRef = 8 * 10**-6 # m^3
+m = 6.0
+solver.addTimeToFailureDamage(cf, sigmaFRef, vRef, m)
 
 #Collision Objects
 groundCenter = (0, 0.05)
@@ -75,4 +78,5 @@ ceilingNormal = (0, -1)
 ceilingCollisionType = solver.surfaceSlip
 solver.addHalfSpace(ceilingCenter, ceilingNormal, ceilingCollisionType)
 
-solver.simulate()
+solver.testEigenDecomp()
+#solver.simulate()
