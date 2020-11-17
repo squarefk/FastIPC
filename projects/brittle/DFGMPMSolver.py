@@ -22,7 +22,7 @@ class DFGMPMSolver:
     }
 
     #define constructor here
-    def __init__(self, endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient = 0.0, verbose = False, useAPIC = False, flipPicRatio = 0.0):
+    def __init__(self, endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient = 0.0, verbose = False, useAPIC = False, flipPicRatio = 0.0, useRankineDamage = False, cf = 2000.0, sigmaCrit = 1.0, Gf = 1.0):
         
         #Simulation Parameters
         self.endFrame = endFrame
@@ -57,8 +57,17 @@ class DFGMPMSolver:
         self.flipPicRatio = flipPicRatio #default to 0 which means full PIC
         if flipPicRatio < 0.0 or flipPicRatio > 1.0:
             raise ValueError('flipPicRatio must be between 0 and 1')
-
         self.gridPostProcess = [] #hold function callbacks for post processing velocity
+
+        #Damage Parameters
+        self.useRankineDamage = useRankineDamage
+        self.sigmaCrit = sigmaCrit
+        self.l0 = 0.5 * dx #as usual, close to the sqrt(2) * dx that they use
+        self.Gf = Gf
+        HsBar = (sigmaCrit * sigmaCrit) / (2 * E * Gf)
+        self.Hs = (HsBar * self.l0) / (1 - (HsBar * self.l0))
+        self.cf = cf
+        self.timeToFail = self.cf / self.l0
 
         #Neighbor Search Variables - NOTE: if these values are too low, we get data races!!! Try to keep these as high as possible (RIP to ur RAM)
         self.maxNeighbors = 1024
@@ -130,6 +139,11 @@ class DFGMPMSolver:
     def kirchoff_FCR(self, F, R, J, mu, la):
         #compute Kirchoff stress using FCR elasticity
         return 2 * mu * (F - R) @ F.transpose() + ti.Matrix.identity(float, 2) * la * J * (J - 1) #compute kirchoff stress for FCR model (remember tau = P F^T)
+
+    @ti.func
+    def kirchoff_NeoHookean(self, F, J, mu, la):
+        #compute Kirchoff stress using compressive NeoHookean elasticity (Eq 22. in Homel2016 but Kirchoff stress)
+        return J * ((((la * (ti.log(J) / J)) - (mu / J)) * ti.Matrix.identity(float, 2)) + ((mu / J) * F @ F.transpose()))
 
     ##########
 
@@ -398,6 +412,29 @@ class DFGMPMSolver:
             
             #Compute Kirchoff Stress
             kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, self.mu, self.la)
+
+            #----DAMAGE ROUTINES BEGIN----
+            if(self.useRankineDamage):
+                #Get cauchy stress and its eigenvalues and eigenvectors
+                kirchoff = self.kirchoff_NeoHookean(self.F[p], J, self.mu, self.la) #compute kirchoff stress using the NH model from homel2016
+                U2, sig2, V2 = ti.svd(kirchoff / J) #divide out J to get cauchy stress
+                maxEigVal = sig2[0,0]
+                for d in ti.static(range(2)):
+                    if sig2[d,d] > maxEigVal: maxEigVal = sig2[d,d] #compute max eigenvalue 
+                
+                #Update Particle Damage
+                # if(maxEigVal > self.sigmaCrit):
+                #     dNew = (1 + self.Hs) * (1 - (self.sigmaCrit / maxEigVal))
+                #     self.Dp[p] = dNew
+
+                #     #Reconstruct tensile scaled Cauchy stress
+                #     for d in ti.static(range(2)):
+                #         if sig[d,d] > 0: sig[d,d] *= (1 - dNew) #scale tensile eigenvalues using the new damage
+                dNew = self.Dp[p] + (self.dt / self.timeToFail)
+                self.Dp[p] = dNew if dNew < 1 else 1
+                
+
+            #----DAMAGE ROUTINES END----
 
             #P2G for velocity, force update, and update velocity
             for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood

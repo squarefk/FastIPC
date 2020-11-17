@@ -7,36 +7,32 @@ from projects.brittle.DFGMPMSolver import *
 ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 
 gravity = -10.0
-outputPath = "../output/hangingBlock2D/brittle.ply"
-outputPath2 = "../output/hangingBlock2D/brittle_nodes.ply"
+outputPath = "../output/circleCrusher/brittle.ply"
+outputPath2 = "../output/circleCrusher/brittle_nodes.ply"
 fps = 24
 endFrame = 10 * fps
-vol = 0.2 * 0.2
-ppc = 4
-rho = 1.0
-E, nu = 1000.0, 0.2 # Young's modulus and Poisson's ratio
+ppc = 9
 
-#NOTE: surfaceThreshold tuning: 
-#NOTE: 50 subdivs-- for 1 too low, 6 too high, 5 is perfect
-#NOTE: 10 subdivs-- 5 is solid! gets the inner corner particles too, but seems fine
-#NOTE: 70 subdivs-- 5 is also perfect omg!
-#NOTE: I wonder if this seems to stay working because of our way of setting dx by ppc and what not
-subdivs = 50
-surfaceThresholds = [5]
+rho = 2300 #kg/m^-3
+K = 158.333 * 10**9 #Pascals bulk mod
+G = 73.077 * 10**9 #Pascals shear mod
+#use K and G to compute E and nu:
+E = (9 * K * G) / (3*K + G)
+nu = (3*K - 2*G) / (2 * (3*K + G))
 
-#Sample analtic box and get dx based on this distribution
-minP = [0.4, 0.4]
-maxP = [0.6, 0.6]
-vertices = sampleBoxGrid2D(minP, maxP, subdivs, 0, 0.5, 0.3)
-particleCounts = [len(vertices)]
-initialVelocity = [[0,-1]]
+surfaceThresholds = [15]
 
+c1 = [0.5, 0.3]
+radius = 0.1
+nSubDivs = 64
+maxArea = 0.0001
+vertices = sampleCircle2D(c1, radius, nSubDivs, maxArea)
 
+vol = radius * radius * math.pi
 pVol = vol / len(vertices)
 particleMasses = [pVol * rho]
 particleVolumes = [pVol]
-pVol = vol / len(vertices)
-dx = (ppc * pVol)**0.5
+dx = 0.01
 
 #compute maxDt
 cfl = 0.4
@@ -49,8 +45,14 @@ useAPIC = False
 frictionCoefficient = 0.4
 flipPicRatio = 0.95
 useRankineDamage = True
+sigmaCrit = 140 * 10**6 #Pa
+Gf = 1.0
+cf = 2000 #m/s
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC, flipPicRatio, useRankineDamage)
+particleCounts = [len(vertices)]
+initialVelocity = [[0,0]]
+
+solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC, flipPicRatio, useRankineDamage, cf)
 
 #Collision Objects
 groundCenter = (0, 0.05)
