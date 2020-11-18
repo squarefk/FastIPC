@@ -29,6 +29,7 @@ class DFGMPMSolver:
         self.fps = fps
         self.frameDt = 1.0 / fps
         self.dt = dt
+        self.elapsedTime = 0.0 #keep a concept of elapsed time
         self.numSubsteps = int(self.frameDt // dt)
         self.dim = len(vertices[0])
         self.cfl = cfl
@@ -57,10 +58,18 @@ class DFGMPMSolver:
         self.flipPicRatio = flipPicRatio #default to 0 which means full PIC
         if flipPicRatio < 0.0 or flipPicRatio > 1.0:
             raise ValueError('flipPicRatio must be between 0 and 1')
-        self.gridPostProcess = [] #hold function callbacks for post processing velocity
-        self.l0 = 0.5 * dx #as usual, close to the sqrt(2) * dx that they use
-
+        
+        #Collision Variables
+        self.collisionCallbacks = [] #hold function callbacks for post processing velocity
+        self.transformCallbacks = [] #hold callbacks for moving our boundaries
+        #self.collisionTranslations = [] #hold the translations for these moving boundaries
+        self.collisionObjectCount = 0
+        self.collisionObjectCenters = ti.Vector.field(2, dtype=float, shape=16) #allow up to 16 collision objects for now
+        self.collisionVelocities = ti.Vector.field(2, dtype=float, shape=16) #hold the translations for these moving boundaries, we'll also use these to set vi for sticky bounds
+        self.collisionTypes = ti.field(dtype=int, shape=16) #store collision types
+        
         #Rankine Damage Parameters
+        self.l0 = 0.5 * dx #as usual, close to the sqrt(2) * dx that they use
         self.useRankineDamage = False
         self.Gf = 1.0
         self.sigmaCrit = 1.0
@@ -191,18 +200,6 @@ class DFGMPMSolver:
             v1 = ti.Vector([m+b, c]).normalized() if b >= 0 else ti.Vector([-c, b-m]).normalized()
             v2 = ti.Vector([-v1[1], v1[0]])
 
-            reconstructed = e[0] * v1.outer_product(v1) + e[1] * v2.outer_product(v2)
-
-            print('eigenDecomp:')
-            print('M:', M)
-            print('reconst:',reconstructed)
-            print('e', e)
-            print('v1', v1)
-            print('v2', v2)
-
-            if((M - reconstructed).norm() > 1e-6):
-                ValueError('eigen decomposition was incorrect')
-
         return e, v1, v2
 
     @ti.kernel
@@ -212,7 +209,10 @@ class DFGMPMSolver:
         for i in range(10):
             base = -5.0
             interval = 10.0
-            A = ti.Matrix([[base + (interval*ti.random()),base + (interval*ti.random())],[base + (interval*ti.random()),base + (interval*ti.random())]])
+            a = base + (interval*ti.random())
+            b = base + (interval*ti.random())
+            c = base + (interval*ti.random())
+            A = ti.Matrix([[a,b],[b,c]])
             self.eigenDecomposition2D(A)
 
     ##########
@@ -607,98 +607,19 @@ class DFGMPMSolver:
                 tanDirection1 = ti.Vector([0.0, 0.0]) if fTanSign1 == 0.0 else fTanComp1.normalized() #prevent nan directions
                 tanDirection2 = ti.Vector([0.0, 0.0]) if fTanSign2 == 0.0 else fTanComp2.normalized()
 
-                scale = 1e15
-
-                #if(i * self.nGrid + j == 883):# and self.verbose):
-
-                    
-                    # print('Data for grid node', i*self.nGrid + j, ':')
-                    # print('q_1:', q_1*scale)
-                    # print('q_2:', q_2*scale)
-                    # print('q_cm:', q_cm*scale)
-                    # print()
-                    # print('m_1:', m_1*scale)
-                    # print('m_2:', m_2*scale)
-                    # print('m_cm:', m_cm*scale)
-                    # print()
-                    # print('v_1:', v_1*scale)
-                    # print('v_2:', v_2*scale)
-                    # print('v_cm:', v_cm*scale)
-                    # print()
-                    # print('n_1:', n_1*scale)
-                    # print('n_2:', n_2*scale)
-                    # print('n_cm1:', n_cm1*scale)
-                    # print('n_cm2:', n_cm2*scale)
-                    # print('s_cm1:', s_cm1*scale)
-                    # print('s_cm2:', s_cm2*scale)
-                    # print()
-                    # print('m1/dt:', m_1 / self.dt)
-                    # print('m2/dt:', m_2 / self.dt)
-                    # print('vcm-v1 dot n_cm1:', (v_cm - v_1).dot(n_cm1)*scale)
-                    # print('vcm-v1 dot s_cm1:', (v_cm - v_1).dot(s_cm1)*scale)
-                    # print('vcm-v2 dot n_cm2:', (v_cm - v_2).dot(n_cm2)*scale)
-                    # print('vcm-v2 dot s_cm2:', (v_cm - v_2).dot(s_cm2)*scale)
-                    # print('fNormal1:', fNormal1*scale)
-                    # print('fNormal2:', fNormal2*scale)
-                    # print('fTan1:', fTan1*scale)
-                    # print('fTan2:', fTan2*scale)
-                    # print('fTanSign1:', fTanSign1)
-                    # print('fTanSign2:', fTanSign2)
-                    # print('tanDirection1:', tanDirection1)
-                    # print('tanDirection2:', tanDirection2)
-
-                fieldOne = 0
-                fieldTwo = 0
-
                 if self.separable[i,j] == 1:            
-                    #two fields and are separable
-                    # if (v_cm - v_1).dot(n_cm1) > 0:
-                    #     tanMin = self.fricCoeff * abs(fNormal1) if self.fricCoeff * abs(fNormal1) < abs(fTanMag1) else abs(fTanMag1)
-                    #     f_c1 += (fNormal1 * n_cm1) + (tanMin * fTanSign1 * tanDirection1)
-                    #     fieldOne = 1
-                
-                    # if (v_cm - v_2).dot(n_cm2) > 0:
-                    #     tanMin = self.fricCoeff * abs(fNormal2) if self.fricCoeff * abs(fNormal2) < abs(fTanMag2) else abs(fTanMag2)
-                    #     f_c2 += (fNormal2 * n_cm2) + (tanMin * fTanSign2 * tanDirection2)
-                    #     fieldTwo = 1
 
                     if (v_cm - v_1).dot(n_cm1) + (v_cm - v_2).dot(n_cm2) < 0:
                         tanMin1 = self.fricCoeff * abs(fNormal1) if self.fricCoeff * abs(fNormal1) < abs(fTanMag1) else abs(fTanMag1)
                         f_c1 += (fNormal1 * n_cm1) + (tanMin1 * fTanSign1 * tanDirection1)
-                        fieldOne = 1
                         tanMin1 = self.fricCoeff * abs(fNormal2) if self.fricCoeff * abs(fNormal2) < abs(fTanMag2) else abs(fTanMag2)
                         f_c2 += (fNormal2 * n_cm2) + (tanMin1 * fTanSign2 * tanDirection2)
-                        fieldTwo = 1        
-
-                    if(i * self.nGrid + j == 883 and fieldOne & fieldTwo and self.verbose):
-                        print('m_1:', m_1)
-                        print('m_2:', m_2)
-                        print('m1/dt:', m_1 / self.dt)
-                        print('m2/dt:', m_2 / self.dt)
-                        print('v_1:', v_1)
-                        print('v_2:', v_2)
-                        print('v_cm:', v_cm)
-                        print('n_cm1:', n_cm1)
-                        print('n_cm2:', n_cm2)
-                        print('fNormal1:', fNormal1)
-                        print('fNormal2:', fNormal2)
-                        print('vcm-v1 dot n_cm1:', (v_cm - v_1).dot(n_cm1))
-                        print('vcm-v2 dot n_cm2:', (v_cm - v_2).dot(n_cm2))
-                        v1New = v_1 + (self.dt * (-f_c2 / m_1))
-                        v2New = v_2 + (self.dt * (-f_c1 / m_2))
-                        print('vcm-v1New dot n_cm1:', (v_cm - v1New).dot(n_cm1)) 
-                        print('vcm-v2New dot n_cm2:', (v_cm - v2New).dot(n_cm2))
-                        print()
-
 
                 else:
                     #two fields but not separable, treat as one field, but each gets an update
                     #NOTE: yellow node update reduces to v1 = v_cm, v2 = v_cm
                     f_c1 = v_cm #we're now updating velocity (divide out mass before adding friction force)
                     f_c2 = v_cm
-
-                if (fieldOne ^ fieldTwo):
-                    print('ERROR ERROR ERROR: fieldOne:', fieldOne, 'fieldTwo:', fieldTwo)
 
                 #Now save these forces for later
                 self.grid_f[i,j,0] = f_c1
@@ -797,9 +718,26 @@ class DFGMPMSolver:
 
     #------------Collision Objects---------------
 
-    def addHalfSpace(self, center, normal, surface=surfaceSticky, friction = 0.0):
+    #update collision object centers based on the translation and velocity
+    @ti.kernel
+    def updateCollisionObjects(self, id: ti.i32):
+        self.collisionObjectCenters[id] += self.collisionVelocities[id] * self.dt
+        
+    #dummy transform for default value
+    def noTransform(time: ti.f64):
+        return (0.0, 0.0), (0.0, 0.0)
+
+    #add half space collision object
+    def addHalfSpace(self, center, normal, surface, friction, transform = noTransform):
+        
+        self.collisionObjectCenters[self.collisionObjectCount] = ti.Vector(list(center)) #save the center so we can update this later
+        self.collisionVelocities[self.collisionObjectCount] = ti.Vector([0.0, 0.0]) #add a dummy velocity for now
+        self.collisionTypes[self.collisionObjectCount] = surface
+        self.collisionObjectCount += 1 #update count
+        self.transformCallbacks.append(transform) #save the transform callback
+
         #Code adapted from mpm_solver.py here: https://github.com/taichi-dev/taichi_elements/blob/master/engine/mpm_solver.py
-        center = list(center)
+        #center = list(center)
         # normalize normal
         normal_scale = 1.0 / math.sqrt(sum(x**2 for x in normal))
         normal = list(normal_scale * x for x in normal)
@@ -808,22 +746,24 @@ class DFGMPMSolver:
             raise ValueError('friction must be 0 on sticky surfaces.')
 
         @ti.kernel
-        def collide():
+        def collide(id: ti.i32):
             for I in ti.grouped(self.grid_m):
                 if self.separable[I] == -1:
                     #treat as one field
                     nodalMass = self.grid_m[I][0]
                     if nodalMass > 0:
-                        offset = I * self.dx - ti.Vector(center)
+                        updatedCenter = self.collisionObjectCenters[id]
+                        offset = I * self.dx - updatedCenter
                         n = ti.Vector(normal)
                         if offset.dot(n) < 0:
-                            if ti.static(surface == self.surfaceSticky):
-                                self.grid_v[I,0] = ti.Vector.zero(ti.f64, self.dim) #if sticky, set velocity to all zero
+                            if self.collisionTypes[id] == self.surfaceSticky:
+                                self.grid_v[I,0] = self.collisionVelocities[id] #set velocity to be the collision object's velocity
+                                #self.grid_v[I,0] = ti.Vector.zero(ti.f64, self.dim) #if sticky, set velocity to all zero
                             else:
                                 v = self.grid_v[I,0] #divide out the mass to get velocity
                                 normal_component = n.dot(v)
 
-                                if ti.static(surface == self.surfaceSlip):
+                                if self.collisionTypes[id] == self.surfaceSlip:
                                     # Project out all normal component
                                     v = v - n * normal_component
                                 else:
@@ -841,12 +781,15 @@ class DFGMPMSolver:
                     nodalMass1 = self.grid_m[I][0]
                     nodalMass2 = self.grid_m[I][1]
                     if nodalMass1 > 0 and nodalMass2 > 0:
-                        offset = I * self.dx - ti.Vector(center)
+                        updatedCenter = self.collisionObjectCenters[id]
+                        offset = I * self.dx - updatedCenter
                         n = ti.Vector(normal)
                         if offset.dot(n) < 0:
-                            if ti.static(surface == self.surfaceSticky):
-                                self.grid_v[I,0] = ti.Vector.zero(ti.f64, self.dim) #if sticky, set velocity to all zero
-                                self.grid_v[I,1] = ti.Vector.zero(ti.f64, self.dim) #both fields get zero
+                            if self.collisionTypes[id] == self.surfaceSticky:
+                                self.grid_v[I,0] = self.collisionVelocities[id] #set velocity to be the collision object's velocity
+                                self.grid_v[I,1] = self.collisionVelocities[id] #set velocity to be the collision object's velocity
+                                #self.grid_v[I,0] = ti.Vector.zero(ti.f64, self.dim) #if sticky, set velocity to all zero
+                                #self.grid_v[I,1] = ti.Vector.zero(ti.f64, self.dim) #both fields get zero
 
                             else:
                                 v1 = self.grid_v[I,0] #divide out the mass to get velocity
@@ -855,7 +798,7 @@ class DFGMPMSolver:
                                 normal_component1 = n.dot(v1)
                                 normal_component2 = n.dot(v2)
 
-                                if ti.static(surface == self.surfaceSlip):
+                                if self.collisionTypes[id] == self.surfaceSlip:
                                     # Project out all normal component
                                     v1 = v1 - n * normal_component1
                                     v2 = v2 - n * normal_component2
@@ -875,7 +818,7 @@ class DFGMPMSolver:
                                 self.grid_v[I,0] = v1
                                 self.grid_v[I,1] = v2
 
-        self.gridPostProcess.append(collide)
+        self.collisionCallbacks.append(collide)
 
     #----------------Damage Stuff------------------
 
@@ -918,11 +861,16 @@ class DFGMPMSolver:
             self.computeContactForces()
         with Timer("Momentum to Velocity & Add Friction"):
             self.momentumToVelocityAndAddContact()
-        with Timer("Boundaries"):
-            for func in self.gridPostProcess:
-                func()
+        with Timer("Collision Objects"):
+            for i in range(self.collisionObjectCount):
+                t, v = self.transformCallbacks[i](self.elapsedTime) #get the current translation and velocity based on current time
+                self.collisionVelocities[i] = ti.Vector(v)
+                self.updateCollisionObjects(i)
+                self.collisionCallbacks[i](i)
         with Timer("G2P"):
             self.G2P()
+
+        self.elapsedTime += self.dt #update elapsed time
 
     @ti.kernel
     def reset(self, arr: ti.ext_arr(), partCount: ti.ext_arr(), initVel: ti.ext_arr(), pMasses: ti.ext_arr(), pVols: ti.ext_arr(), surfaceThresholds: ti.ext_arr()):

@@ -66,14 +66,14 @@ particleMasses = [pVol * rho, pVol2 * rho]
 particleVolumes = [pVol, pVol2]
 surfaceThresholds = [surfaceThreshold1, surfaceThreshold2]
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC, 0.95)
 #solver = DFGMPMSolverWithPredefinedFields(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC)
 
 #Collision Objects
 groundCenter = (0, 0.05)
 groundNormal = (0, 1)
 groundCollisionType = solver.surfaceSticky
-solver.addHalfSpace(groundCenter, groundNormal, groundCollisionType)
+solver.addHalfSpace(groundCenter, groundNormal, groundCollisionType, 0.0)
 
 # leftWallCenter = (0.05, 0)
 # leftWallNormal = (1, 0)
@@ -83,7 +83,7 @@ solver.addHalfSpace(groundCenter, groundNormal, groundCollisionType)
 rightWallCenter = (0.95, 0)
 rightWallNormal = (-1, 0)
 rightWallCollisionType = solver.surfaceSlip
-solver.addHalfSpace(rightWallCenter, rightWallNormal, rightWallCollisionType)
+solver.addHalfSpace(rightWallCenter, rightWallNormal, rightWallCollisionType, 0.0)
 
 # ceilingCenter = (0, 0.95)
 # ceilingNormal = (0, -1)
