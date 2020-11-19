@@ -31,6 +31,8 @@ vim SuiteSparse_config/SuiteSparse_config.mk
 ## Update CUDA architecture (e.g. remove -gencode=arch=compute_30,code=sm_30 \)
 
 make library BLAS='-lmkl_intel_lp64 -lmkl_core -lmkl_intel_thread -lpthread -lm -lmkl_blacs_intelmpi_lp64 -liomp5' LAPACK='-lmkl_scalapack_lp64' -j 12
+sudo cp -r lib /usr/local
+sudo cp -r include /usr/local
 
 ## Add the following line into ~/.bashrc
 export LD_PRELOAD=/opt/intel/mkl/lib/intel64/libmkl_def.so:/opt/intel/mkl/lib/intel64/libmkl_avx2.so:/opt/intel/mkl/lib/intel64/libmkl_core.so:/opt/intel/mkl/lib/intel64/libmkl_intel_lp64.so:/opt/intel/mkl/lib/intel64/libmkl_intel_thread.so:/opt/intel/lib/intel64_lin/libiomp5.so
