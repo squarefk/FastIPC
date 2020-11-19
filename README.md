@@ -10,7 +10,7 @@ sudo apt-get install libsuitesparse-dev
 ## Add the following line into ~/.bashrc
 export PYTHONPATH=/path/to/FastIPC:$PYTHONPATH
 
-pip3 install taichi taichi_three taichi_glsl meshio scipy
+pip3 install taichi taichi_three taichi_glsl meshio scipy scikit-sparse
 cd common/math/wrapper
 g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfma -I .
 ```
