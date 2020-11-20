@@ -13,7 +13,7 @@ fps = 24
 endFrame = 10 * fps
 vol = 0.2 * 0.2
 ppc = 4
-rho = 1.0
+rho = 10.0
 E, nu = 1000.0, 0.2 # Young's modulus and Poisson's ratio
 
 #NOTE: surfaceThreshold tuning: 
@@ -27,16 +27,16 @@ surfaceThresholds = [5]
 #Sample analtic box and get dx based on this distribution
 minP = [0.4, 0.4]
 maxP = [0.6, 0.6]
-vertices = sampleBoxGrid2D(minP, maxP, subdivs, 0, 0.5, 0.3)
+#vertices = sampleBoxGrid2D(minP, maxP, subdivs, 0, 0.5, 0.3)
+vertices = sampleBox2D(minP, maxP)
 particleCounts = [len(vertices)]
-initialVelocity = [[0,-1]]
-
+initialVelocity = [[0,0]]
 
 pVol = vol / len(vertices)
 particleMasses = [pVol * rho]
 particleVolumes = [pVol]
 pVol = vol / len(vertices)
-dx = (ppc * pVol)**0.5
+dx = 0.01
 
 #compute maxDt
 cfl = 0.4
@@ -48,29 +48,28 @@ verbose = False
 useAPIC = False
 frictionCoefficient = 0.4
 flipPicRatio = 0.95
-useRankineDamage = False
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC, flipPicRatio, useRankineDamage)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Collision Objects
 groundCenter = (0, 0.05)
 groundNormal = (0, 1)
 groundCollisionType = solver.surfaceSlip
-solver.addHalfSpace(groundCenter, groundNormal, groundCollisionType)
+solver.addHalfSpace(groundCenter, groundNormal, groundCollisionType, 0.0)
 
 leftWallCenter = (0.05, 0)
 leftWallNormal = (1, 0)
 leftWallCollisionType = solver.surfaceSlip
-solver.addHalfSpace(leftWallCenter, leftWallNormal, leftWallCollisionType)
+solver.addHalfSpace(leftWallCenter, leftWallNormal, leftWallCollisionType, 0.0)
 
 rightWallCenter = (0.95, 0)
 rightWallNormal = (-1, 0)
 rightWallCollisionType = solver.surfaceSlip
-solver.addHalfSpace(rightWallCenter, rightWallNormal, rightWallCollisionType)
+solver.addHalfSpace(rightWallCenter, rightWallNormal, rightWallCollisionType, 0.0)
 
-ceilingCenter = (0, 0.95)
+ceilingCenter = (0, 0.59)
 ceilingNormal = (0, -1)
-ceilingCollisionType = solver.surfaceSlip
-solver.addHalfSpace(ceilingCenter, ceilingNormal, ceilingCollisionType)
+ceilingCollisionType = solver.surfaceSticky
+solver.addHalfSpace(ceilingCenter, ceilingNormal, ceilingCollisionType, 0.0)
 
 solver.simulate()

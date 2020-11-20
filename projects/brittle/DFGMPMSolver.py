@@ -22,7 +22,7 @@ class DFGMPMSolver:
     }
 
     #define constructor here
-    def __init__(self, endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient = 0.0, verbose = False, useAPIC = False, flipPicRatio = 0.0):
+    def __init__(self, endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient = 0.0, verbose = False, useAPIC = False, flipPicRatio = 0.0):
         
         #Simulation Parameters
         self.endFrame = endFrame
@@ -44,13 +44,13 @@ class DFGMPMSolver:
         self.numObjects = len(particleCounts) #how many objects are we modeling
         self.numParticles = len(vertices)
         self.surfaceThresholds = np.array(surfaceThresholds)
+        self.EList = np.array(EList)
+        self.nuList = np.array(nuList)
         self.dx = dx
         self.invDx = 1.0 / dx
         self.nGrid = ti.ceil(self.invDx)
-        self.E = E
-        self.nu = nu
-        self.mu = E / (2 * (1 + nu))
-        self.la = E * nu / ((1+nu) * (1 - 2 * nu))
+        self.mu = ti.field(dtype=float, shape=self.numParticles)
+        self.la = ti.field(dtype=float, shape=self.numParticles)
         self.gravMag = gravity
         self.useFrictionalContact = useFrictionalContact
         self.verbose = verbose
@@ -70,14 +70,13 @@ class DFGMPMSolver:
         
         #Rankine Damage Parameters
         self.l0 = 0.5 * dx #as usual, close to the sqrt(2) * dx that they use
-        self.useRankineDamage = False
         self.Gf = 1.0
-        self.sigmaCrit = 1.0
-        HsBar = (self.sigmaCrit * self.sigmaCrit) / (2 * E * self.Gf)
-        self.Hs = (HsBar * self.l0) / (1 - (HsBar * self.l0))
+        self.Hs = ti.field(dtype=float, shape=self.numParticles) #weibull will make these different from eahc other
+        self.useRankineDamageList = ti.field(dtype=int, shape=self.numParticles)
 
         #Time to Failure Damage Parameters, many of these will be set later when we add the damage model
-        self.useTimeToFailureDamage = False
+        self.damageList = np.array(EList) #dummy list
+        self.useTimeToFailureDamageList = ti.field(dtype=int, shape=self.numParticles)
         self.cf = 1.0
         self.timeToFail = 1.0
         self.sigmaF = ti.field(dtype=float, shape=self.numParticles) #each particle can have different sigmaF based on Weibull dist
@@ -94,8 +93,6 @@ class DFGMPMSolver:
         self.maxParticlesInfluencingGridNode = self.ppc * self.maxPPC #2d = 4*ppc, 3d = 8*ppc
         self.dMin = 0.25
         self.fricCoeff = frictionCoefficient
-        self.epsilon_m = 0.0001
-        #self.surfaceThreshold = surfaceThreshold 
         self.st = ti.field(dtype=float, shape=self.numParticles) #now we can have different thresholds for different objects and particle distributions!
         
         #Explicit MPM Fields
@@ -481,12 +478,13 @@ class DFGMPMSolver:
                 J *= new_sig
             
             #Compute Kirchoff Stress
-            kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, self.mu, self.la)
+            kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, self.mu[p], self.la[p])
 
             #----DAMAGE ROUTINES BEGIN----
-            if(self.useTimeToFailureDamage):
-                #Get cauchy stress and its eigenvalues and eigenvectors
-                kirchoff = self.kirchoff_NeoHookean(self.F[p], J, self.mu, self.la) #compute kirchoff stress using the NH model from homel2016                
+            
+            #-----TIME TO FAILURE DAMAGE-----
+            if(self.useTimeToFailureDamageList[p]):
+                kirchoff = self.kirchoff_NeoHookean(self.F[p], J, self.mu[p], self.la[p]) #compute kirchoff stress using the NH model from homel2016                
                 e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
                 
                 maxEigVal = e[0] if e[0] > e[1] else e[1] #e[0] is enforced to be larger though... so this is prob unnecessary
@@ -500,7 +498,20 @@ class DFGMPMSolver:
                     for d in ti.static(range(2)):
                         if e[d] > 0: e[d] *= (1 - dNew) #scale tensile eigenvalues using the new damage
 
-                    kirchoff = J * (e[0] * v1.outer_product(v1) + e[1] * v2.outer_product(v2))
+                    #kirchoff = J * (e[0] * v1.outer_product(v1) + e[1] * v2.outer_product(v2))
+            
+            #---------RANKINE DAMAGE---------
+            if(self.useRankineDamageList[p]):
+                #Get cauchy stress and its eigenvalues and eigenvectors
+                kirchoff = self.kirchoff_NeoHookean(self.F[p], J, self.mu[p], self.la[p]) #compute kirchoff stress using the NH model from homel2016                
+                e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
+                
+                maxEigVal = e[0] if e[0] > e[1] else e[1] #e[0] is enforced to be larger though... so this is prob unnecessary
+                
+                #Update Particle Damage (only if maxEigVal is greater than this particle's sigmaF)
+                if(maxEigVal > self.sigmaF[p]): 
+                    dNew = min(1.0, (1 + self.Hs[p]) * (1 - (self.sigmaF[p] / maxEigVal))) #take min with 1 to ensure we do not exceed 1
+                    self.Dp[p] = max(self.Dp[p], dNew) #irreversibility condition, cracks cannot heal
 
             #----DAMAGE ROUTINES END----
 
@@ -822,15 +833,39 @@ class DFGMPMSolver:
 
     #----------------Damage Stuff------------------
 
-    def addTimeToFailureDamage(self, cf, sigmaFRef, vRef, m):
+    def addTimeToFailureDamage(self, damageList, cf, sigmaFRef, vRef, m):
 
         #Set up parameters from python scope so we can later compute the weibull distribution in the reset kernel (ti.random only usable in kernels)
-        self.useTimeToFailureDamage = True
+        self.damageList = np.array(damageList)
+        idx = 0
+        for i in range(self.numObjects):
+            objCount = self.particleCounts[i]
+            for j in range(objCount):
+                self.useTimeToFailureDamageList[idx] = damageList[i]
+                idx += 1 
+
         self.cf = cf
         self.timeToFail = self.cf / self.l0
         self.sigmaFRef = sigmaFRef
         self.vRef = vRef
         self.m = m
+
+    def addRankineDamage(self, damageList, Gf, sigmaF, E, dMin = 0.25):
+
+        self.damageList = np.array(damageList)
+        idx = 0
+        for i in range(self.numObjects):
+            objCount = self.particleCounts[i]
+            for j in range(objCount):
+                self.useRankineDamageList[idx] = damageList[i]
+                self.sigmaF[idx] = sigmaF
+                HsBar = (sigmaF * sigmaF) / (2 * E * Gf)
+                self.Hs[idx] = (HsBar * self.l0) / (1 - (HsBar * self.l0))
+                idx += 1 
+
+        self.dMin = dMin
+        self.Gf = Gf
+        
 
     #------------Simulation Routines---------------
 
@@ -873,7 +908,7 @@ class DFGMPMSolver:
         self.elapsedTime += self.dt #update elapsed time
 
     @ti.kernel
-    def reset(self, arr: ti.ext_arr(), partCount: ti.ext_arr(), initVel: ti.ext_arr(), pMasses: ti.ext_arr(), pVols: ti.ext_arr(), surfaceThresholds: ti.ext_arr()):
+    def reset(self, arr: ti.ext_arr(), partCount: ti.ext_arr(), initVel: ti.ext_arr(), pMasses: ti.ext_arr(), pVols: ti.ext_arr(), surfaceThresholds: ti.ext_arr(), EList: ti.ext_arr(), nuList: ti.ext_arr()):
         self.gravity[None] = [0, self.gravMag]
         for i in range(self.numParticles):
             self.x[i] = [ti.cast(arr[i,0], ti.f64), ti.cast(arr[i,1], ti.f64)]
@@ -884,7 +919,10 @@ class DFGMPMSolver:
             self.C[i] = ti.Matrix.zero(float, 2, 2)
             self.Dp[i] = 0
             self.sp[i] = 0
-            # if (self.x[i][0] > 0.495) and (self.x[i][0] < 0.503): #put damaged particles as a band in the center
+            # if (self.x[i][0] > 0.45) and self.x[i][1] > 0.546 and self.x[i][1] < 0.554: #put damaged particles as a band in the center
+            #     self.Dp[i] = 1
+            #     self.material[i] = 1
+            # if (self.x[i][0] < 0.55) and self.x[i][1] > 0.446 and self.x[i][1] < 0.454: #put damaged particles as a band in the center
             #     self.Dp[i] = 1
             #     self.material[i] = 1
         
@@ -892,18 +930,25 @@ class DFGMPMSolver:
         for serial in range(1):
             idx = 0
             for i in range(self.numObjects):
-                objIdx = partCount[i]
-                for j in range(objIdx):
+                objCount = partCount[i]
+                for j in range(objCount):
                     self.v[idx] = [ti.cast(initVel[i,0], ti.f64), ti.cast(initVel[i,1], ti.f64)]
                     self.mp[idx] = ti.cast(pMasses[i], ti.f64)
                     self.Vp[idx] = ti.cast(pVols[i], ti.f64)
                     self.st[idx] = ti.cast(surfaceThresholds[i], ti.f64)
+                    E = ti.cast(EList[i], ti.f64)
+                    nu = ti.cast(nuList[i], ti.f64)
+                    self.mu[idx] = E / (2 * (1 + nu))
+                    self.la[idx] = E * nu / ((1+nu) * (1 - 2 * nu))
                     idx += 1 
 
         #Now set up damage settings
-        if(self.useTimeToFailureDamage):
-            #Compute Weibull Distributed SigmaF for TimeToFailure Model
-            for p in range(self.numParticles):
+        #Compute Weibull Distributed SigmaF for TimeToFailure Model
+        for p in range(self.numParticles):
+            if self.useTimeToFailureDamageList[p] == 1 and self.useRankineDamageList[p] == 1:
+                ValueError('ERROR: you can only use one damage model at a time!')
+
+            if(self.useTimeToFailureDamageList[p]):
                 R = ti.cast(ti.random(ti.f32), ti.f64) #ti.random is broken for f64, so use f32
                 self.sigmaF[p] = self.sigmaFRef * ( ((self.vRef * ti.log(R)) / (self.Vp[p] * ti.log(0.5)))**(1.0 / self.m) )
 
@@ -922,6 +967,7 @@ class DFGMPMSolver:
         writer.add_vertex_channel("Dp", "double", self.Dp.to_numpy()) #add damage
         writer.add_vertex_channel("sigmaF", "double", self.sigmaF.to_numpy()) #add sigmaF
         writer.add_vertex_channel("sp", "int", self.sp.to_numpy()) #add surface tracking
+        writer.add_vertex_channel("useDamage", "int", self.useTimeToFailureDamageList.to_numpy())
         writer.add_vertex_channel("DGx", "double", self.particleDG.to_numpy()[:,0]) #add particle DG x
         writer.add_vertex_channel("DGy", "double", self.particleDG.to_numpy()[:,1]) #add particle DG y
         if(s == -1):
@@ -989,7 +1035,7 @@ class DFGMPMSolver:
         print("[Simulation] Particle Count: ", self.numParticles)
         print("[Simulation] Grid Dx: ", self.dx)
         print("[Simulation] Time Step: ", self.dt)
-        self.reset(self.vertices, self.particleCounts, self.initialVelocity, self.pMasses, self.pVolumes, self.surfaceThresholds) #init
+        self.reset(self.vertices, self.particleCounts, self.initialVelocity, self.pMasses, self.pVolumes, self.surfaceThresholds, self.EList, self.nuList) #init
         for frame in range(self.endFrame):
             with Timer("Compute Frame"):
                 if(self.verbose == False): 

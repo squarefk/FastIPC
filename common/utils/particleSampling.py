@@ -1,5 +1,6 @@
 import numpy as np
 import triangle as tr
+import matplotlib.pyplot as plt
 
 #Read OBJ file and return list of particle positions
 def readOBJ(filepath):
@@ -36,27 +37,74 @@ def readOBJ(filepath):
     return np.array(positions)
 
 #Use Triangle to sample a triangulated square
-def sampleBox2D(minPoint, maxPoint, maxArea):
+def sampleBox2D(minPoint, maxPoint, args = 'qa0.0000075'):
     A = dict(vertices=np.array(((minPoint[0], minPoint[1]), (maxPoint[0], minPoint[1]), (maxPoint[0], maxPoint[1]), (minPoint[0], maxPoint[1]))))
-    args = 'qa' + str(maxArea)
+    #args = 'qa0.0000075'
     B = tr.triangulate(A, args)
 
     return np.array(B.get('vertices'))
 
-def sampleTriangle2D(p1, p2, p3):
+def sampleNotchedBox2D(minPoint, maxPoint, args = 'qa0.0000075'):
+    height = maxPoint[1] -  minPoint[1]
+    width = maxPoint[0] - minPoint[0]
+    #midX = minPoint[0] + (width / 2.0)
+    midY = minPoint[1] + (height / 2.0)
+
+    notchHeight = height * 0.1
+    notchDepth = width * 0.2
+
+    notchPoint1 = (minPoint[0], midY + (notchHeight/2.0))
+    notchPoint2 = (minPoint[0] + notchDepth, midY)
+    notchPoint3 = (minPoint[0], midY - (notchHeight / 2.0))
+
+    pts1 = np.array(((minPoint[0], minPoint[1]), (maxPoint[0], minPoint[1]), (maxPoint[0], maxPoint[1]), (minPoint[0], maxPoint[1])))
+    #pts2 = np.array((notchPoint1, notchPoint2, notchPoint3))
+    #pts = np.vstack([pts1, pts2])
+    segs1 = np.array(((0,1),(1,2),(2,3),(3,0)))
+    #segs2 = np.array(((0,1),(1,2),(2,0)))
+    #segs = np.vstack([segs1, segs2 + segs1.shape[0]])
+    A = dict(vertices=pts1, segments=segs1)
+    #A = dict(vertices=pts, segments=segs, holes=[[minPoint[0] + 0.015 , midY]])
+    #args = 'qa0.0000075'
+    B = tr.triangulate(A, args)
+    #tr.compare(plt, A, B)
+    #plt.show()
+    
+    #Occam's Razor wins the day again as uzhhh
+    #Now remove points in the wedge using y = mx + b
+    m1 = (notchPoint2[1] - notchPoint1[1]) / (notchPoint2[0] - notchPoint1[0])
+    m2 = -m1
+    b1 = notchPoint2[1] - (m1 * notchPoint2[0])
+    b2 = notchPoint2[1] - (m2 * notchPoint2[0])
+
+    vertices = []
+    oldVertices = B.get('vertices')
+
+    for p in oldVertices:
+        y1 = m1 * p[0] + b1
+        y2 = m2 * p[0] + b2
+
+        if p[1] < y1 and p[1] > y2:
+            continue    
+        vertices.append(p)
+
+    return np.array(vertices)
+
+def sampleTriangle2D(p1, p2, p3, args = 'qa0.0000075'):
     A = dict(vertices=np.array((p1, p2, p3)))
-    args = 'qa0.0000075'
+    #args = 'qa0.0000075'
     B = tr.triangulate(A, args)
 
     return np.array(B.get('vertices'))
 
 #Use Triangle to sample a triangulated circle
-def sampleCircle2D(centerPoint, radius, N, maxArea):
+def sampleCircle2D(centerPoint, radius, N, args = 'qa0.0000075'):
     theta = np.linspace(0, 2 * np.pi, N, endpoint=False)
     pts = np.stack([centerPoint[0] + radius * np.cos(theta), centerPoint[1] + radius * np.sin(theta)], axis=1)
     A = dict(vertices=pts)    
     #args = 'qa' + str(maxArea)
-    args = 'qa0.0000075'
+    #args = 'qa0.0000075'
+    #args = 'qa0.0000035'
     B = tr.triangulate(A, args)
 
     return np.array(B.get('vertices'))
