@@ -4,6 +4,7 @@ import sys
 from common.utils.particleSampling import *
 from common.utils.cfl import *
 from projects.brittle.DFGMPMSolver import *
+from projects.brittle.ExplicitMPMSolver import *
 
 ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 #ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
@@ -18,7 +19,7 @@ E, nu = 1000, 0.2 #TODO
 EList = [E]
 nuList = [nu]
 
-st = 5  #TODO
+st = 10  #TODO
 surfaceThresholds = [st]
 
 maxArea = 'qa0.0000025'
@@ -40,28 +41,30 @@ particleVolumes = [pVol]
 initVel = [0,0]
 initialVelocity = [initVel]
 
-dx = 0.01 #TODO
+#dx = 0.01 #TODO
 ppc = 8
+dx = (ppc * pVol)**0.5
 
 #Compute max dt
 cfl = 0.4
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.9 * maxDt
 
-useFrictionalContact = False
+useFrictionalContact = True
 verbose = False
 useAPIC = False
 frictionCoefficient = 0.0
 flipPicRatio = 0.95
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC, flipPicRatio)
+#solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC, flipPicRatio)
+solver = ExplicitMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, verbose, useAPIC, flipPicRatio)
 
 #Add Damage Model
-Gf = 100 #TODO
-sigmaF = 50 #TODO
-dMin = 0.25
+Gf = 5 #TODO
+sigmaF = 100 #TODO
+dMin = 0.5 #TODO, this controls how much damage must accumulate before we allow a node to separate
 damageList = [1]
-solver.addRankineDamage(damageList, Gf, sigmaF, E, dMin)
+#solver.addRankineDamage(damageList, Gf, sigmaF, E, dMin)
 
 #Collision Objects
 lowerCenter = (0.0, minPoint[1] + grippedMaterial)
