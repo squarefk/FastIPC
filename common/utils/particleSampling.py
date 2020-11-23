@@ -109,6 +109,35 @@ def sampleCircle2D(centerPoint, radius, N, args = 'qa0.0000075'):
 
     return np.array(B.get('vertices'))
 
+def sampleRing2D(centerPoint, r1, r2, N1, N2, args = 'qpa0.0000075'):
+
+    i = np.arange(N1)
+    theta1 = i * 2 * np.pi / N1
+    pts1 = np.stack([np.cos(theta1), np.sin(theta1)], axis=1) * r1
+    seg1 = np.stack([i, i + 1], axis=1) % N1
+
+    i = np.arange(N2)
+    theta2 = i * 2 * np.pi / N2
+    pts2 = np.stack([np.cos(theta2), np.sin(theta2)], axis=1) * r2
+    seg2 = np.stack([i, i + 1], axis=1) % N2
+
+    pts = np.vstack([pts1, pts2])
+    seg = np.vstack([seg1, seg2 + seg1.shape[0]])
+
+    A = dict(vertices=pts, segments=seg, holes=[[0, 0]])
+    B = tr.triangulate(A, args)
+
+    # tr.compare(plt, A, B)
+    # plt.show()
+
+    verts = B.get('vertices')
+
+    for p in verts:
+        p += centerPoint
+
+    return np.array(verts)
+
+
 #Analytic Box Grid Particle Sample
 def sampleBoxGrid2D(minPoint, maxPoint, N, theta, dx, dy):
     dX = maxPoint[0] - minPoint[0]

@@ -22,7 +22,7 @@ class DFGMPMSolver:
     }
 
     #define constructor here
-    def __init__(self, endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient = 0.0, verbose = False, useAPIC = False, flipPicRatio = 0.0):
+    def __init__(self, endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useDFG = True, frictionCoefficient = 0.0, verbose = False, useAPIC = False, flipPicRatio = 0.0):
         
         #Simulation Parameters
         self.endFrame = endFrame
@@ -52,7 +52,8 @@ class DFGMPMSolver:
         self.mu = ti.field(dtype=float, shape=self.numParticles)
         self.la = ti.field(dtype=float, shape=self.numParticles)
         self.gravMag = gravity
-        self.useFrictionalContact = useFrictionalContact
+        self.useFrictionalContact = True #not sure there's any reason not to use this at this point!
+        self.useDFG = useDFG #determine whether we should be using partitioning or not (turn off to use explicit MPM)
         self.verbose = verbose
         self.useAPIC = useAPIC
         self.flipPicRatio = flipPicRatio #default to 0 which means full PIC
@@ -422,10 +423,16 @@ class DFGMPMSolver:
             gridIdx = ti.Vector([i, j])
 
             #Compute seperability for field 1 and store as idx 0
-            self.gridSeparability[gridIdx][0] /= self.gridSeparability[gridIdx][2] #divide numerator by denominator
+            if(self.gridSeparability[gridIdx][2] > 0): 
+                self.gridSeparability[gridIdx][0] /= self.gridSeparability[gridIdx][2] #divide numerator by denominator
+            else:
+                self.gridSeparability[gridIdx][0] = 0.0
 
             #Compute seperability for field 2 and store as idx 1
-            self.gridSeparability[gridIdx][1] /= self.gridSeparability[gridIdx][3] #divide numerator by denominator
+            if(self.gridSeparability[gridIdx][3] > 0): 
+                self.gridSeparability[gridIdx][1] /= self.gridSeparability[gridIdx][3] #divide numerator by denominator
+            else:
+                self.gridSeparability[gridIdx][1] = 0.0
 
             #Compute maximum damage for grid node active fields
             max1 = 0.0
@@ -483,7 +490,7 @@ class DFGMPMSolver:
             #----DAMAGE ROUTINES BEGIN----
             
             #-----TIME TO FAILURE DAMAGE-----
-            if(self.useTimeToFailureDamageList[p]):
+            if(self.useTimeToFailureDamageList[p] and self.useDFG):
                 kirchoff = self.kirchoff_NeoHookean(self.F[p], J, self.mu[p], self.la[p]) #compute kirchoff stress using the NH model from homel2016                
                 e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
                 
@@ -501,7 +508,7 @@ class DFGMPMSolver:
                     #kirchoff = J * (e[0] * v1.outer_product(v1) + e[1] * v2.outer_product(v2))
             
             #---------RANKINE DAMAGE---------
-            if(self.useRankineDamageList[p]):
+            if(self.useRankineDamageList[p] and self.useDFG):
                 #Get cauchy stress and its eigenvalues and eigenvectors
                 kirchoff = self.kirchoff_NeoHookean(self.F[p], J, self.mu[p], self.la[p]) #compute kirchoff stress using the NH model from homel2016                
                 e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
@@ -536,6 +543,9 @@ class DFGMPMSolver:
                     else:
                         self.grid_v[gridIdx, 0] += self.mp[p] * weight * self.v[p] #momentum transfer (PIC)
                         self.grid_vn[gridIdx, 0] += self.mp[p] * weight * self.v[p] #momentum transfer (PIC) for saving v_i^n
+
+                    if(self.useDFG == False): #need to do this because for explicitMPM we skip the massP2G routine
+                        self.grid_m[gridIdx][0] += weight * self.mp[p] #add mass to active field for this particle
 
                     self.grid_v[gridIdx, 0] += self.dt * force #add force to update velocity, don't divide by mass bc this is actually updating MOMENTUM
 
@@ -878,26 +888,33 @@ class DFGMPMSolver:
 
         with Timer("Reinitialize Structures"):
             self.reinitializeStructures()
-        with Timer("Back Grid Sort"):
-            self.backGridSort()
-        with Timer("Particle Neighbor Sorting"):
-            self.particleNeighborSorting()
-        with Timer("Surface Detection"):
-            self.surfaceDetection()
-        with Timer("Compute Particle DGs"):
-            self.computeParticleDG()
-        with Timer("Compute Grid DGs"):
-            self.computeGridDG()
-        with Timer("Mass P2G"):
-            self.massP2G()
-        with Timer("Compute Separability"):
-            self.computeSeparability()
+
+        #these routines are unique to DFGMPM
+        if self.useDFG:
+            with Timer("Back Grid Sort"):
+                self.backGridSort()
+            with Timer("Particle Neighbor Sorting"):
+                self.particleNeighborSorting()
+            with Timer("Surface Detection"):
+                self.surfaceDetection()
+            with Timer("Compute Particle DGs"):
+                self.computeParticleDG()
+            with Timer("Compute Grid DGs"):
+                self.computeGridDG()
+            with Timer("Mass P2G"):
+                self.massP2G()
+            with Timer("Compute Separability"):
+                self.computeSeparability()
+        
         with Timer("Momentum P2G and Forces"):
             self.momentumP2GandForces()
         with Timer("Add Gravity"):
             self.addGravity()
-        with Timer("Frictional Contact"):
-            self.computeContactForces()
+
+        if self.useDFG:
+            with Timer("Frictional Contact"):
+                self.computeContactForces()
+        
         with Timer("Momentum to Velocity & Add Friction"):
             self.momentumToVelocityAndAddContact()
         with Timer("Collision Objects"):
@@ -987,6 +1004,7 @@ class DFGMPMSolver:
         gridVelocities = np.zeros((self.nGrid**2, 4), dtype=float)
         gridFrictionForces = np.zeros((self.nGrid**2, 4), dtype=float)
         np_DG = np.zeros((self.nGrid**2, 2), dtype=float)
+        np_separabilityValue = np.zeros((self.nGrid**2, 2), dtype=float)
         for i in range(self.nGrid):
             for j in range(self.nGrid):
                 gridIdx = i * self.nGrid + j
@@ -995,6 +1013,8 @@ class DFGMPMSolver:
                 np_separability[gridIdx] = self.separable[i,j] #grab separability
                 np_DG[gridIdx, 0] = self.gridDG[i,j][0]
                 np_DG[gridIdx, 1] = self.gridDG[i,j][1]
+                np_separabilityValue[gridIdx, 0] = self.gridSeparability[i,j][0]
+                np_separabilityValue[gridIdx, 1] = self.gridSeparability[i,j][1]
                 gridVelocities[gridIdx, 0] = self.grid_v[i, j, 0][0]
                 gridVelocities[gridIdx, 1] = self.grid_v[i, j, 0][1]
                 gridVelocities[gridIdx, 2] = self.grid_v[i, j, 1][0]
@@ -1013,6 +1033,8 @@ class DFGMPMSolver:
         writer2 = ti.PLYWriter(num_vertices=self.nGrid**2)
         writer2.add_vertex_pos(gridX[:,0], gridX[:, 1], np.zeros(self.nGrid**2)) #add position
         writer2.add_vertex_channel("sep", "int", np_separability)
+        writer2.add_vertex_channel("sep1", "float", np_separabilityValue[:,0])
+        writer2.add_vertex_channel("sep2", "float", np_separabilityValue[:,1])
         writer2.add_vertex_channel("DGx", "double", np_DG[:,0]) #add particle DG x
         writer2.add_vertex_channel("DGy", "double", np_DG[:,1]) #add particle DG y
         writer2.add_vertex_channel("N_field1_x", "double", gridNormals[:,0]) #add grid_n for field 1 x
