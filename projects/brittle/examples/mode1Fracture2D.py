@@ -4,7 +4,6 @@ import sys
 from common.utils.particleSampling import *
 from common.utils.cfl import *
 from projects.brittle.DFGMPMSolver import *
-from projects.brittle.ExplicitMPMSolver import *
 
 ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 #ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
@@ -19,7 +18,7 @@ E, nu = 1000, 0.25 #TODO
 EList = [E]
 nuList = [nu]
 
-st = 0.0  #10.5 is solid, but it fractures numerically at the notch TODO
+st = 10  #10.5 is solid, but it fractures numerically at the notch TODO
 surfaceThresholds = [st]
 
 maxArea = 'qa0.0000025'
@@ -64,7 +63,7 @@ solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, v
 
 #Add Damage Model
 Gf = 0.01 #0.1 starts to get some red, but we wanna see it fast! TODO
-sigmaF = 89.2 # 87 < x < 89.5, 89 is solid!
+sigmaF = 89 # 87 < x < 89.5, 89 is solid!
 dMin = 0.25 #TODO, this controls how much damage must accumulate before we allow a node to separate
 
 if(len(sys.argv) == 6):

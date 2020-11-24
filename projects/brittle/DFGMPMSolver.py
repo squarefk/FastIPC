@@ -74,6 +74,7 @@ class DFGMPMSolver:
         self.Gf = 1.0
         self.Hs = ti.field(dtype=float, shape=self.numParticles) #weibull will make these different from eahc other
         self.useRankineDamageList = ti.field(dtype=int, shape=self.numParticles)
+        self.useWeibull = False
 
         #Time to Failure Damage Parameters, many of these will be set later when we add the damage model
         self.damageList = np.array(EList) #dummy list
@@ -879,8 +880,14 @@ class DFGMPMSolver:
 
         self.dMin = dMin
         self.Gf = Gf
-        
 
+    def addWeibullDistribution(self, sigmaFRef, vRef, m):
+
+        self.useWeibull = True
+        self.sigmaFRef = sigmaFRef
+        self.vRef = vRef
+        self.m = m
+        
     #------------Simulation Routines---------------
 
     #Simulation substep
@@ -895,8 +902,10 @@ class DFGMPMSolver:
                 self.backGridSort()
             with Timer("Particle Neighbor Sorting"):
                 self.particleNeighborSorting()
-            with Timer("Surface Detection"):
-                self.surfaceDetection()
+            #Only perform surface detection on the very first substep to prevent artificial DFG fracture
+            if self.elapsedTime == 0:
+                with Timer("Surface Detection"):
+                    self.surfaceDetection()
             with Timer("Compute Particle DGs"):
                 self.computeParticleDG()
             with Timer("Compute Grid DGs"):
@@ -914,7 +923,7 @@ class DFGMPMSolver:
         if self.useDFG:
             with Timer("Frictional Contact"):
                 self.computeContactForces()
-        
+
         with Timer("Momentum to Velocity & Add Friction"):
             self.momentumToVelocityAndAddContact()
         with Timer("Collision Objects"):
@@ -969,7 +978,10 @@ class DFGMPMSolver:
             if self.useTimeToFailureDamageList[p] == 1 and self.useRankineDamageList[p] == 1:
                 ValueError('ERROR: you can only use one damage model at a time!')
 
-            if(self.useTimeToFailureDamageList[p]):
+            if self.useTimeToFailureDamageList[p] == 0 and self.useRankineDamageList[p] == 0 and self.useWeibull:
+                ValueError('ERROR: you must set a damage model before adding a Weibull distributed sigmaF!')
+
+            if (self.useTimeToFailureDamageList[p] or self.useRankineDamageList[p]) and self.useWeibull:
                 R = ti.cast(ti.random(ti.f32), ti.f64) #ti.random is broken for f64, so use f32
                 self.sigmaF[p] = self.sigmaFRef * ( ((self.vRef * ti.log(R)) / (self.Vp[p] * ti.log(0.5)))**(1.0 / self.m) )
 

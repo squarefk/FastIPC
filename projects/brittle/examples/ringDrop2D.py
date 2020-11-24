@@ -4,7 +4,6 @@ import sys
 from common.utils.particleSampling import *
 from common.utils.cfl import *
 from projects.brittle.DFGMPMSolver import *
-from projects.brittle.ExplicitMPMSolver import *
 
 ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 #ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
@@ -15,11 +14,11 @@ outputPath2 = "../output/ringDrop2D/brittle_nodes.ply"
 fps = 60
 endFrame = 5 * fps
 
-E, nu = 1000, 0.2 #TODO
+E, nu = 87 * 10**9, 0.17 #TODO
 EList = [E]
 nuList = [nu]
 
-st = 0.0  #10.5 is solid, but it fractures numerically at the notch TODO
+st = 10.0  #10.5 is solid, but it fractures numerically at the notch TODO
 surfaceThresholds = [st]
 
 maxArea = 'qpa0.0000025'
@@ -34,14 +33,14 @@ vertices = sampleRing2D(centerPoint, r1, r2, N1, N2, maxArea)
 vertexCount = len(vertices)
 particleCounts = [vertexCount]
 
-rho = 8 #TODO
+rho = 4000 #TODO
 vol = (r1 * r1 * math.pi) - (r2 * r2 * math.pi)
 pVol = vol / vertexCount
 mp = pVol * rho
 particleMasses = [mp]
 particleVolumes = [pVol]
 
-initVel = [0,-1]
+initVel = [0,-0.5]
 initialVelocity = [initVel]
 
 #dx = 0.01 #TODO
@@ -53,17 +52,17 @@ cfl = 0.4
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.9 * maxDt
 
-useDFG = False
+useDFG = True
 verbose = False
 useAPIC = False
 frictionCoefficient = 0.0
-flipPicRatio = 0.95
+flipPicRatio = 0.9 #want to blend in more PIC for stiffness -> lower
 
 solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Add Damage Model
-Gf = 0.01 #0.1 starts to get some red, but we wanna see it fast! TODO
-sigmaF = 85 #500 too high, TODO
+Gf = 2.3 #0.1 starts to get some red, but we wanna see it fast! TODO
+sigmaF = 85*10**9 #500 too high, TODO
 dMin = 0.25 #TODO, this controls how much damage must accumulate before we allow a node to separate
 
 damageList = [1]
