@@ -267,7 +267,7 @@ class CGSolver:
         self.alpha = ti.field(real, shape=())
         self.beta = ti.field(real, shape=())
 
-
+        self.boundary = ti.field(real, shape=num)
         
 
     def compute(self, A):
@@ -278,6 +278,8 @@ class CGSolver:
         assert A.rows == A.cols
         self.A = A
         self.N[None] = A.rows
+
+        self.boundary.fill(0)
 
 
     ############ functions ############
@@ -335,6 +337,18 @@ class CGSolver:
         for I in range(self.N[None]):
             self.q[I] = self.r[I] / self.A[I,I] # identity
 
+    @ti.kernel
+    def setBoundary(self, b:ti.template()):
+        for I in range(self.N / 2):
+            self.boundary[I] = b[I]
+
+    @ti.kernel
+    def project(self, r:ti.template()):
+        for I in range(self.N / 2):
+            if self.boundary[I] == 1:
+                r[2*I] = 0
+                r[2*I+1] = 0
+
     def solve(self, b):
         '''
             Diagonal preconditioned Conjugate Gradient method
@@ -348,21 +362,23 @@ class CGSolver:
         self.beta[None] = 0.0
         self.copyVector(self.r, b)
         # self.computAp(self.x)
-        print("aaaaaaaaaa", self.N[None], np.max(b.to_numpy()))
+        # print("aaaaaaaaaa", self.N[None], np.max(b.to_numpy()))
+        self.project(self.r)
         self.precondition()
         self.update_p()
 
 
         zTr = self.dotProduct(self.r, self.q)
         residual_preconditioned_norm = ti.sqrt(zTr)
-        max_iterations = 100
+        max_iterations = 1000
         for cnt in range(max_iterations):
-            print(cnt, residual_preconditioned_norm)
-            if residual_preconditioned_norm < 1e-25:
-                print("CG terminates at", cnt, "; residual =", residual_preconditioned_norm)
+            # print(cnt, residual_preconditioned_norm)
+            if residual_preconditioned_norm < 1e-10:
+                # print("CG terminates at", cnt, "; residual =", residual_preconditioned_norm)
                 return
             # print(zTrK)
             self.computAp(self.p)
+            self.project(self.Ap)
             self.alpha[None] = zTr / self.dotProduct(self.Ap, self.p)
          
             self.update_sol()
