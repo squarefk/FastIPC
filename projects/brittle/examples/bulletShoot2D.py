@@ -9,28 +9,28 @@ ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 #ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 #General Sim Params
-gravity = 0.0
+gravity = -10.0
 outputPath = "../output/bulletShoot2D/brittle.ply"
 outputPath2 = "../output/bulletShoot2D/brittle_nodes.ply"
 fps = 60
 endFrame = 5 * fps
 
 #Elasticity Params
-E, nu = 10000, 0.2 #TODO
+E, nu = 10**6, 0.2 #TODO
 EBullet, nuBullet = 5000, 0.2 #TODO
 EList = [E, EBullet]
 nuList = [nu, nuBullet]
 
 #Surface Thresholding
 st = 10.0  #TODO
-stBullet = 10.0
-surfaceThresholds = [st, stBullet]
+stBullet = st
+surfaceThreshold = st
 
 #Particle Sampling
 maxArea = 'qa0.0000025'
 
 wallHeight = 0.6
-wallThickness = 0.025
+wallThickness = 0.015
 minPoint = [0.5 - (wallThickness/2.0), 0.5 - (wallHeight/2.0)]
 maxPoint = [0.5 + (wallThickness/2.0), 0.5 + (wallHeight/2.0)]
 vertices = sampleBox2D(minPoint, maxPoint, maxArea)
@@ -62,7 +62,7 @@ particleVolumes = [pVolWall, pVolBullet]
 
 #Initial Velocity
 initVelWall = [0,0]
-initVelBullet = [1, 0]
+initVelBullet = [5, 0]
 initialVelocity = [initVelWall, initVelBullet]
 
 #Particle distribution and grid resolution
@@ -81,22 +81,24 @@ useAPIC = False
 frictionCoefficient = 0.0
 flipPicRatio = 0.9 #want to blend in more PIC for stiffness -> lower
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Add Damage Model
 Gf = 0.01 #0.1 starts to get some red, but we wanna see it fast! TODO
-sigmaF = 88 #500 too high, TODO
+sigmaF = 80 #89 solid too high, TODO
 dMin = 0.25 #TODO, this controls how much damage must accumulate before we allow a node to separate
 
 damageList = [1, 0]
 if useDFG == True: solver.addRankineDamage(damageList, Gf, sigmaF, E, dMin)
 
-useWeibull = False
+useWeibull = True
 sigmaFRef = sigmaF
 vRef = volWall
 m = 6
-if useWeibull = True: solver.addWeibullDistribution(sigmaFRef, vRef, m)
+if useWeibull == True: solver.addWeibullDistribution(sigmaFRef, vRef, m)
 
+
+#Add Collision Objects
 heldWallHeight = 0.05
 
 groundCenter = (0, minPoint[1] + heldWallHeight)
@@ -119,4 +121,5 @@ groundNormal = (-1, 0)
 surface = solver.surfaceSlip
 solver.addHalfSpace(groundCenter, groundNormal, surface, 0.0)
 
+#Simulate!
 solver.simulate()

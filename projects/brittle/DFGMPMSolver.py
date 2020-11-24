@@ -22,7 +22,7 @@ class DFGMPMSolver:
     }
 
     #define constructor here
-    def __init__(self, endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useDFG = True, frictionCoefficient = 0.0, verbose = False, useAPIC = False, flipPicRatio = 0.0):
+    def __init__(self, endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG = True, frictionCoefficient = 0.0, verbose = False, useAPIC = False, flipPicRatio = 0.0):
         
         #Simulation Parameters
         self.endFrame = endFrame
@@ -43,7 +43,7 @@ class DFGMPMSolver:
         self.pVolumes = np.array(particleVolumes)
         self.numObjects = len(particleCounts) #how many objects are we modeling
         self.numParticles = len(vertices)
-        self.surfaceThresholds = np.array(surfaceThresholds)
+        self.st = surfaceThreshold
         self.EList = np.array(EList)
         self.nuList = np.array(nuList)
         self.dx = dx
@@ -73,19 +73,21 @@ class DFGMPMSolver:
         self.l0 = 0.5 * dx #as usual, close to the sqrt(2) * dx that they use
         self.Gf = 1.0
         self.Hs = ti.field(dtype=float, shape=self.numParticles) #weibull will make these different from eahc other
+        self.sigmaF = ti.field(dtype=float, shape=self.numParticles) #each particle can have different sigmaF based on Weibull dist
         self.useRankineDamageList = ti.field(dtype=int, shape=self.numParticles)
+        
+        #Weibull Params
         self.useWeibull = False
+        self.sigmaFRef = 1.0
+        self.m = 1.0
+        self.vRef = 1.0
 
         #Time to Failure Damage Parameters, many of these will be set later when we add the damage model
         self.damageList = np.array(EList) #dummy list
         self.useTimeToFailureDamageList = ti.field(dtype=int, shape=self.numParticles)
         self.cf = 1.0
         self.timeToFail = 1.0
-        self.sigmaF = ti.field(dtype=float, shape=self.numParticles) #each particle can have different sigmaF based on Weibull dist
-        self.m = 1.0
-        self.vRef = 1.0
-        self.sigmaFRef = 1.0
-
+        
         #Neighbor Search Variables - NOTE: if these values are too low, we get data races!!! Try to keep these as high as possible (RIP to ur RAM)
         self.maxNeighbors = 1024
         self.maxPPC = 1024
@@ -95,7 +97,7 @@ class DFGMPMSolver:
         self.maxParticlesInfluencingGridNode = self.ppc * self.maxPPC #2d = 4*ppc, 3d = 8*ppc
         self.dMin = 0.25
         self.fricCoeff = frictionCoefficient
-        self.st = ti.field(dtype=float, shape=self.numParticles) #now we can have different thresholds for different objects and particle distributions!
+        #self.st = ti.field(dtype=float, shape=self.numParticles) #now we can have different thresholds for different objects and particle distributions!
         
         #Explicit MPM Fields
         self.x = ti.Vector.field(2, dtype=float, shape=self.numParticles) # position
@@ -320,7 +322,7 @@ class DFGMPMSolver:
                 xp = self.x[xp_i] #grab neighbor position
                 rBar = self.computeRBar(pos, xp)
                 S += self.computeOmega(rBar)
-            if(S <= self.st[p]):
+            if(S <= self.st):
                 self.sp[p] = 1
             elif(self.sp[p] != 1):
                 self.sp[p] = 0
@@ -868,16 +870,7 @@ class DFGMPMSolver:
         print("[Rankine Damage] sigmaF: ", sigmaF)
         print("[Rankine Damage] dMin: ", dMin)
         self.damageList = np.array(damageList)
-        idx = 0
-        for i in range(self.numObjects):
-            objCount = self.particleCounts[i]
-            for j in range(objCount):
-                self.useRankineDamageList[idx] = damageList[i]
-                self.sigmaF[idx] = sigmaF
-                HsBar = (sigmaF * sigmaF) / (2 * E * Gf)
-                self.Hs[idx] = (HsBar * self.l0) / (1 - (HsBar * self.l0))
-                idx += 1 
-
+        self.sigmaFRef = sigmaF #hold onto this either way, we'll use it to fill the sigmaF field
         self.dMin = dMin
         self.Gf = Gf
 
@@ -938,7 +931,7 @@ class DFGMPMSolver:
         self.elapsedTime += self.dt #update elapsed time
 
     @ti.kernel
-    def reset(self, arr: ti.ext_arr(), partCount: ti.ext_arr(), initVel: ti.ext_arr(), pMasses: ti.ext_arr(), pVols: ti.ext_arr(), surfaceThresholds: ti.ext_arr(), EList: ti.ext_arr(), nuList: ti.ext_arr()):
+    def reset(self, arr: ti.ext_arr(), partCount: ti.ext_arr(), initVel: ti.ext_arr(), pMasses: ti.ext_arr(), pVols: ti.ext_arr(), EList: ti.ext_arr(), nuList: ti.ext_arr(), damageList: ti.ext_arr()):
         self.gravity[None] = [0, self.gravMag]
         for i in range(self.numParticles):
             self.x[i] = [ti.cast(arr[i,0], ti.f64), ti.cast(arr[i,1], ti.f64)]
@@ -965,11 +958,13 @@ class DFGMPMSolver:
                     self.v[idx] = [ti.cast(initVel[i,0], ti.f64), ti.cast(initVel[i,1], ti.f64)]
                     self.mp[idx] = ti.cast(pMasses[i], ti.f64)
                     self.Vp[idx] = ti.cast(pVols[i], ti.f64)
-                    self.st[idx] = ti.cast(surfaceThresholds[i], ti.f64)
+                    #self.st[idx] = ti.cast(surfaceThresholds[i], ti.f64)
                     E = ti.cast(EList[i], ti.f64)
                     nu = ti.cast(nuList[i], ti.f64)
                     self.mu[idx] = E / (2 * (1 + nu))
                     self.la[idx] = E * nu / ((1+nu) * (1 - 2 * nu))
+                    self.useRankineDamageList[idx] = ti.cast(damageList[i], ti.i32)
+                    self.sigmaF[idx] = self.sigmaFRef
                     idx += 1 
 
         #Now set up damage settings
@@ -984,6 +979,13 @@ class DFGMPMSolver:
             if (self.useTimeToFailureDamageList[p] or self.useRankineDamageList[p]) and self.useWeibull:
                 R = ti.cast(ti.random(ti.f32), ti.f64) #ti.random is broken for f64, so use f32
                 self.sigmaF[p] = self.sigmaFRef * ( ((self.vRef * ti.log(R)) / (self.Vp[p] * ti.log(0.5)))**(1.0 / self.m) )
+                if self.useRankineDamageList[p]:
+                    G = self.mu[p]
+                    la = self.la[p]
+                    E = (G*(3*la + 2*G)) / (la + G) #recompute E for this particle
+                    #print('reconstructed E: ', E)
+                    HsBar = (self.sigmaF[p] * self.sigmaF[p]) / (2 * E * self.Gf)
+                    self.Hs[p] = (HsBar * self.l0) / (1 - (HsBar * self.l0))
 
     def writeData(self, frame: ti.i32, s: ti.i32):
         
@@ -1073,7 +1075,7 @@ class DFGMPMSolver:
         print("[Simulation] Particle Count: ", self.numParticles)
         print("[Simulation] Grid Dx: ", self.dx)
         print("[Simulation] Time Step: ", self.dt)
-        self.reset(self.vertices, self.particleCounts, self.initialVelocity, self.pMasses, self.pVolumes, self.surfaceThresholds, self.EList, self.nuList) #init
+        self.reset(self.vertices, self.particleCounts, self.initialVelocity, self.pMasses, self.pVolumes, self.EList, self.nuList, self.damageList) #init
         for frame in range(self.endFrame):
             with Timer("Compute Frame"):
                 if(self.verbose == False): 

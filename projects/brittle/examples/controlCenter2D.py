@@ -3,13 +3,9 @@ import subprocess
 #TEST CONTROL CENTER
 test1 = [1]
 
-# GfList = [1, 10, 100]
-# sigmaFList = [1, 10, 100]
-# dMinList = [0.25, 0.5, 0.75]
-
-GfList = [1]
-sigmaFList = [1]
-dMinList = [0.25]
+GfList = [1, 10, 100]
+sigmaFList = [1, 10, 100]
+dMinList = [0.25, 0.5, 0.75]
 
 #target output1: "../output/mode1Fracture/brittle.ply"
 outputBase = "../output/mode1Fracture2D/Gf"

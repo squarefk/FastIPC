@@ -19,7 +19,7 @@ EList = [E]
 nuList = [nu]
 
 st = 10.0  #10.5 is solid, but it fractures numerically at the notch TODO
-surfaceThresholds = [st]
+surfaceThreshold = st
 
 maxArea = 'qpa0.0000025'
 
@@ -58,11 +58,11 @@ useAPIC = False
 frictionCoefficient = 0.0
 flipPicRatio = 0.9 #want to blend in more PIC for stiffness -> lower
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Add Damage Model
 Gf = 2.3 #0.1 starts to get some red, but we wanna see it fast! TODO
-sigmaF = 85*10**9 #500 too high, TODO
+sigmaF = 85*10**5 #? < sigmaF < 85*10**6 TODO
 dMin = 0.25 #TODO, this controls how much damage must accumulate before we allow a node to separate
 
 damageList = [1]
