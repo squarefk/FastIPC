@@ -11,29 +11,30 @@ ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 gravity = 0.0
 outputPath = "../output/circleCrusher/brittle.ply"
 outputPath2 = "../output/circleCrusher/brittle_nodes.ply"
-fps = 24
-endFrame = 10 * fps
+fps = 60
+endFrame = 4 * fps
 
-scale = 10**6
+# def computeEandNu(K, G):
+#     E = (9 * K * G) / (3*K + G)
+#     nu = (3*K - 2*G) / (2 * (3*K + G))
+#     return E, nu
 
-def computeEandNu(K, G):
-    E = (9 * K * G) / (3*K + G)
-    nu = (3*K - 2*G) / (2 * (3*K + G))
-    return E, nu
+# K_d = 158.333 * 10**9 #Pascals bulk mod TODO
+# G_d = 73.077 * 10**9 #Pascals shear mod  TODO
+# E_d, nu_d = computeEandNu(K_d, G_d)
 
-K_d = 158.333 * 10**9 / scale #Pascals bulk mod TODO
-G_d = 73.077 * 10**9 / scale#Pascals shear mod  TODO
-E_d, nu_d = computeEandNu(K_d, G_d)
+# K_p = 260 * 10**9                     #TODO
+# G_p = 180 * 10**9                       #TODO
+# E_p, nu_p = computeEandNu(K_p, G_p)
 
-K_p = 260 * 10**9 / scale                       #TODO
-G_p = 180 * 10**9 / scale                       #TODO
-E_p, nu_p = computeEandNu(K_p, G_p)
+E_d, nu_d = 10**4, 0.25
+E_p, nu_p = 2*E_d, 0.25
 
 EList = [E_d, E_p, E_p]
 nuList = [nu_d, nu_p, nu_p]
 
-st = 5
-surfaceThresholds = [st, st, st]
+st = 10
+surfaceThreshold = st
 maxArea = 'qa0.0000025'
 
 c1 = [0.5, 0.5]
@@ -57,12 +58,12 @@ box2 = sampleBox2D(platen2Min, platen2Max, args = maxArea)
 box2Count = len(box2)
 vertices = np.concatenate((vertices, box2))
 
-rho_d = 2300 #kg/m^-3 TODO
+rho_d = 2 #kg/m^-3 TODO
 vol_d = radius * radius * math.pi
 pVol_d = vol_d / circleCount
 mp_d = pVol_d * rho_d
 
-rho_p = 800 #kg/m^-3 TODO
+rho_p = 2 #kg/m^-3 TODO
 vol_p = wp * hp
 pVol_p1 = vol_p / box1Count
 pVol_p2 = vol_p / box2Count
@@ -73,33 +74,45 @@ particleMasses = [mp_d, mp_p1, mp_p2]
 particleVolumes = [pVol_d, pVol_p1, pVol_p2]
 particleCounts = [circleCount, box1Count, box2Count]
 initialVelocity = [[0,0],[0,0],[0,0]]
-dx = 0.00362 #match the proportion in their demo  TODO
-ppc = 9                                          #TODO
+dx = 0.005 
+ppc = 8                                          #TODO
 
 #compute maxDt
 cfl = 0.4
 maxDt = min(suggestedDt(E_d, nu_d, rho_d, dx, cfl), suggestedDt(E_p, nu_p, rho_p, dx, cfl)) #take the min between all objects suggestedDts
 dt = 0.9 * maxDt
 
-useFrictionalContact = True
+useDFG = True
 verbose = False
 useAPIC = False
 frictionCoefficient = 0.4
 flipPicRatio = 0.95
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC, flipPicRatio)
+if(len(sys.argv) == 6):
+    outputPath = sys.argv[4]
+    outputPath2 = sys.argv[5]
 
-print(len(sys.argv))
-print('sigmaF: ', sys.argv[1])
-print('cf: ', sys.argv[2])
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Add Damage Model
-cf = 2000 / 10**5 / 2 #m/s                  TODO
-sigmaFRef = 140 * 10**6 / scale #Pa TODO
-vRef = 8 * 10**-6 / scale # m^3             TODO
-m = 6.0
+#Add Damage Model
+Gf = 0.01 #0.1 starts to get some red, but we wanna see it fast! TODO
+sigmaF = 50 #for gf=0.01 and using weibull: 40 < sigmaF < 60, 40 starting to see some cool fractures, maybe too much red?
+dMin = 0.25 #TODO, this controls how much damage must accumulate before we allow a node to separate
+
+if(len(sys.argv) == 6):
+    Gf = float(sys.argv[1])
+    sigmaF = float(sys.argv[2])
+    dMin = float(sys.argv[3])
+
 damageList = [1,0,0] #denote which objects should get damage
-solver.addTimeToFailureDamage(damageList, cf, sigmaFRef, vRef, m)
+if useDFG == True: solver.addRankineDamage(damageList, Gf, sigmaF, E_d, dMin)
+
+useWeibull = True
+sigmaFRef = sigmaF
+vRef = vol_d
+m = 6
+if useWeibull == True: solver.addWeibullDistribution(sigmaFRef, vRef, m)
 
 #Collision Objects
 grippedMaterial = 0.005
@@ -112,8 +125,8 @@ def lowerTransform(time: ti.f64):
     translation = [0.0,0.0]
     velocity = [0.0,0.0]
     startTime = 0.0
-    endTime = 2.0
-    speed = 0.005
+    endTime = 3.0
+    speed = 0.01
     if time >= startTime:
         translation = [0.0, speed * (time-startTime)]
         velocity = [0.0, speed]
@@ -126,8 +139,8 @@ def upperTransform(time: ti.f64):
     translation = [0.0,0.0]
     velocity = [0.0,0.0]
     startTime = 0.0
-    endTime = 2.0
-    speed = -0.005
+    endTime = 3.0
+    speed = -0.01
     if time >= startTime:
         translation = [0.0, speed * (time-startTime)]
         velocity = [0.0, speed]

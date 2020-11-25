@@ -40,7 +40,7 @@ mp = pVol * rho
 particleMasses = [mp]
 particleVolumes = [pVol]
 
-initVel = [0,-0.5]
+initVel = [0,-1.0]
 initialVelocity = [initVel]
 
 #dx = 0.01 #TODO
@@ -58,15 +58,30 @@ useAPIC = False
 frictionCoefficient = 0.0
 flipPicRatio = 0.9 #want to blend in more PIC for stiffness -> lower
 
+if(len(sys.argv) == 6):
+    outputPath = sys.argv[4]
+    outputPath2 = sys.argv[5]
+
 solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Add Damage Model
 Gf = 2.3 #0.1 starts to get some red, but we wanna see it fast! TODO
-sigmaF = 85*10**5 #? < sigmaF < 85*10**6 TODO
+sigmaF = 1e6 #for gf=2.3 and using weibull: ? < sigmaF < 5e6 
 dMin = 0.25 #TODO, this controls how much damage must accumulate before we allow a node to separate
+
+if(len(sys.argv) == 6):
+    Gf = float(sys.argv[1])
+    sigmaF = float(sys.argv[2])
+    dMin = float(sys.argv[3])
 
 damageList = [1]
 if useDFG == True: solver.addRankineDamage(damageList, Gf, sigmaF, E, dMin)
+
+useWeibull = True
+sigmaFRef = sigmaF
+vRef = vol
+m = 6
+if useWeibull == True: solver.addWeibullDistribution(sigmaFRef, vRef, m)
 
 groundCenter = (0, 0.05)
 groundNormal = (0, 1)

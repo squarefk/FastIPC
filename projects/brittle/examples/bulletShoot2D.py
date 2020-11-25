@@ -62,7 +62,7 @@ particleVolumes = [pVolWall, pVolBullet]
 
 #Initial Velocity
 initVelWall = [0,0]
-initVelBullet = [5, 0]
+initVelBullet = [8, 0]
 initialVelocity = [initVelWall, initVelBullet]
 
 #Particle distribution and grid resolution
@@ -81,12 +81,21 @@ useAPIC = False
 frictionCoefficient = 0.0
 flipPicRatio = 0.9 #want to blend in more PIC for stiffness -> lower
 
+if(len(sys.argv) == 6):
+    outputPath = sys.argv[4]
+    outputPath2 = sys.argv[5]
+
 solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Add Damage Model
 Gf = 0.01 #0.1 starts to get some red, but we wanna see it fast! TODO
-sigmaF = 80 #89 solid too high, TODO
+sigmaF = 20 #89 solid too high, TODO
 dMin = 0.25 #TODO, this controls how much damage must accumulate before we allow a node to separate
+
+if(len(sys.argv) == 6):
+    Gf = float(sys.argv[1])
+    sigmaF = float(sys.argv[2])
+    dMin = float(sys.argv[3])
 
 damageList = [1, 0]
 if useDFG == True: solver.addRankineDamage(damageList, Gf, sigmaF, E, dMin)
