@@ -59,6 +59,7 @@ class DFGMPMSolver:
         self.flipPicRatio = flipPicRatio #default to 0 which means full PIC
         if flipPicRatio < 0.0 or flipPicRatio > 1.0:
             raise ValueError('flipPicRatio must be between 0 and 1')
+        self.useDamage = False
         
         #Collision Variables
         self.collisionCallbacks = [] #hold function callbacks for post processing velocity
@@ -69,12 +70,18 @@ class DFGMPMSolver:
         self.collisionVelocities = ti.Vector.field(2, dtype=float, shape=16) #hold the translations for these moving boundaries, we'll also use these to set vi for sticky bounds
         self.collisionTypes = ti.field(dtype=int, shape=16) #store collision types
         
+        #Simple Rankine Damage Parameters
+        self.percentStretch =  0.0
+        self.useSimpleRankineDamageList = ti.field(dtype=int, shape=self.numParticles)
+        self.useSimpleRankineDamage = False
+
         #Rankine Damage Parameters
         self.l0 = 0.5 * dx #as usual, close to the sqrt(2) * dx that they use
         self.Gf = 1.0
         self.Hs = ti.field(dtype=float, shape=self.numParticles) #weibull will make these different from eahc other
         self.sigmaF = ti.field(dtype=float, shape=self.numParticles) #each particle can have different sigmaF based on Weibull dist
         self.useRankineDamageList = ti.field(dtype=int, shape=self.numParticles)
+        self.useRankineDamage = False
         
         #Weibull Params
         self.useWeibull = False
@@ -490,7 +497,7 @@ class DFGMPMSolver:
             #Compute Kirchoff Stress
             kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, self.mu[p], self.la[p])
 
-            #----DAMAGE ROUTINES BEGIN----
+            #----DAMAGE ROUTINES BEGIN------------------
             
             #-----TIME TO FAILURE DAMAGE-----
             if(self.useTimeToFailureDamageList[p] and self.useDFG):
@@ -510,8 +517,8 @@ class DFGMPMSolver:
 
                     #kirchoff = J * (e[0] * v1.outer_product(v1) + e[1] * v2.outer_product(v2))
             
-            #---------RANKINE DAMAGE---------
-            if(self.useRankineDamageList[p] and self.useDFG):
+            #---------SIMPLE AND REGULAR RANKINE DAMAGE---------
+            if (self.useRankineDamageList[p] or self.useSimpleRankineDamageList[p]) and self.useDFG:
                 #Get cauchy stress and its eigenvalues and eigenvectors
                 kirchoff = self.kirchoff_NeoHookean(self.F[p], J, self.mu[p], self.la[p]) #compute kirchoff stress using the NH model from homel2016                
                 e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
@@ -520,10 +527,14 @@ class DFGMPMSolver:
                 
                 #Update Particle Damage (only if maxEigVal is greater than this particle's sigmaF)
                 if(maxEigVal > self.sigmaF[p]): 
-                    dNew = min(1.0, (1 + self.Hs[p]) * (1 - (self.sigmaF[p] / maxEigVal))) #take min with 1 to ensure we do not exceed 1
-                    self.Dp[p] = max(self.Dp[p], dNew) #irreversibility condition, cracks cannot heal
-
-            #----DAMAGE ROUTINES END----
+                    dNew = 0.0
+                    if self.useRankineDamageList[p]:
+                        dNew = min(1.0, (1 + self.Hs[p]) * (1 - (self.sigmaF[p] / maxEigVal))) #take min with 1 to ensure we do not exceed 1
+                    elif self.useSimpleRankineDamageList[p]:
+                        dNew = min(1.0, (1 - (self.sigmaF[p] / maxEigVal))) #simply exclude the Hs term for the simpler rankine model
+                    self.Dp[p] = max(self.Dp[p], dNew) #irreversibility condition, cracks cannot heal            
+            
+            #----DAMAGE ROUTINES END-----------------
 
             #P2G for velocity, force update, and update velocity
             for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
@@ -862,6 +873,10 @@ class DFGMPMSolver:
         self.sigmaFRef = sigmaFRef
         self.vRef = vRef
         self.m = m
+        if self.useDamage:
+            ValueError('ERROR: you can only use one damage model at a time!')
+        else:
+            self.useDamage = True
 
     def addRankineDamage(self, damageList, Gf, sigmaF, E, dMin = 0.25):
 
@@ -873,13 +888,48 @@ class DFGMPMSolver:
         self.sigmaFRef = sigmaF #hold onto this either way, we'll use it to fill the sigmaF field
         self.dMin = dMin
         self.Gf = Gf
+        self.useRankineDamage = True
+        if self.useDamage:
+            ValueError('ERROR: you can only use one damage model at a time!')
+        else:
+            self.useDamage = True
+
+    def addSimpleRankineDamage(self, damageList, percentStretch, dMin = 0.25):
+
+        print("[Simple Rankine Damage] Simulating with Simple Rankine Damage:")
+        print("[Simple Rankine Damage] Percent Stretch: ", percentStretch)
+        print("[Simple Rankine Damage] dMin: ", dMin)
+        self.damageList = np.array(damageList)
+        self.percentStretch = percentStretch
+        self.dMin = dMin
+        self.useSimpleRankineDamage = True
+        if self.useDamage:
+            ValueError('ERROR: you can only use one damage model at a time!')
+        else:
+            self.useDamage = True
 
     def addWeibullDistribution(self, sigmaFRef, vRef, m):
+
+        if self.useSimpleRankineDamage:
+            ValueError('ERROR: You must use SimpleRankine with SimpleWeibull')
 
         self.useWeibull = True
         self.sigmaFRef = sigmaFRef
         self.vRef = vRef
         self.m = m
+        if self.useDamage == False:
+            ValueError('ERROR: you must set a damage model before adding a Weibull distributed sigmaF!')
+
+    def addSimpleWeibullDistribution(self, vRef, m):
+
+        if self.useSimpleRankineDamage == False:
+            ValueError('ERROR: You must use SimpleRankine with SimpleWeibull')
+
+        self.useWeibull = True
+        self.vRef = vRef
+        self.m = m
+        if self.useDamage == False:
+            ValueError('ERROR: you must set a damage model before adding a Weibull distributed sigmaF!')
         
     #------------Simulation Routines---------------
 
@@ -933,6 +983,7 @@ class DFGMPMSolver:
     @ti.kernel
     def reset(self, arr: ti.ext_arr(), partCount: ti.ext_arr(), initVel: ti.ext_arr(), pMasses: ti.ext_arr(), pVols: ti.ext_arr(), EList: ti.ext_arr(), nuList: ti.ext_arr(), damageList: ti.ext_arr()):
         self.gravity[None] = [0, self.gravMag]
+        stretchedSigmaF = 0.0
         for i in range(self.numParticles):
             self.x[i] = [ti.cast(arr[i,0], ti.f64), ti.cast(arr[i,1], ti.f64)]
             self.material[i] = 0
@@ -963,29 +1014,40 @@ class DFGMPMSolver:
                     nu = ti.cast(nuList[i], ti.f64)
                     self.mu[idx] = E / (2 * (1 + nu))
                     self.la[idx] = E * nu / ((1+nu) * (1 - 2 * nu))
-                    self.useRankineDamageList[idx] = ti.cast(damageList[i], ti.i32)
-                    self.sigmaF[idx] = self.sigmaFRef
+                    if self.useRankineDamage:
+                        self.useRankineDamageList[idx] = ti.cast(damageList[i], ti.i32)
+                        self.sigmaF[idx] = self.sigmaFRef
+                    elif self.useSimpleRankineDamage:
+                        self.useSimpleRankineDamageList[idx] = ti.cast(damageList[i], ti.i32)
+                        #compute sigmaF based on percentStretch
+                        stretch = 1 + self.percentStretch
+                        stretchF = ti.Matrix([[stretch, 0], [0, stretch]])
+                        stretchJ = stretch**2
+                        stretchKirchoff = self.kirchoff_NeoHookean(stretchF, stretchJ, self.mu[idx], self.la[idx])
+                        e, v1, v2 = self.eigenDecomposition2D(stretchKirchoff / stretchJ)
+                        stretchedSigmaF = e[0] if e[0] > e[1] else e[1]
+                        self.sigmaF[idx] = stretchedSigmaF
                     idx += 1 
+
+        print("[Simple Rankine Damage] Stretched SigmaF:", stretchedSigmaF)
 
         #Now set up damage settings
         #Compute Weibull Distributed SigmaF for TimeToFailure Model
         for p in range(self.numParticles):
-            if self.useTimeToFailureDamageList[p] == 1 and self.useRankineDamageList[p] == 1:
-                ValueError('ERROR: you can only use one damage model at a time!')
-
-            if self.useTimeToFailureDamageList[p] == 0 and self.useRankineDamageList[p] == 0 and self.useWeibull:
-                ValueError('ERROR: you must set a damage model before adding a Weibull distributed sigmaF!')
-
-            if (self.useTimeToFailureDamageList[p] or self.useRankineDamageList[p]) and self.useWeibull:
-                R = ti.cast(ti.random(ti.f32), ti.f64) #ti.random is broken for f64, so use f32
-                self.sigmaF[p] = self.sigmaFRef * ( ((self.vRef * ti.log(R)) / (self.Vp[p] * ti.log(0.5)))**(1.0 / self.m) )
-                if self.useRankineDamageList[p]:
-                    G = self.mu[p]
-                    la = self.la[p]
-                    E = (G*(3*la + 2*G)) / (la + G) #recompute E for this particle
-                    #print('reconstructed E: ', E)
-                    HsBar = (self.sigmaF[p] * self.sigmaF[p]) / (2 * E * self.Gf)
-                    self.Hs[p] = (HsBar * self.l0) / (1 - (HsBar * self.l0))
+            if self.useWeibull:
+                if self.useSimpleRankineDamageList[p]:
+                    R = ti.cast(ti.random(ti.f32), ti.f64) #ti.random is broken for f64, so use f32
+                    self.sigmaF[p] = stretchedSigmaF * ( ((self.vRef * ti.log(R)) / (self.Vp[p] * ti.log(0.5)))**(1.0 / self.m) )
+                if self.useTimeToFailureDamageList[p] or self.useRankineDamageList[p]:
+                    R = ti.cast(ti.random(ti.f32), ti.f64) #ti.random is broken for f64, so use f32
+                    self.sigmaF[p] = self.sigmaFRef * ( ((self.vRef * ti.log(R)) / (self.Vp[p] * ti.log(0.5)))**(1.0 / self.m) )
+                    if self.useRankineDamageList[p]:
+                        G = self.mu[p]
+                        la = self.la[p]
+                        E = (G*(3*la + 2*G)) / (la + G) #recompute E for this particle
+                        #print('reconstructed E: ', E)
+                        HsBar = (self.sigmaF[p] * self.sigmaF[p]) / (2 * E * self.Gf)
+                        self.Hs[p] = (HsBar * self.l0) / (1 - (HsBar * self.l0))
 
     def writeData(self, frame: ti.i32, s: ti.i32):
         

@@ -14,19 +14,6 @@ outputPath2 = "../output/circleCrusher/brittle_nodes.ply"
 fps = 60
 endFrame = 4 * fps
 
-# def computeEandNu(K, G):
-#     E = (9 * K * G) / (3*K + G)
-#     nu = (3*K - 2*G) / (2 * (3*K + G))
-#     return E, nu
-
-# K_d = 158.333 * 10**9 #Pascals bulk mod TODO
-# G_d = 73.077 * 10**9 #Pascals shear mod  TODO
-# E_d, nu_d = computeEandNu(K_d, G_d)
-
-# K_p = 260 * 10**9                     #TODO
-# G_p = 180 * 10**9                       #TODO
-# E_p, nu_p = computeEandNu(K_p, G_p)
-
 E_d, nu_d = 1e4, 0.25
 E_p, nu_p = 2*E_d, 0.25
 
@@ -88,30 +75,27 @@ useAPIC = False
 frictionCoefficient = 0.4
 flipPicRatio = 0.95
 
-if(len(sys.argv) == 6):
-    outputPath = sys.argv[4]
-    outputPath2 = sys.argv[5]
+if(len(sys.argv) == 5):
+    outputPath = sys.argv[3]
+    outputPath2 = sys.argv[4]
 
 solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Add Damage Model
-Gf = 0.01 #0.1 starts to get some red, but we wanna see it fast! TODO
-sigmaF = 50 #for gf=0.01 and using weibull: 40 < sigmaF < 60, 40 starting to see some cool fractures, maybe too much red?
-dMin = 0.25 #TODO, this controls how much damage must accumulate before we allow a node to separate
+percentStretch = 0.001
+dMin = 0.25
 
-if(len(sys.argv) == 6):
-    Gf = float(sys.argv[1])
-    sigmaF = float(sys.argv[2])
-    dMin = float(sys.argv[3])
+if(len(sys.argv) == 5):
+    percentStretch = float(sys.argv[1])
+    dMin = float(sys.argv[2])
 
 damageList = [1,0,0] #denote which objects should get damage
-if useDFG == True: solver.addRankineDamage(damageList, Gf, sigmaF, E_d, dMin)
+if useDFG == True: solver.addSimpleRankineDamage(damageList, percentStretch, dMin)
 
 useWeibull = True
-sigmaFRef = sigmaF
 vRef = vol_d
 m = 6
-if useWeibull == True: solver.addWeibullDistribution(sigmaFRef, vRef, m)
+if useWeibull == True: solver.addSimpleWeibullDistribution(vRef, m)
 
 #Collision Objects
 grippedMaterial = 0.005

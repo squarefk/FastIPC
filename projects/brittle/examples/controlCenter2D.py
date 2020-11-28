@@ -38,10 +38,11 @@ if demoSetA[1]:
         
         if test:
 
-            #best setup so far is Gf = 0.01, sigmaF = 40, dMin = 0.25
-            GfList = [0.005, 0.01, 0.2]
-            sigmaFList = [30, 40, 50]
-            dMinList = [0.1, 0.25, 0.5]
+            #best setup so far is Gf = 0.01, sigmaF = 50, dMin = 0.25
+            GfList = [0.01]
+            sigmaFList = [40, 50, 60]
+            #dMinList = [0.05, 0.15, 0.25]
+            dMinList = [0.3, 0.4, 0.5]
             outputBase = "../output/circleCrusher2D_Wedging/Gf"
 
             for Gf in GfList:

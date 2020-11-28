@@ -11,8 +11,8 @@ ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 gravity = -10.0
 outputPath = "../output/ringDrop2D/brittle.ply"
 outputPath2 = "../output/ringDrop2D/brittle_nodes.ply"
-fps = 60
-endFrame = 5 * fps
+fps = 120
+endFrame = 3 * fps
 
 E, nu = 87 * 10**9, 0.17 #TODO
 EList = [E]
@@ -66,7 +66,7 @@ solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, v
 
 #Add Damage Model
 Gf = 2.3 #0.1 starts to get some red, but we wanna see it fast! TODO
-sigmaF = 1e6 #for gf=2.3 and using weibull: ? < sigmaF < 5e6 
+sigmaF = 5e5 #for gf=2.3 and using weibull: 1e4 (all red) and 1e5 (mostly red orange) < sigmaF < 1e6 
 dMin = 0.25 #TODO, this controls how much damage must accumulate before we allow a node to separate
 
 if(len(sys.argv) == 6):
