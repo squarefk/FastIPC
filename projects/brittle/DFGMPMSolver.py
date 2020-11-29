@@ -103,6 +103,7 @@ class DFGMPMSolver:
         self.rp = (3*(dx**2))**0.5 if self.dim == 3 else (2*(dx**2))**0.5 #set rp based on dx (this changes if dx != dy)
         self.maxParticlesInfluencingGridNode = self.ppc * self.maxPPC #2d = 4*ppc, 3d = 8*ppc
         self.dMin = 0.25
+        self.minDp = 1.0
         self.fricCoeff = frictionCoefficient
         #self.st = ti.field(dtype=float, shape=self.numParticles) #now we can have different thresholds for different objects and particle distributions!
         
@@ -467,7 +468,7 @@ class DFGMPMSolver:
             if self.grid_m[i,j][0] > 0 and self.grid_m[i,j][1] > 0:
                 minSep = self.gridSeparability[i,j][0] if self.gridSeparability[i,j][0] < self.gridSeparability[i,j][1] else self.gridSeparability[i,j][1]
                 maxMax = self.gridMaxDamage[i,j][0] if self.gridMaxDamage[i,j][0] > self.gridMaxDamage[i,j][1] else self.gridMaxDamage[i,j][1]
-                if maxMax == 1.0 and minSep > self.dMin:
+                if maxMax >= self.minDp and minSep > self.dMin:
                     self.separable[i,j] = 1
                 else:
                     self.separable[i,j] = 0
@@ -531,7 +532,8 @@ class DFGMPMSolver:
                     if self.useRankineDamageList[p]:
                         dNew = min(1.0, (1 + self.Hs[p]) * (1 - (self.sigmaF[p] / maxEigVal))) #take min with 1 to ensure we do not exceed 1
                     elif self.useSimpleRankineDamageList[p]:
-                        dNew = min(1.0, (1 - (self.sigmaF[p] / maxEigVal))) #simply exclude the Hs term for the simpler rankine model
+                        #dNew = min(1.0, (1 - (self.sigmaF[p] / maxEigVal))) #simply exclude the Hs term for the simpler rankine model
+                        dNew = min(1.0, (1 + self.Hs[p]) * (1 - (self.sigmaF[p] / maxEigVal))) #i think excluding Hs sucks because without it, damage never reaches 1.0
                     self.Dp[p] = max(self.Dp[p], dNew) #irreversibility condition, cracks cannot heal            
             
             #----DAMAGE ROUTINES END-----------------
@@ -894,14 +896,18 @@ class DFGMPMSolver:
         else:
             self.useDamage = True
 
-    def addSimpleRankineDamage(self, damageList, percentStretch, dMin = 0.25):
+    def addSimpleRankineDamage(self, damageList, percentStretch, dMin = 0.25, Gf = 0.01):
 
         print("[Simple Rankine Damage] Simulating with Simple Rankine Damage:")
         print("[Simple Rankine Damage] Percent Stretch: ", percentStretch)
+        print("[Simple Rankine Damage] Gf: ", Gf)
         print("[Simple Rankine Damage] dMin: ", dMin)
+        #print("[Simple Rankine Damage] minDp: ", self.minDp)
         self.damageList = np.array(damageList)
         self.percentStretch = percentStretch
         self.dMin = dMin
+        self.Gf = Gf
+        self.minDp = 1.0
         self.useSimpleRankineDamage = True
         if self.useDamage:
             ValueError('ERROR: you can only use one damage model at a time!')
@@ -928,6 +934,7 @@ class DFGMPMSolver:
         self.useWeibull = True
         self.vRef = vRef
         self.m = m
+        print("[Simple Weibull] m: ", m)
         if self.useDamage == False:
             ValueError('ERROR: you must set a damage model before adding a Weibull distributed sigmaF!')
         
@@ -1041,13 +1048,13 @@ class DFGMPMSolver:
                 if self.useTimeToFailureDamageList[p] or self.useRankineDamageList[p]:
                     R = ti.cast(ti.random(ti.f32), ti.f64) #ti.random is broken for f64, so use f32
                     self.sigmaF[p] = self.sigmaFRef * ( ((self.vRef * ti.log(R)) / (self.Vp[p] * ti.log(0.5)))**(1.0 / self.m) )
-                    if self.useRankineDamageList[p]:
-                        G = self.mu[p]
-                        la = self.la[p]
-                        E = (G*(3*la + 2*G)) / (la + G) #recompute E for this particle
-                        #print('reconstructed E: ', E)
-                        HsBar = (self.sigmaF[p] * self.sigmaF[p]) / (2 * E * self.Gf)
-                        self.Hs[p] = (HsBar * self.l0) / (1 - (HsBar * self.l0))
+                if self.useRankineDamageList[p] or self.useSimpleRankineDamageList[p]:
+                    G = self.mu[p]
+                    la = self.la[p]
+                    E = (G*(3*la + 2*G)) / (la + G) #recompute E for this particle
+                    #print('reconstructed E: ', E)
+                    HsBar = (self.sigmaF[p] * self.sigmaF[p]) / (2 * E * self.Gf)
+                    self.Hs[p] = (HsBar * self.l0) / (1 - (HsBar * self.l0))
 
     def writeData(self, frame: ti.i32, s: ti.i32):
         

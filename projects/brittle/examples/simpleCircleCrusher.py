@@ -82,19 +82,21 @@ if(len(sys.argv) == 5):
 solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Add Damage Model
-percentStretch = 0.001
-dMin = 0.25
+percentStretch = 3e-5 # 9e-6 < p < ?
+dMin = 0.4
+Gf = 3e-6 #1e-6 < Gf < 1e-5 
+#minDp = 1.0
 
 if(len(sys.argv) == 5):
     percentStretch = float(sys.argv[1])
     dMin = float(sys.argv[2])
 
 damageList = [1,0,0] #denote which objects should get damage
-if useDFG == True: solver.addSimpleRankineDamage(damageList, percentStretch, dMin)
+if useDFG == True: solver.addSimpleRankineDamage(damageList, percentStretch, dMin, Gf)
 
 useWeibull = True
 vRef = vol_d
-m = 6
+m = 6 #higher makes the distribution sharper and with a tighter range of values
 if useWeibull == True: solver.addSimpleWeibullDistribution(vRef, m)
 
 #Collision Objects
