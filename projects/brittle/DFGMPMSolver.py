@@ -336,6 +336,52 @@ class DFGMPMSolver:
                 self.sp[p] = 0
 
     @ti.kernel
+    def updateDamage(self):
+        for p in range(self.numParticles):
+            
+            U, sig, V = ti.svd(self.F[p])
+            J = 1.0
+
+            for d in ti.static(range(self.dim)):
+                J *= sig[d, d]
+
+            #-----TIME TO FAILURE DAMAGE-----
+            if(self.useTimeToFailureDamageList[p] and self.useDFG):
+                kirchoff = self.kirchoff_NeoHookean(self.F[p], J, self.mu[p], self.la[p]) #compute kirchoff stress using the NH model from homel2016                
+                e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
+                
+                maxEigVal = e[0] if e[0] > e[1] else e[1] #e[0] is enforced to be larger though... so this is prob unnecessary
+                
+                #Update Particle Damage (only if maxEigVal is greater than this particle's sigmaF)
+                if(maxEigVal > self.sigmaF[p]): 
+                    dNew = self.Dp[p] + (self.dt / self.timeToFail)
+                    self.Dp[p] = dNew if dNew < 1.0 else 1.0
+
+                    #Reconstruct tensile scaled Cauchy stress
+                    for d in ti.static(range(2)):
+                        if e[d] > 0: e[d] *= (1 - dNew) #scale tensile eigenvalues using the new damage
+
+                    #kirchoff = J * (e[0] * v1.outer_product(v1) + e[1] * v2.outer_product(v2))
+            
+            #---------RANKINE DAMAGE---------
+            if (self.useRankineDamageList[p] or self.useSimpleRankineDamageList[p]) and self.useDFG:
+                #Get cauchy stress and its eigenvalues and eigenvectors
+                kirchoff = self.kirchoff_NeoHookean(self.F[p], J, self.mu[p], self.la[p]) #compute kirchoff stress using the NH model from homel2016                
+                e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
+                
+                maxEigVal = e[0] if e[0] > e[1] else e[1] #e[0] is enforced to be larger though... so this is prob unnecessary
+                
+                #Update Particle Damage (only if maxEigVal is greater than this particle's sigmaF)
+                if(maxEigVal > self.sigmaF[p]): 
+                    dNew = 0.0
+                    if self.useRankineDamageList[p]:
+                        dNew = min(1.0, (1 + self.Hs[p]) * (1 - (self.sigmaF[p] / maxEigVal))) #take min with 1 to ensure we do not exceed 1
+                    elif self.useSimpleRankineDamageList[p]:
+                        #dNew = min(1.0, (1 - (self.sigmaF[p] / maxEigVal))) #simply exclude the Hs term for the simpler rankine model
+                        dNew = min(1.0, (1 + self.Hs[p]) * (1 - (self.sigmaF[p] / maxEigVal))) #i think excluding Hs sucks because without it, damage never reaches 1.0
+                    self.Dp[p] = max(self.Dp[p], dNew) #irreversibility condition, cracks cannot heal            
+            
+    @ti.kernel
     def computeParticleDG(self):
         #Compute DG for all particles and for all grid nodes 
         # NOTE: grid node DG is based on max of mapped particle DGs, in this loop we simply create a list of candidates, then we will take max after
@@ -496,47 +542,8 @@ class DFGMPMSolver:
                 J *= new_sig
             
             #Compute Kirchoff Stress
-            kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, self.mu[p], self.la[p])
-
-            #----DAMAGE ROUTINES BEGIN------------------
-            
-            #-----TIME TO FAILURE DAMAGE-----
-            if(self.useTimeToFailureDamageList[p] and self.useDFG):
-                kirchoff = self.kirchoff_NeoHookean(self.F[p], J, self.mu[p], self.la[p]) #compute kirchoff stress using the NH model from homel2016                
-                e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
-                
-                maxEigVal = e[0] if e[0] > e[1] else e[1] #e[0] is enforced to be larger though... so this is prob unnecessary
-                
-                #Update Particle Damage (only if maxEigVal is greater than this particle's sigmaF)
-                if(maxEigVal > self.sigmaF[p]): 
-                    dNew = self.Dp[p] + (self.dt / self.timeToFail)
-                    self.Dp[p] = dNew if dNew < 1.0 else 1.0
-
-                    #Reconstruct tensile scaled Cauchy stress
-                    for d in ti.static(range(2)):
-                        if e[d] > 0: e[d] *= (1 - dNew) #scale tensile eigenvalues using the new damage
-
-                    #kirchoff = J * (e[0] * v1.outer_product(v1) + e[1] * v2.outer_product(v2))
-            
-            #---------SIMPLE AND REGULAR RANKINE DAMAGE---------
-            if (self.useRankineDamageList[p] or self.useSimpleRankineDamageList[p]) and self.useDFG:
-                #Get cauchy stress and its eigenvalues and eigenvectors
-                kirchoff = self.kirchoff_NeoHookean(self.F[p], J, self.mu[p], self.la[p]) #compute kirchoff stress using the NH model from homel2016                
-                e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
-                
-                maxEigVal = e[0] if e[0] > e[1] else e[1] #e[0] is enforced to be larger though... so this is prob unnecessary
-                
-                #Update Particle Damage (only if maxEigVal is greater than this particle's sigmaF)
-                if(maxEigVal > self.sigmaF[p]): 
-                    dNew = 0.0
-                    if self.useRankineDamageList[p]:
-                        dNew = min(1.0, (1 + self.Hs[p]) * (1 - (self.sigmaF[p] / maxEigVal))) #take min with 1 to ensure we do not exceed 1
-                    elif self.useSimpleRankineDamageList[p]:
-                        #dNew = min(1.0, (1 - (self.sigmaF[p] / maxEigVal))) #simply exclude the Hs term for the simpler rankine model
-                        dNew = min(1.0, (1 + self.Hs[p]) * (1 - (self.sigmaF[p] / maxEigVal))) #i think excluding Hs sucks because without it, damage never reaches 1.0
-                    self.Dp[p] = max(self.Dp[p], dNew) #irreversibility condition, cracks cannot heal            
-            
-            #----DAMAGE ROUTINES END-----------------
+            #kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, self.mu[p], self.la[p])
+            kirchoff = self.kirchoff_NeoHookean(self.F[p], J, self.mu[p], self.la[p])
 
             #P2G for velocity, force update, and update velocity
             for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
@@ -685,8 +692,8 @@ class DFGMPMSolver:
 
                     if(self.useFrictionalContact):
                         if self.separable[i,j] == 1:
-                            self.grid_v[i,j,0] += (self.grid_f[i,j,0] / nodalMass1) * self.dt # use field 2 force to update field 1 particles (for green nodes, ie separable contact)
-                            self.grid_v[i,j,1] += (self.grid_f[i,j,1] / nodalMass2) * self.dt # use field 1 force to update field 2 particles
+                            self.grid_v[i,j,0] += (self.grid_f[i,j,0] / nodalMass1) * self.dt # use field 1 force to update field 1 particles (for green nodes, ie separable contact)
+                            self.grid_v[i,j,1] += (self.grid_f[i,j,1] / nodalMass2) * self.dt # use field 2 force to update field 2 particles
                             #self.grid_v[i,j,0] += (-self.grid_f[i,j,1] / nodalMass1) * self.dt # use field 2 force to update field 1 particles (for green nodes, ie separable contact)
                             #self.grid_v[i,j,1] += (-self.grid_f[i,j,0] / nodalMass2) * self.dt # use field 1 force to update field 2 particles
                         else:
@@ -956,6 +963,8 @@ class DFGMPMSolver:
             if self.elapsedTime == 0:
                 with Timer("Surface Detection"):
                     self.surfaceDetection()
+            with Timer("Update Damage"): #NOTE: make sure to do this before we compute the damage gradients!
+                self.updateDamage()
             with Timer("Compute Particle DGs"):
                 self.computeParticleDG()
             with Timer("Compute Grid DGs"):

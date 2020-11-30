@@ -14,18 +14,18 @@ outputPath2 = "../output/ringDrop2D/brittle_nodes.ply"
 fps = 120
 endFrame = 3 * fps
 
-E, nu = 1e4, 0.2 #TODO
+E, nu = 5e5, 0.2 #TODO
 EList = [E]
 nuList = [nu]
 
-st = 10.0  #10.5 is solid, but it fractures numerically at the notch TODO
+st = 4.3  #4.5 too low
 surfaceThreshold = st
 
 maxArea = 'qpa0.0000025'
 
-centerPoint = [0.5, 0.2]
-N1 = 30
-N2 = 16
+centerPoint = [0.5, 0.14]
+N1 = 200
+N2 = 175
 r1 = 0.07
 r2 = 0.055
 
@@ -44,7 +44,7 @@ initVel = [0,-1.0]
 initialVelocity = [initVel]
 
 #dx = 0.01 #TODO
-ppc = 8
+ppc = 4
 dx = (ppc * pVol)**0.5
 
 #Compute max dt
@@ -58,18 +58,18 @@ useAPIC = False
 frictionCoefficient = 0.0
 flipPicRatio = 0.9 #want to blend in more PIC for stiffness -> lower
 
-if(len(sys.argv) == 6):
+if(len(sys.argv) == 5):
     outputPath = sys.argv[4]
     outputPath2 = sys.argv[5]
 
 solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Add Damage Model
-percentStretch = 3e-5 # 9e-6 < p < ?
+percentStretch = 2.1e-5 # 1.7e-5 < p < 2e-5
 dMin = 0.4
 Gf = 3e-6 #1e-6 < Gf < 1e-5 
 
-if(len(sys.argv) == 6):
+if(len(sys.argv) == 5):
     percentStretch = float(sys.argv[1])
     dMin = float(sys.argv[2])
 
@@ -78,7 +78,7 @@ if useDFG == True: solver.addSimpleRankineDamage(damageList, percentStretch, dMi
 
 useWeibull = True
 vRef = vol
-m = 6
+m = 8 #m6 with p 2.1e-5 gives red scatter throughout ring but no breaks, m3 has less damage happening, m8 has a break but weird behavior, m15 too red
 if useWeibull == True: solver.addSimpleWeibullDistribution(vRef, m)
 
 groundCenter = (0, 0.05)

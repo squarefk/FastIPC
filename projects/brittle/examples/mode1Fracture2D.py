@@ -12,7 +12,7 @@ gravity = 0.0
 outputPath = "../output/mode1Fracture/brittle.ply"
 outputPath2 = "../output/mode1Fracture/brittle_nodes.ply"
 fps = 24
-endFrame = 5 #5 * fps
+endFrame = 5 * fps
 
 E, nu = 1000, 0.25 #TODO
 EList = [E]
@@ -40,7 +40,7 @@ particleVolumes = [pVol]
 initVel = [0,0]
 initialVelocity = [initVel]
 
-ppc = 8   #TODO: 16 from ziran
+ppc = 4   #TODO: 16 from ziran
 #dx = (ppc * pVol)**0.5
 dx = 0.005 #TODO: 0.005 from ziran
 
@@ -62,17 +62,21 @@ if(len(sys.argv) == 6):
 solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Add Damage Model
-Gf = 0.01 #0.1 starts to get some red, but we wanna see it fast! TODO
-sigmaF = 89 # 87 < x < 89.5, 89 is solid!
-dMin = 0.25 #TODO, this controls how much damage must accumulate before we allow a node to separate
+# Gf = 0.01 #0.1 starts to get some red, but we wanna see it fast! TODO
+# sigmaF = 89 # 87 < x < 89.5, 89 is solid!
+# dMin = 0.25 #TODO, this controls how much damage must accumulate before we allow a node to separate
+
+#Add Damage Model
+percentStretch = 0.08 # 0.01 < p < 0.1
+dMin = 0.25
+Gf = 0.01 #1e-6 < Gf < 1e-5 
 
 if(len(sys.argv) == 6):
-    Gf = float(sys.argv[1])
-    sigmaF = float(sys.argv[2])
-    dMin = float(sys.argv[3])
+    percentStretch = float(sys.argv[1])
+    dMin = float(sys.argv[2])
 
 damageList = [1]
-if useDFG == True: solver.addRankineDamage(damageList, Gf, sigmaF, E, dMin)
+if useDFG == True: solver.addSimpleRankineDamage(damageList, percentStretch, dMin, Gf)
 
 #Collision Objects
 lowerCenter = (0.0, minPoint[1] + grippedMaterial)
