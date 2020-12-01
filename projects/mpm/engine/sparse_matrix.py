@@ -12,14 +12,14 @@ class SparseMatrix:
         At present we assume every column must be less then self.cols items.
     '''
     def __init__(self, shape_ = None):
-        self.rows = 0 # num of rows
-        self.cols = 0 # num of columns
-        if shape_ == None:
-            shape_ = (MAX_LINEAR, MAX_LINEAR)
-        else:
-            assert isinstance(shape_, tuple)
-            self.rows = shape_[0]
-            self.cols = shape_[1]
+        self.rows = ti.field(ti.i32, shape=()) # num of rows
+        self.cols = ti.field(ti.i32, shape=()) # num of columns
+        # if shape_ == None:
+        #     shape_ = (MAX_LINEAR, MAX_LINEAR)
+        # else:
+        #     assert isinstance(shape_, tuple)
+        #     self.rows = shape_[0]
+        #     self.cols = shape_[1]
         self.coef_value = ti.field(real, shape=MAX_LINEAR*1000)
         self.col_index = ti.field(ti.i32, shape=MAX_LINEAR*1000)
         self.outerIndex = ti.field(ti.i32, shape=MAX_LINEAR)
@@ -32,17 +32,17 @@ class SparseMatrix:
     def setAllZero(self):
         self.outerIndex.fill(0)
         self.innerNonZeros.fill(0)
-        for i in range(self.rows):
-            self.outerIndex[i] = i * self.cols        
+        for i in range(self.rows[None]):
+            self.outerIndex[i] = i * self.cols[None]        
 
     def setIdentity(self, num):
-        self.rows = num
-        self.cols = num
+        self.rows[None] = num
+        self.cols[None] = num
         self.outerIndex.fill(0)
         self.innerNonZeros.fill(0)
-        for i in range(self.rows):
+        for i in range(self.rows[None]):
             self.outerIndex[i] = i * 100
-        for i in range(self.rows):
+        for i in range(self.rows[None]):
             idx = self.outerIndex[i]
             self.coef_value[idx] = 1.0
             self.col_index[idx] = i
@@ -55,12 +55,12 @@ class SparseMatrix:
         ## TODO: Make this function a kernel
         if not shape_ == None:
             assert isinstance(shape_, tuple)
-            self.rows = shape_[0]
-            self.cols = shape_[1]
+            self.rows[None] = shape_[0]
+            self.cols[None] = shape_[1]
         self.outerIndex.fill(0)
         self.innerNonZeros.fill(0)
-        for i in range(self.rows):
-            self.outerIndex[i] = i * self.cols
+        for i in range(self.rows[None]):
+            self.outerIndex[i] = i * self.cols[None]
         n = data_row.shape[0]
         for i in range(n):
             row, col, val = data_row[i], data_col[i], data_val[i]
@@ -74,15 +74,15 @@ class SparseMatrix:
             Set from numpy matrix
         '''
         ## TODO: Make this function a kernel
-        self.rows, self.cols = fullMat.shape[0], fullMat.shape[1]
+        self.rows[None], self.cols[None] = fullMat.shape[0], fullMat.shape[1]
         self.outerIndex.fill(0)
         self.innerNonZeros.fill(0)
-        for i in range(self.rows):
-            self.outerIndex[i] = i * self.cols
-        for i in range(self.rows):
+        for i in range(self.rows[None]):
+            self.outerIndex[i] = i * self.cols[None]
+        for i in range(self.rows[None]):
             start_idx = self.outerIndex[i]
             end_idx = 0
-            for j in range(self.cols):
+            for j in range(self.cols[None]):
                 val = fullMat[i, j]              
                 if not val == 0:
                     self.col_index[start_idx + end_idx] = j
@@ -112,14 +112,14 @@ class SparseMatrix:
         self.outerIndex.from_numpy(np.array([0,1,4,5,8]))
         self.innerNonZeros.from_numpy(np.array([1,3,1,3,3]))
 
-    def prepareColandVal(self, num):
-        self.rows = 2*num
-        self.cols = 2*num
+    def prepareColandVal(self, num, d=2):
+        self.rows[None] = d*num
+        self.cols[None] = d*num
         self.outerIndex.fill(0)
         self.innerNonZeros.fill(0)
-        for i in range(self.rows):
+        for i in range(self.rows[None]):
             self.outerIndex[i] = i * 100
-        # for i in range(self.rows):
+        # for i in range(self.rows[None]):
         #     idx = self.outerIndex[i]
         #     self.coef_value[idx] = 1.0
         #     self.col_index[idx] = i
@@ -150,6 +150,45 @@ class SparseMatrix:
             self.innerNonZeros[2*i] = num_entry
             self.innerNonZeros[2*i+1] = num_entry1
 
+    @ti.kernel
+    def setFromColandVal3(self, entryCol:ti.template(), entryVal:ti.template(), num:ti.i32):
+        for i in range(num):
+            num_entry = 0
+            start_idx = self.outerIndex[3*i]
+            num_entry1 = 0
+            start_idx1 = self.outerIndex[3*i+1]
+            num_entry2 = 0
+            start_idx2 = self.outerIndex[3*i+2]
+            for k in range(125):
+                c = i * 125 + k
+                j = entryCol[c]
+                M = entryVal[c]
+                if not j == -1:
+                    self.col_index[start_idx + num_entry] = 3*j
+                    self.coef_value[start_idx + num_entry] = M[0,0]
+                    self.col_index[start_idx + num_entry + 1] = 3*j+1
+                    self.coef_value[start_idx + num_entry + 1] = M[0,1]
+                    self.col_index[start_idx + num_entry + 2] = 3*j+2
+                    self.coef_value[start_idx + num_entry + 2] = M[0,2]
+                    num_entry += 3
+                    self.col_index[start_idx1 + num_entry1] = 3*j
+                    self.coef_value[start_idx1 + num_entry1] = M[1,0]
+                    self.col_index[start_idx1 + num_entry1 + 1] = 3*j+1
+                    self.coef_value[start_idx1 + num_entry1 + 1] = M[1,1]
+                    self.col_index[start_idx1 + num_entry1 + 2] = 3*j+2
+                    self.coef_value[start_idx1 + num_entry1 + 2] = M[1,2]
+                    num_entry1 += 3
+                    self.col_index[start_idx2 + num_entry2] = 3*j
+                    self.coef_value[start_idx2 + num_entry2] = M[2,0]
+                    self.col_index[start_idx2 + num_entry2 + 1] = 3*j+1
+                    self.coef_value[start_idx2 + num_entry2 + 1] = M[2,1]
+                    self.col_index[start_idx2 + num_entry2 + 2] = 3*j+2
+                    self.coef_value[start_idx2 + num_entry2 + 2] = M[2,2]
+                    num_entry2 += 3
+            self.innerNonZeros[3*i] = num_entry
+            self.innerNonZeros[3*i+1] = num_entry1
+            self.innerNonZeros[3*i+2] = num_entry2
+
     ############ sparsity ############
     def initSpace(self):
         pass
@@ -160,7 +199,7 @@ class SparseMatrix:
         '''
             Compress sparse rows
         '''
-        for i in range(self.rows):
+        for i in range(self.rows[None]):
             start_idx = self.outerIndex[i]
             num_idx = self.innerNonZeros[i]
             c_set = []
@@ -180,7 +219,7 @@ class SparseMatrix:
         '''
             Ap = A*p
         '''
-        for i in range(self.rows):
+        for i in range(self.rows[None]):
             start_idx = self.outerIndex[i]
             num_idx = self.innerNonZeros[i]
 
@@ -194,7 +233,7 @@ class SparseMatrix:
 
     ############ index operations ############
     @ti.pyfunc
-    def get_value(self, row:ti.i32, col:ti.i32)->real:
+    def get_value(self, row, col):
         start_idx = self.outerIndex[row]
         num_idx = self.innerNonZeros[row]
         # print(row, start_idx, num_idx)
@@ -233,8 +272,8 @@ class SparseMatrix:
         self.set_value(index[0],index[1],value)
 
     def toFullMatrix(self):
-        fullMat = np.zeros(shape=(self.rows, self.cols))
-        for i in range(self.rows):
+        fullMat = np.zeros(shape=(self.rows[None], self.cols[None]))
+        for i in range(self.rows[None]):
             start_idx = self.outerIndex[i]
             end_idx = self.innerNonZeros[i]
             for k in range(end_idx):
@@ -256,6 +295,7 @@ class SparseMatrix:
 class CGSolver:
     def __init__(self, num = MAX_LINEAR):
         self.N = ti.field(ti.i32, shape=())
+        self.stride = 1
         self.r = ti.field(real, shape=num) # residual
         self.q = ti.field(real, shape=num) # z
         self.x = ti.field(real, shape=num) # solution
@@ -270,15 +310,15 @@ class CGSolver:
         self.boundary = ti.field(real, shape=num)
         
 
-    def compute(self, A):
+    def compute(self, A, stride = 2):
         '''
             A: Sparse Matrix
         '''
         assert isinstance(A, SparseMatrix)
-        assert A.rows == A.cols
+        assert A.rows[None] == A.cols[None]
         self.A = A
-        self.N[None] = A.rows
-
+        self.N[None] = A.rows[None]
+        self.stride = stride
         self.boundary.fill(0)
 
 
@@ -339,15 +379,18 @@ class CGSolver:
 
     @ti.kernel
     def setBoundary(self, b:ti.template()):
-        for I in range(self.N / 2):
+        for I in range(self.N[None] // self.stride):
             self.boundary[I] = b[I]
 
     @ti.kernel
     def project(self, r:ti.template()):
-        for I in range(self.N / 2):
+        dim = self.stride
+        for I in range(self.N[None] // dim):
             if self.boundary[I] == 1:
-                r[2*I] = 0
-                r[2*I+1] = 0
+                # r[2*I] = 0
+                # r[2*I+1] = 0
+                for d in range(dim):
+                    r[I*dim+d] = 0
 
     def solve(self, b):
         '''
