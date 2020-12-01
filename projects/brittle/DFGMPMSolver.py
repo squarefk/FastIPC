@@ -101,7 +101,6 @@ class DFGMPMSolver:
 
         #DFG Parameters
         self.rp = (3*(dx**2))**0.5 if self.dim == 3 else (2*(dx**2))**0.5 #set rp based on dx (this changes if dx != dy)
-        self.maxParticlesInfluencingGridNode = self.ppc * self.maxPPC #2d = 4*ppc, 3d = 8*ppc
         self.dMin = 0.25
         self.minDp = 1.0
         self.fricCoeff = frictionCoefficient
@@ -126,10 +125,7 @@ class DFGMPMSolver:
         self.sp = ti.field(dtype=int, shape=self.numParticles) #particle surface boolean int -- 1 = surface particle, 0 = interior particle
         self.particleDG = ti.Vector.field(2, dtype=float, shape=self.numParticles) #keep track of particle damage gradients
         self.gridDG = ti.Vector.field(2, dtype=float, shape=(self.nGrid, self.nGrid)) #grid node damage gradients
-        self.maxHelperCount = ti.field(int)
-        self.maxHelper = ti.field(int)
-        ti.root.dense(ti.ij, (self.nGrid,self.nGrid)).place(self.maxHelperCount) #maxHelperCount is nGrid x nGrid and keeps track of how many candidates we have for the new nodeDG maximum
-        ti.root.dense(ti.ij, (self.nGrid,self.nGrid)).dense(ti.k, self.maxParticlesInfluencingGridNode).place(self.maxHelper) #maxHelper is nGrid x nGrid x maxParticlesInfluencingGridNode
+        self.gridMaxNorm = ti.field(dtype=float, shape=(self.nGrid, self.nGrid)) #grid max norm holds the maximum DG norm found for this grid node, this will later help to determine the grid DG
         self.gridSeparability = ti.Vector.field(4, dtype=float, shape=(self.nGrid, self.nGrid)) # grid separability is nGrid x nGrid x 4, each grid node has a seperability condition for each field and we need to add up the numerator and denominator
         self.gridMaxDamage = ti.Vector.field(2, dtype=float, shape=(self.nGrid, self.nGrid)) # grid max damage is nGrid x nGrid x 2, each grid node has a max damage from each field
         self.separable = ti.field(dtype=int, shape=(self.nGrid,self.nGrid)) # whether grid node is separable or not
@@ -137,11 +133,7 @@ class DFGMPMSolver:
         self.grid_f = ti.Vector.field(2, dtype=float, shape=(self.nGrid, self.nGrid, 2)) # grid node forces for two field nodes, store two vectors at each grid node (one for each field)
 
         #Active Fields
-        self.activeFields = ti.field(int)
-        self.activeFieldsCount = ti.field(int)
-        ti.root.dense(ti.ij, (self.nGrid,self.nGrid)).dense(ti.k, 2).dense(ti.l, self.maxParticlesInfluencingGridNode).place(self.activeFields) #activeFields is nGrid x nGrid x 2 x numParticlesMappingToGridNode
-        ti.root.dense(ti.ij, (self.nGrid,self.nGrid)).dense(ti.k, 2).place(self.activeFieldsCount) #activeFieldsCount is nGrid x nGrid x 2 to hold counters for the active field lists
-        self.particleAF = ti.Vector.field(9, dtype=int, shape=self.numParticles) #store which activefield each particle belongs to for the 9 grid nodes it maps to
+        self.particleAF = ti.Vector.field(3**self.dim, dtype=int, shape=self.numParticles) #store which activefield each particle belongs to for the 9 grid nodes it maps to
 
         #Neighbor Search Fields
         self.gridNumParticles = ti.field(int)      #track number of particles in each cell using cell index
@@ -278,17 +270,14 @@ class DFGMPMSolver:
             self.gridSeparability[i, j] = [0, 0, 0, 0] #stackt fields, and we use the space to add up the numerator and denom for each field
             self.gridMaxDamage[i, j] = [0, 0] #stackt fields
             self.gridDG[i, j] = [0, 0] #reset grid node damage gradients
+            self.gridMaxNorm[i,j] = 0 #reset max norm DG found at the grid node
             self.separable[i,j] = -1 #-1 for only one field, 0 for not separable, and 1 for separable
         
-        #Clear neighbor look up structures as well as maxHelperCount and activeFieldsCount
+        #Clear neighbor look up structures
         for I in ti.grouped(self.gridNumParticles):
             self.gridNumParticles[I] = 0
         for I in ti.grouped(self.particleNeighbors):
             self.particleNeighbors[I] = -1
-        for I in ti.grouped(self.maxHelperCount):
-            self.maxHelperCount[I] = 0
-        for I in ti.grouped(self.activeFieldsCount):
-            self.activeFieldsCount[I] = 0
         for I in ti.grouped(self.particleAF):
             self.particleAF[I] = [-1, -1, -1, -1, -1, -1, -1, -1, -1]
     
@@ -414,27 +403,21 @@ class DFGMPMSolver:
             for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
                 offset = ti.Vector([i, j])
                 gridIdx = base + offset
-                currGridDG = self.gridDG[gridIdx] # grab current grid Di
-
-                if(nablaDBar.norm() > currGridDG.norm()): #save this particle's index as a potential candidate for new maximum
-                    offs = ti.atomic_add(self.maxHelperCount[gridIdx], 1) #this lets us keep a dynamically sized list by tracking the index
-                    self.maxHelper[gridIdx, offs] = p #add this particle index to the list!
+                ti.atomic_max(self.gridMaxNorm[gridIdx], nablaDBar.norm()) #take max between our stored gridMaxNorm at this node and the norm of our nablaDBar
 
     @ti.kernel
     def computeGridDG(self):
-        #Now iterate over all active grid nodes and compute the maximum of candidate DGs
-        for i, j in self.maxHelperCount:
-            currMaxDG = self.gridDG[i,j] # grab current grid Di
-            currMaxNorm = currMaxDG.norm()
+        #Now iterate over particles and grid nodes again to capture the gridDGs!
+        for p in range(self.numParticles):
+            pos = self.x[p]
+            base = (pos * self.invDx - 0.5).cast(int)
+            currParticleDG = self.particleDG[p]
+            for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
+                offset = ti.Vector([i, j])
+                gridIdx = base + offset
 
-            for k in range(self.maxHelperCount[i,j]):
-                p_i = self.maxHelper[i,j,k] #grab particle index
-                candidateDG = self.particleDG[p_i]
-                if(candidateDG.norm() > currMaxNorm):
-                    currMaxNorm = candidateDG.norm()
-                    currMaxDG = candidateDG
-
-            self.gridDG[i,j] = currMaxDG #set to be the max we found
+                if self.gridMaxNorm[gridIdx] == currParticleDG.norm():
+                    self.gridDG[gridIdx] = currParticleDG
 
     @ti.kernel
     def massP2G(self):
@@ -459,19 +442,17 @@ class DFGMPMSolver:
 
                 #Set Active Fields for each grid node! 
                 if self.particleDG[p].dot(self.gridDG[gridIdx]) >= 0:
-                    offs = ti.atomic_add(self.activeFieldsCount[gridIdx, 0], 1) #this lets us keep a dynamically sized list by tracking the index
-                    self.activeFields[gridIdx, 0, offs] = p #add this particle index to the list!
                     self.grid_m[gridIdx][0] += weight * self.mp[p] #add mass to active field for this particle
                     self.gridSeparability[gridIdx][0] += weight * maxD * self.mp[p] #numerator, field 1
                     self.gridSeparability[gridIdx][2] += weight * self.mp[p] #denom, field 1
                     self.particleAF[p][i*3 + j] = 0 #set this particle's AF to 0 for this grid node
+                    ti.atomic_max(self.gridMaxDamage[gridIdx][0], maxD) #compute the max damage seen in this field at this grid node
                 else:
-                    offs = ti.atomic_add(self.activeFieldsCount[gridIdx, 1], 1)
-                    self.activeFields[gridIdx, 1, offs] = p
                     self.grid_m[gridIdx][1] += weight * self.mp[p] #add mass to active field for this particle
                     self.gridSeparability[gridIdx][1] += weight * maxD * self.mp[p] #numerator, field 2
                     self.gridSeparability[gridIdx][3] += weight * self.mp[p] #denom, field 2
                     self.particleAF[p][i*3 + j] = 1 #set this particle's AF to 1 for this grid node
+                    ti.atomic_max(self.gridMaxDamage[gridIdx][1], maxD) #compute the max damage seen in this field at this grid node
 
     @ti.kernel
     def computeSeparability(self):
@@ -490,25 +471,6 @@ class DFGMPMSolver:
                 self.gridSeparability[gridIdx][1] /= self.gridSeparability[gridIdx][3] #divide numerator by denominator
             else:
                 self.gridSeparability[gridIdx][1] = 0.0
-
-            #Compute maximum damage for grid node active fields
-            max1 = 0.0
-            max2 = 0.0
-            for k in range(self.activeFieldsCount[gridIdx, 0]):
-                p_i = self.activeFields[gridIdx, 0, k]
-                p_d = max(self.Dp[p_i], self.sp[p_i]) #TODO is this right?
-                if p_d > max1:
-                    max1 = p_d
-            for k in range(self.activeFieldsCount[gridIdx, 1]):
-                p_i = self.activeFields[gridIdx, 1, k]
-                p_d = max(self.Dp[p_i], self.sp[p_i])
-                if p_d > max2:
-                    max2 = p_d
-            self.gridMaxDamage[gridIdx][0] = max1
-            self.gridMaxDamage[gridIdx][1] = max2
-
-            # if(i * self.nGrid + j == 1151):
-            #     print("node 1151 field one count:", self.activeFieldsCount[gridIdx, 0], "field two count:", self.activeFieldsCount[gridIdx, 1])
 
             #NOTE: separable[i,j] = -1 for one field, 0 for two non-separable fields, and 1 for two separable fields
             if self.grid_m[i,j][0] > 0 and self.grid_m[i,j][1] > 0:

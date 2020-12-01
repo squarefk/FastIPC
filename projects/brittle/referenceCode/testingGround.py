@@ -19,6 +19,9 @@ def test():
     for i in range(10):
         num = ti.random()
         print(num)
+    x = 10
+    y = 15
+    print(ti.atomic_max(x, y))
     # for i in range(n):
     #     ti.append(x.parent(), [], i)
 

@@ -40,7 +40,8 @@ mp = pVol * rho
 particleMasses = [mp]
 particleVolumes = [pVol]
 
-initVel = [0,-1.0]
+yVel = -1.0
+initVel = [0,yVel]
 initialVelocity = [initVel]
 
 #dx = 0.01 #TODO

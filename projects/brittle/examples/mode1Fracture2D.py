@@ -67,9 +67,9 @@ solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, v
 # dMin = 0.25 #TODO, this controls how much damage must accumulate before we allow a node to separate
 
 #Add Damage Model
-percentStretch = 0.08 # 0.01 < p < 0.1
+percentStretch = 0.1 # 0.1 < p < 0.1
 dMin = 0.25
-Gf = 0.01 #1e-6 < Gf < 1e-5 
+Gf = 3e-12 #? < Gf < 0.01
 
 if(len(sys.argv) == 6):
     percentStretch = float(sys.argv[1])
