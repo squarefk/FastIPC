@@ -44,6 +44,35 @@ def sampleBox2D(minPoint, maxPoint, args = 'qa0.0000075'):
 
     return np.array(B.get('vertices'))
 
+def sampleNotchedWall2D(minPoint, maxPoint, args = 'qpa0.0000075'):
+
+    height = maxPoint[1] -  minPoint[1]
+    width = maxPoint[0] - minPoint[0]
+    midX = minPoint[0] + (width / 2.0)
+    midY = minPoint[1] + (height / 2.0)
+
+    notchHeight = height * 0.1
+    notchDepth = width * 0.2
+
+    notchPoint1 = (maxPoint[0], midY + (notchHeight/2.0))
+    notchPoint2 = (maxPoint[0] - notchDepth, midY)
+    notchPoint3 = (maxPoint[0], midY - (notchHeight / 2.0))
+
+    pts1 = np.array(((minPoint[0], minPoint[1]), (maxPoint[0], minPoint[1]), (maxPoint[0], maxPoint[1]), (minPoint[0], maxPoint[1])))
+    pts2 = np.array((notchPoint1, notchPoint2, notchPoint3))
+    pts = np.vstack([pts1, pts2])
+    segs1 = np.array(((0,1),(1,2),(2,3),(3,0)))
+    segs2 = np.array(((0,1),(1,2),(2,0)))
+    segs = np.vstack([segs1, segs2 + segs1.shape[0]])
+    #A = dict(vertices=pts1, segments=segs1)
+    A = dict(vertices=pts, segments=segs, holes=[[maxPoint[0] - (notchDepth * 0.1) , midY]])
+    B = tr.triangulate(A, args)
+    #tr.compare(plt, A, B)
+    #plt.show()
+
+    return np.array(B.get('vertices'))
+
+
 def sampleNotchedBox2D(minPoint, maxPoint, args = 'qa0.0000075'):
     height = maxPoint[1] -  minPoint[1]
     width = maxPoint[0] - minPoint[0]

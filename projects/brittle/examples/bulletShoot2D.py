@@ -9,38 +9,39 @@ ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 #ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 #General Sim Params
-gravity = -10.0
+gravity = 0.0
 outputPath = "../output/bulletShoot2D/brittle.ply"
 outputPath2 = "../output/bulletShoot2D/brittle_nodes.ply"
 fps = 60
-endFrame = 5 * fps
+endFrame = 2 * fps
 
 #Elasticity Params
-E, nu = 10**6, 0.2 #TODO
-EBullet, nuBullet = 5000, 0.2 #TODO
+E, nu = 1e5, 0.2 #TODO
+EBullet, nuBullet = 5e3, 0.2 #TODO
 EList = [E, EBullet]
 nuList = [nu, nuBullet]
 
 #Surface Thresholding
-st = 10.0  #TODO
+st = 4.8  #TODO
 stBullet = st
 surfaceThreshold = st
 
 #Particle Sampling
-maxArea = 'qa0.0000025'
+maxAreaWall = 'qpa0.0000015'
+maxAreaBullet = 'qa0.0000015'
 
-wallHeight = 0.6
-wallThickness = 0.015
+wallHeight = 0.3
+wallThickness = 0.05 #0.015
 minPoint = [0.5 - (wallThickness/2.0), 0.5 - (wallHeight/2.0)]
 maxPoint = [0.5 + (wallThickness/2.0), 0.5 + (wallHeight/2.0)]
-vertices = sampleBox2D(minPoint, maxPoint, maxArea)
+vertices = sampleNotchedWall2D(minPoint, maxPoint, maxAreaWall)
 vertexCountWall = len(vertices)
 
-bulletRadius = 0.03
+bulletRadius = wallThickness * 0.9
 distToWall = 0.1
 bulletCenter = [minPoint[0] - distToWall, 0.5]
-NBullet = 30
-bulletVerts = sampleCircle2D(bulletCenter, bulletRadius, NBullet, maxArea)
+NBullet = 50
+bulletVerts = sampleCircle2D(bulletCenter, bulletRadius, NBullet, maxAreaBullet)
 vertexCountBullet = len(bulletVerts)
 
 vertices = np.concatenate((vertices, bulletVerts)) #add the two particle handles together
@@ -61,14 +62,15 @@ particleMasses = [mpWall, mpBullet]
 particleVolumes = [pVolWall, pVolBullet]
 
 #Initial Velocity
+xVel = 1.0
 initVelWall = [0,0]
-initVelBullet = [8, 0]
+initVelBullet = [xVel, 0]
 initialVelocity = [initVelWall, initVelBullet]
 
 #Particle distribution and grid resolution
-ppc = 8
-#dx = (ppc * pVol)**0.5
-dx = 0.005 #TODO
+ppc = 4
+dx = (ppc * pVolWall)**0.5
+#dx = 0.005 #TODO
 
 #Compute max dt
 cfl = 0.4
@@ -88,23 +90,22 @@ if(len(sys.argv) == 6):
 solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Add Damage Model
-Gf = 0.01 #0.1 starts to get some red, but we wanna see it fast! TODO
-sigmaF = 20 #89 solid too high, TODO
+Gf = 1e-3 #0.1 starts to get some red, but we wanna see it fast! TODO
+percentStretch = 1e-3 # ? < p < ?
 dMin = 0.25 #TODO, this controls how much damage must accumulate before we allow a node to separate
 
 if(len(sys.argv) == 6):
-    Gf = float(sys.argv[1])
-    sigmaF = float(sys.argv[2])
+    percentStretch = float(sys.argv[1])
+    Gf = float(sys.argv[2])
     dMin = float(sys.argv[3])
 
 damageList = [1, 0]
-if useDFG == True: solver.addRankineDamage(damageList, Gf, sigmaF, E, dMin)
+if useDFG == True: solver.addRankineDamage(damageList, percentStretch, Gf, dMin)
 
-useWeibull = True
-sigmaFRef = sigmaF
+useWeibull = False
 vRef = volWall
 m = 6
-if useWeibull == True: solver.addWeibullDistribution(sigmaFRef, vRef, m)
+if useWeibull == True: solver.addWeibullDistribution(vRef, m)
 
 
 #Add Collision Objects
@@ -113,12 +114,12 @@ heldWallHeight = 0.05
 groundCenter = (0, minPoint[1] + heldWallHeight)
 groundNormal = (0, 1)
 surface = solver.surfaceSticky
-solver.addHalfSpace(groundCenter, groundNormal, surface, 0.0)
+#solver.addHalfSpace(groundCenter, groundNormal, surface, 0.0)
 
 groundCenter = (0, maxPoint[1] - heldWallHeight)
 groundNormal = (0, -1)
 surface = solver.surfaceSticky
-solver.addHalfSpace(groundCenter, groundNormal, surface, 0.0)
+#solver.addHalfSpace(groundCenter, groundNormal, surface, 0.0)
 
 groundCenter = (0.05, 0)
 groundNormal = (1, 0)

@@ -14,7 +14,7 @@ outputPath2 = "../output/mode1Fracture/brittle_nodes.ply"
 fps = 24
 endFrame = 5 * fps
 
-E, nu = 1000, 0.25 #TODO
+E, nu = 1e5, 0.2 #TODO
 EList = [E]
 nuList = [nu]
 
@@ -30,7 +30,7 @@ vertices = sampleNotchedBox2D(minPoint, maxPoint, maxArea)
 vertexCount = len(vertices)
 particleCounts = [vertexCount]
 
-rho = 2 #TODO
+rho = 10 #TODO
 vol = 0.2 * (0.2 + (grippedMaterial*2))
 pVol = vol / vertexCount
 mp = pVol * rho
@@ -67,16 +67,18 @@ solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, v
 # dMin = 0.25 #TODO, this controls how much damage must accumulate before we allow a node to separate
 
 #Add Damage Model
-percentStretch = 0.1 # 0.1 < p < 0.1
+#E=1e5, Gf=1e-3, p=1e-3 looks wild, lots of little fractures
+percentStretch = 2e-3 # 1e-3 < p < 
 dMin = 0.25
-Gf = 3e-12 #? < Gf < 0.01
+Gf = 1e-3 # 1.0 < Gf < 
 
 if(len(sys.argv) == 6):
     percentStretch = float(sys.argv[1])
-    dMin = float(sys.argv[2])
+    Gf = float(sys.argv[2])
+    dMin = float(sys.argv[3])
 
 damageList = [1]
-if useDFG == True: solver.addSimpleRankineDamage(damageList, percentStretch, dMin, Gf)
+if useDFG == True: solver.addRankineDamage(damageList, percentStretch, Gf, dMin)
 
 #Collision Objects
 lowerCenter = (0.0, minPoint[1] + grippedMaterial)
