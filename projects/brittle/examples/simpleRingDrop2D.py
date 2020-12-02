@@ -23,11 +23,13 @@ surfaceThreshold = st
 
 maxArea = 'qpa0.0000025'
 
-centerPoint = [0.5, 0.14]
+
 N1 = 200
 N2 = 175
 r1 = 0.07
 r2 = 0.055
+#centerPoint = [0.5, 0.14]
+centerPoint = [0.95 - r1 - 0.01, 0.3]
 
 vertices = sampleRing2D(centerPoint, r1, r2, N1, N2, maxArea)
 vertexCount = len(vertices)
@@ -40,8 +42,9 @@ mp = pVol * rho
 particleMasses = [mp]
 particleVolumes = [pVol]
 
-yVel = -1.0
-initVel = [0,yVel]
+xVel = 1.0
+yVel = 0.0
+initVel = [xVel,yVel]
 initialVelocity = [initVel]
 
 #dx = 0.01 #TODO
@@ -66,8 +69,8 @@ if(len(sys.argv) == 6):
 solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Add Damage Model
-percentStretch = 1e-3 # 1.7e-5 < p < 2e-5
-dMin = 0.40
+percentStretch = 2.4750225e-3 # 2.475021e-3 < p < 2.475025e-3
+dMin = 0.25
 Gf = 1e-3 #1e-6 < Gf < 1e-5 
 
 if(len(sys.argv) == 6):
