@@ -40,6 +40,7 @@ vec = lambda: ti.Vector.field(dim, real)
 mat = lambda: ti.Matrix.field(dim, dim, real)
 
 dt = 0.04
+sub_steps = 1
 n_particles = len(mesh_particles)
 n_elements = len(mesh_elements)
 
@@ -314,6 +315,7 @@ def compute_hessian_and_gradient():
     compute_inertia()
     compute_elasticity()
 
+
 def solve_system(current_time):
     dirichlet_fixed, dirichlet_value = settings['dirichlet'](current_time)
     D, V = np.stack((dirichlet_fixed,) * dim, axis=-1).reshape((n_particles * dim)), np.zeros((n_particles * dim))
@@ -441,40 +443,44 @@ if __name__ == "__main__":
             x.from_numpy(x_)
             v.from_numpy(v_)
         newton_iter_total = 0
+        current_time = 0
         for f in range(f_start, 10000):
             with Timer("Time Step"):
                 print("==================== Frame: ", f, " ====================")
-                compute_xn_and_xTilde()
-                move_nodes(f * dt)
-                newton_iter = 0
-                while True:
-                    newton_iter += 1
-                    print("-------------------- Newton Iteration: ", newton_iter, " --------------------")
-                    with Timer("Build System"):
-                        data_row.fill(0)
-                        data_col.fill(0)
-                        data_val.fill(0)
-                        data_rhs.fill(0)
-                        data_sol.fill(0)
-                        compute_hessian_and_gradient()
-                    with Timer("Solve System"):
-                        solve_system(f * dt)
-                    if output_residual() < 1e-2 * dt:
-                        break
-                    with Timer("Line Search"):
-                        E0 = compute_energy()
-                        save_xPrev()
-                        alpha = 1
-                        apply_sol(alpha)
-                        E = compute_energy()
-                        while E > E0:
-                            alpha *= 0.5
+                for step in range(sub_steps):
+                    print("=============== Step: ", step, " =================")
+                    compute_xn_and_xTilde()
+                    move_nodes(current_time)
+                    newton_iter = 0
+                    while True:
+                        newton_iter += 1
+                        print("-------------------- Newton Iteration: ", newton_iter, " --------------------")
+                        with Timer("Build System"):
+                            data_row.fill(0)
+                            data_col.fill(0)
+                            data_val.fill(0)
+                            data_rhs.fill(0)
+                            data_sol.fill(0)
+                            compute_hessian_and_gradient()
+                        with Timer("Solve System"):
+                            solve_system(current_time)
+                        if output_residual() < 1e-2:
+                            break
+                        with Timer("Line Search"):
+                            E0 = compute_energy()
+                            save_xPrev()
+                            alpha = 1
                             apply_sol(alpha)
-                            find_constraints()
                             E = compute_energy()
-                        print("[Step size after line search: ", alpha, "]")
-                compute_v()
-                newton_iter_total += newton_iter
+                            while E > E0:
+                                alpha *= 0.5
+                                apply_sol(alpha)
+                                find_constraints()
+                                E = compute_energy()
+                            print("[Step size after line search: ", alpha, "]")
+                    compute_v()
+                    current_time += dt
+                    newton_iter_total += newton_iter
                 print("Avg Newton iter: ", newton_iter_total / (f + 1))
             with Timer("Visualization"):
                 write_image(f + 1)

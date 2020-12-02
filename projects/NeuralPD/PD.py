@@ -1,3 +1,34 @@
+##################### Load Neural Network ######################
+import sys
+import os
+import tensorflow as tf
+import numpy as np
+import tensorflow_probability as tfp
+from math import hypot
+
+os.system("scp -r xuan@jg3:/home/xuan/code/PINN-research/PD/min_psi .")
+
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+  try:
+    # Currently, memory growth needs to be the same across GPUs
+    for gpu in gpus:
+      tf.config.experimental.set_memory_growth(gpu, True)
+    logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+    print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+  except RuntimeError as e:
+    # Memory growth must be set before GPUs have been initialized
+    print(e)
+
+surfix = "pd"
+descending_sigma = False
+neural = True
+mu_model = tf.keras.models.load_model("min_psi/{}/mu".format(surfix), custom_objects={'tf': tf})
+lam_model = tf.keras.models.load_model("min_psi/{}/lam".format(surfix), custom_objects={'tf': tf})
+
+
+############################ Taichi ####################
+
 from reader import *
 from common.math.math_tools import *
 from common.utils.timer import *
@@ -22,9 +53,9 @@ dim = settings['dim']
 gravity = settings['gravity']
 
 ##############################################################################
-neural = False
 neural_str = "_neural" if neural else ""
 directory = 'output/' + '_'.join(sys.argv[:2]) + neural_str + '/'
+settings['directory'] = directory
 os.makedirs(directory + 'images/', exist_ok=True)
 os.makedirs(directory + 'caches/', exist_ok=True)
 os.makedirs(directory + 'objs/', exist_ok=True)
@@ -75,6 +106,8 @@ data_col = ti.field(ti.i32, shape=MAX_LINEAR)
 data_val = ti.field(real, shape=MAX_LINEAR)
 data_sol = ti.field(real, shape=n_particles * dim)
 cnt = ti.field(ti.i32, shape=())
+inertia_energy = ti.field(real, shape=())
+elastic_energy = ti.field(real, shape=())
 
 factor = None # prefactorize
 
@@ -275,6 +308,27 @@ def project_F_pd():
         PP = ti.Matrix.rows([[x + sig[0], 0.0], [0.0, sig[1] + y]])
         Bp[n_elements + e] = U[e] @ PP @ V[e].transpose()
 
+@ti.kernel
+def construct_Bp():
+    for i in range(n_elements):
+        Bp[i] = U[i] @ ti.Matrix.rows([[sigma_Bp[i][0], 0], 
+                                        [0, sigma_Bp[i][1]]]) @ V[i].transpose()
+        Bp[i+n_elements] = U[i] @ ti.Matrix.rows([[sigma_Bp[i+n_elements][0], 0], 
+                                            [0, sigma_Bp[i+n_elements][1]]]) @ V[i].transpose()
+
+
+def project_F_neural():
+    if not descending_sigma:
+        sigma_tf = tf.convert_to_tensor(sigma.to_numpy(), dtype=tf.float32)[:, ::-1]
+        s_mu = mu_model(sigma_tf)[:, ::-1]
+        s_lam = lam_model(sigma_tf)[:, ::-1]
+    else:
+        sigma_tf = tf.convert_to_tensor(sigma.to_numpy(), dtype=tf.float32)
+        s_mu = mu_model(sigma_tf)
+        s_lam = lam_model(sigma_tf)
+    sigma_Bp.from_numpy(tf.concat([s_mu, s_lam], axis=0).numpy())
+    construct_Bp()
+
 
 @ti.kernel
 def compute_energy() -> real:
@@ -282,10 +336,12 @@ def compute_energy() -> real:
     # inertia
     for i in range(n_particles):
         total_energy += 0.5 * m[i] * (x[i] - xTilde[i]).norm_sqr()
+    inertia_energy[None] = total_energy
     # elasticity
     for e in range(n_elements):
         vol0 = restT[e].determinant() / dim / (dim - 1)
         total_energy += (dt * dt) * vol0 * mu[e] * (F[e] - Bp[e]).norm_sqr() + 0.5 * (dt * dt) * vol0 * la[e] * (F[e] - Bp[e + n_elements]).norm_sqr()
+    elastic_energy[None] = (total_energy - inertia_energy[None]) / (dt * dt)
     return total_energy
 
 
@@ -334,11 +390,6 @@ def compute_elasticity():
             data_rhs[q_ic_y_idx] -= AT_Bp[5]
         else:
             print("Not implemented!!")
-        
-    # for i in range(NV):
-    #     for d in ti.static(range(dim)):
-    #         if dfx[i * dim + d]:
-    #             rhs[i * dim + d] = xTarget[i][d]
 
 
 def build_rhs():
@@ -454,29 +505,38 @@ if __name__ == "__main__":
             x.from_numpy(x_)
             v.from_numpy(v_)
         pd_iter_total = 0
+        current_time = 0
         for f in range(f_start, 10000):
             with Timer("Time Step"):
                 print("==================== Frame: ", f, " ====================")
                 for step in range(sub_steps):
                     print("============== Substep: ", step, " ==============")
                     compute_xn_and_xTilde()
-                    move_nodes(f * dt)
+                    move_nodes(current_time)
                     pd_iter = 0
                     while True:
                         pd_iter += 1
                         print("-------------------- PD Iteration: ", pd_iter, " --------------------")
                         with Timer("Build System"):
                             update_F()
-                            project_F_pd()
+                            if neural:
+                                project_F_neural()
+                            else:
+                                project_F_pd()
                             build_rhs()
                         with Timer("Solve System"):
-                            solve_system(f * dt)
+                            solve_system(current_time)
                             save_xPrev()
                             apply_sol(1.0)
-                        if output_residual() < 1e-2:
+                        print(f"sigma.max: {sigma.to_numpy().max():.4f}, sigma.min: {sigma.to_numpy().min():.4f}")
+                        compute_energy()
+                        print(f"inertial energy: {inertia_energy[None]:.4f}, elastic energy: {elastic_energy[None]:.4f}")
+                        if output_residual() < 1e-3:
                             break
                     compute_v()
+                    current_time += dt
                     pd_iter_total += pd_iter
+                    
                 print("Avg PD iter: ", pd_iter_total / (f + 1))
             with Timer("Visualization"):
                 write_image(f + 1)

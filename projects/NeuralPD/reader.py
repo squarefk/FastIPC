@@ -120,70 +120,28 @@ def read():
     settings['E'] = 1.e4
     settings['scale'] = .5
 
-    directory = 'output/' + '_'.join(sys.argv[:2] + sys.argv[3:]) + '/'
-    os.makedirs(directory + 'images/', exist_ok=True)
-    os.makedirs(directory + 'caches/', exist_ok=True)
-    os.makedirs(directory + 'objs/', exist_ok=True)
-    print('output directory:', directory)
-    settings['directory'] = directory
-
     ##################################################### 3D #####################################################
     
 
     ##################################################### 2D #####################################################
-    elif testcase == 1:
-        # hang sharkey
-        init(2)
-        settings['gravity'] = -9.8
-        add_object('input/Sharkey.obj')
-        settings['dirichlet'] = lambda t: (np.concatenate(([True] * 12, [False] * (len(settings['mesh_particles']) - 12))), settings['mesh_particles'])
-        adjust_camera()
-        settings['mesh_scale'] *= 0.8
-        settings['mesh_offset'] += [0.1, 0.25]
-        return settings
-    elif testcase == 2:
-        # one sharkey
-        init(2)
-        settings['gravity'] = -9.8
-        add_object('input/Sharkey.obj')
-        add_boundary([[-0.5, -0.1], [1.1, -0.1]])
-        settings['dirichlet'] = lambda t: (np.concatenate(([False] * (len(settings['mesh_particles']) - 2), [True] * 2)), settings['mesh_particles'])
-        adjust_camera()
-        return settings
-    elif testcase == 3:
-        # two sharkey
-        init(2)
-        settings['gravity'] = -9.8
-        add_object('input/Sharkey.obj')
-        add_object('input/Sharkey.obj', translation=[0., 1.])
-        add_boundary([[-0.5, 0.6], [0.3, -0.3], [1.1, 0.6]])
-        settings['dirichlet'] = lambda t: (np.concatenate(([False] * (len(settings['mesh_particles']) - 3), [True] * 3)), settings['mesh_particles'])
-        adjust_camera()
-        return settings
-    elif testcase == 4:
-        # pull sharkey
+    if testcase == 1:
+        # stretch box
         init(2)
         settings['gravity'] = 0
-        add_object('input/Sharkey.obj')
-
-        thickness = 0.2
-        add_boundary([[0.5, 0.95], [1.1, 0.6 + thickness * 0.5], [2.1, 0.6 + thickness * 0.5], [2.7, 0.95]])
-        add_boundary([[0.5, 0.25], [1.1, 0.6 - thickness * 0.5], [2.1, 0.6 - thickness * 0.5], [2.7, 0.25]])
-
-        def dirichlet_generator(t):
-            dirichlet_fixed = np.zeros(len(settings['mesh_particles']), dtype=bool)
-            dirichlet_value = settings['mesh_particles'].copy()
-            dirichlet_fixed[-8:] = True
-            n_particles = len(dirichlet_value)
-            for i in range(n_particles - 8):
-                if dirichlet_value[i][0] > 0.745:
-                    dirichlet_fixed[i] = True
-                    dirichlet_value[i, 0] += t
-            return dirichlet_fixed, dirichlet_value
-        settings['dirichlet'] = dirichlet_generator
+        add_object('input/square.obj')
+        def dirichlet(t):
+            x = settings['mesh_particles']
+            left_boundary = x[:, 0] < 0.00001
+            right_boundary = x[:, 0] > 0.99999
+            target_x = settings['mesh_particles'].copy()
+            if t > 1:
+                target_x[left_boundary, 0] -= 0.1 * (t-1)
+                target_x[right_boundary, 0] += 0.1 * (t-1)
+            fixed = np.logical_or(left_boundary, right_boundary)
+            return fixed, target_x
+        settings['dirichlet'] = dirichlet
         adjust_camera()
-        settings['mesh_scale'] *= 1.5
-        settings['mesh_offset'] += [0., 0.]
+        settings['mesh_scale'] *= 0.1
+        settings['mesh_offset'] += [0.35, 0.5]
         return settings
-
 
