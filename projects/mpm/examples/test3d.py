@@ -3,6 +3,7 @@ import numpy as np
 import taichi as ti
 
 from projects.mpm.engine.mpm_solver_implicit import MPMSolverImplicit
+from common.utils.logger import *
 
 ti.init(arch=ti.cpu, default_fp=ti.f64)
 
@@ -30,24 +31,25 @@ def writeObjFile(f, X):
         fo.write("v "+str(X[i][0])+" "+str(X[i][1])+" "+str(X[i][2])+"\n")
     fo.close()
 
-for frame in range(500):
-    print("================frame", frame, "=================")
-    mpm.step(4e-3)
-    colors = np.array([0x068587, 0xED553B, 0xEEEEF0, 0xFFFF00],
-                      dtype=np.uint32)
-    particles = mpm.particle_info()
-    np_x = particles['position'] / 10.0
+with Logger(directory + f'log.txt'):
+    for frame in range(500):
+        print("================frame", frame, "=================")
+        mpm.step(4e-3)
+        colors = np.array([0x068587, 0xED553B, 0xEEEEF0, 0xFFFF00],
+                          dtype=np.uint32)
+        particles = mpm.particle_info()
+        np_x = particles['position'] / 10.0
 
-    # simple camera transform
-    screen_x = ((np_x[:, 0] + np_x[:, 2]) / 2**0.5) - 0.2
-    screen_y = (np_x[:, 1])
+        # simple camera transform
+        screen_x = ((np_x[:, 0] + np_x[:, 2]) / 2**0.5) - 0.2
+        screen_y = (np_x[:, 1])
 
-    screen_pos = np.stack([screen_x, screen_y], axis=-1)
+        screen_pos = np.stack([screen_x, screen_y], axis=-1)
 
-    gui.circles(screen_pos, radius=1.5, color=0x068587)
-    gui.show(directory + f'{frame:06d}.png')
+        gui.circles(screen_pos, radius=1.5, color=0x068587)
+        gui.show(directory + f'{frame:06d}.png')
 
-    writeObjFile(frame, np_x)
+        writeObjFile(frame, np_x)
 
 
 ti.print_profile_info()

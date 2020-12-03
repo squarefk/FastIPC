@@ -3,6 +3,7 @@ import numpy as np
 import taichi as ti
 
 from projects.mpm.engine.mpm_solver_implicit import MPMSolverImplicit
+from common.utils.logger import *
 
 ti.init(arch=ti.cpu, default_fp=ti.f64)
 # ti.init(arch=ti.gpu, default_fp=ti.f64)
@@ -41,16 +42,17 @@ elif test_case == 2: # jello drop
     mpm.add_analytic_box(min_corner=(0.0, 0.0), max_corner=(1.0, 0.05))
 
 
-for frame in range(200):
-    print("================== frame",frame,"===================")
-    # mpm.step(8e-3)
-    mpm.step(1/24)
-    particles = mpm.particle_info()
-    gui.circles(particles['position'],
-                radius=1.5,
-                color=0x068587)
-    gui.show(directory + f'{frame:06d}.png')
-    # print(mpm.getMaxVelocity())
-    # gui.show()
+with Logger(directory + f'log.txt'):
+    for frame in range(200):
+        print("================== frame",frame,"===================")
+        # mpm.step(8e-3)
+        mpm.step(1/24)
+        particles = mpm.particle_info()
+        gui.circles(particles['position'],
+                    radius=1.5,
+                    color=0x068587)
+        gui.show(directory + f'{frame:06d}.png')
+        # print(mpm.getMaxVelocity())
+        # gui.show()
 
 ti.print_profile_info()

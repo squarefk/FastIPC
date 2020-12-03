@@ -118,7 +118,7 @@ class SparseMatrix:
         self.outerIndex.fill(0)
         self.innerNonZeros.fill(0)
         for i in range(self.rows[None]):
-            self.outerIndex[i] = i * 100
+            self.outerIndex[i] = i * 1000
         # for i in range(self.rows[None]):
         #     idx = self.outerIndex[i]
         #     self.coef_value[idx] = 1.0
@@ -326,7 +326,7 @@ class CGSolver:
     @ti.kernel
     def dotProduct(self, p:ti.template(), q:ti.template()) -> real:
         result = 0.0
-        for I in range(self.N[None]):
+        for I in p:
             result += p[I] * q[I]
         return result
 
@@ -396,9 +396,9 @@ class CGSolver:
         '''
             Diagonal preconditioned Conjugate Gradient method
         '''
-        # self.r.fill(0)
-        # self.p.fill(0)
-        # self.q.fill(0)
+        self.r.fill(0)
+        self.p.fill(0)
+        self.q.fill(0)
         self.x.fill(0) # zero initial guess !!!!!!!!!!!!!!!!!!
         # self.Ap.fill(0)
         self.alpha[None] = 0.0

@@ -20,6 +20,10 @@ def linear_offset(offset):
     return (offset[0]+2)*5+(offset[1]+2)
     # return (offset[0]+2)*25+(offset[1]+2)*5+(offset[2]+2)
 
+@ti.func
+def linear_offset3D(offset):
+    return (offset[0]+2)*25+(offset[1]+2)*5+(offset[2]+2)
+
 @ti.data_oriented
 class MPMSolverImplicit:
 
@@ -402,6 +406,22 @@ class MPMSolverImplicit:
 
         return dFdX
 
+    @ti.func
+    def computedFdX3D(self, dPdF, wi, wj):
+        dFdX = ti.Matrix.zero(real, self.dim, self.dim)
+
+        dFdX[0,0] = dPdF[0+0,0+0]*wi[0]*wj[0]+dPdF[3+0,0+0]*wi[1]*wj[0]+dPdF[6+0,0+0]*wi[2]*wj[0]+dPdF[0+0,3+0]*wi[0]*wj[1]+dPdF[3+0,3+0]*wi[1]*wj[1]+dPdF[6+0,3+0]*wi[2]*wj[1]+dPdF[0+0,6+0]*wi[0]*wj[2]+dPdF[3+0,6+0]*wi[1]*wj[2]+dPdF[6+0,6+0]*wi[2]*wj[2]
+        dFdX[1,0] = dPdF[0+1,0+0]*wi[0]*wj[0]+dPdF[3+1,0+0]*wi[1]*wj[0]+dPdF[6+1,0+0]*wi[2]*wj[0]+dPdF[0+1,3+0]*wi[0]*wj[1]+dPdF[3+1,3+0]*wi[1]*wj[1]+dPdF[6+1,3+0]*wi[2]*wj[1]+dPdF[0+1,6+0]*wi[0]*wj[2]+dPdF[3+1,6+0]*wi[1]*wj[2]+dPdF[6+1,6+0]*wi[2]*wj[2]
+        dFdX[2,0] = dPdF[0+2,0+0]*wi[0]*wj[0]+dPdF[3+2,0+0]*wi[1]*wj[0]+dPdF[6+2,0+0]*wi[2]*wj[0]+dPdF[0+2,3+0]*wi[0]*wj[1]+dPdF[3+2,3+0]*wi[1]*wj[1]+dPdF[6+2,3+0]*wi[2]*wj[1]+dPdF[0+2,6+0]*wi[0]*wj[2]+dPdF[3+2,6+0]*wi[1]*wj[2]+dPdF[6+2,6+0]*wi[2]*wj[2]
+        dFdX[0,1] = dPdF[0+0,0+1]*wi[0]*wj[0]+dPdF[3+0,0+1]*wi[1]*wj[0]+dPdF[6+0,0+1]*wi[2]*wj[0]+dPdF[0+0,3+1]*wi[0]*wj[1]+dPdF[3+0,3+1]*wi[1]*wj[1]+dPdF[6+0,3+1]*wi[2]*wj[1]+dPdF[0+0,6+1]*wi[0]*wj[2]+dPdF[3+0,6+1]*wi[1]*wj[2]+dPdF[6+0,6+1]*wi[2]*wj[2]
+        dFdX[1,1] = dPdF[0+1,0+1]*wi[0]*wj[0]+dPdF[3+1,0+1]*wi[1]*wj[0]+dPdF[6+1,0+1]*wi[2]*wj[0]+dPdF[0+1,3+1]*wi[0]*wj[1]+dPdF[3+1,3+1]*wi[1]*wj[1]+dPdF[6+1,3+1]*wi[2]*wj[1]+dPdF[0+1,6+1]*wi[0]*wj[2]+dPdF[3+1,6+1]*wi[1]*wj[2]+dPdF[6+1,6+1]*wi[2]*wj[2]
+        dFdX[2,1] = dPdF[0+2,0+1]*wi[0]*wj[0]+dPdF[3+2,0+1]*wi[1]*wj[0]+dPdF[6+2,0+1]*wi[2]*wj[0]+dPdF[0+2,3+1]*wi[0]*wj[1]+dPdF[3+2,3+1]*wi[1]*wj[1]+dPdF[6+2,3+1]*wi[2]*wj[1]+dPdF[0+2,6+1]*wi[0]*wj[2]+dPdF[3+2,6+1]*wi[1]*wj[2]+dPdF[6+2,6+1]*wi[2]*wj[2]         
+        dFdX[0,2] = dPdF[0+0,0+2]*wi[0]*wj[0]+dPdF[3+0,0+2]*wi[1]*wj[0]+dPdF[6+0,0+2]*wi[2]*wj[0]+dPdF[0+0,3+2]*wi[0]*wj[1]+dPdF[3+0,3+2]*wi[1]*wj[1]+dPdF[6+0,3+2]*wi[2]*wj[1]+dPdF[0+0,6+2]*wi[0]*wj[2]+dPdF[3+0,6+2]*wi[1]*wj[2]+dPdF[6+0,6+2]*wi[2]*wj[2]              
+        dFdX[1,2] = dPdF[0+1,0+2]*wi[0]*wj[0]+dPdF[3+1,0+2]*wi[1]*wj[0]+dPdF[6+1,0+2]*wi[2]*wj[0]+dPdF[0+1,3+2]*wi[0]*wj[1]+dPdF[3+1,3+2]*wi[1]*wj[1]+dPdF[6+1,3+2]*wi[2]*wj[1]+dPdF[0+1,6+2]*wi[0]*wj[2]+dPdF[3+1,6+2]*wi[1]*wj[2]+dPdF[6+1,6+2]*wi[2]*wj[2]
+        dFdX[2,2] = dPdF[0+2,0+2]*wi[0]*wj[0]+dPdF[3+2,0+2]*wi[1]*wj[0]+dPdF[6+2,0+2]*wi[2]*wj[0]+dPdF[0+2,3+2]*wi[0]*wj[1]+dPdF[3+2,3+2]*wi[1]*wj[1]+dPdF[6+2,3+2]*wi[2]*wj[1]+dPdF[0+2,6+2]*wi[0]*wj[2]+dPdF[3+2,6+2]*wi[1]*wj[2]+dPdF[6+2,6+2]*wi[2]*wj[2]
+
+        return dFdX
+
     @ti.kernel
     def BuildMatrix(self, dt:real):
         # Build Matrix: Inertial term: dim*N in total
@@ -440,38 +460,96 @@ class MPMSolverImplicit:
             w = [0.5 * (1.5 - fx)**2, 0.75 - (fx - 1)**2, 0.5 * (fx - 0.5)**2]
             dw = [fx-1.5, -2*(fx-1), fx-0.5]
 
-            for offset in ti.static(ti.grouped(self.stencil_range())):
-                dN = ti.Vector.zero(real, self.dim)
-                if ti.static(self.dim == 2):
+            # for offset in ti.static(ti.grouped(self.stencil_range())):
+            #     dN = ti.Vector.zero(real, self.dim)
+            #     if ti.static(self.dim == 2):
+            #         dN[0] = dw[offset[0]][0]*w[offset[1]][1] * self.inv_dx
+            #         dN[1] = w[offset[0]][0]*dw[offset[1]][1] * self.inv_dx
+            #     else:
+            #         dN[0] = dw[offset[0]][0]*w[offset[1]][1]*w[offset[2]][2] * self.inv_dx
+            #         dN[1] = w[offset[0]][0]*dw[offset[1]][1]*w[offset[2]][2] * self.inv_dx
+            #         dN[2] = w[offset[0]][0]*w[offset[1]][1]*dw[offset[2]][2] * self.inv_dx
+            #     oidx = offset[0]*3+offset[1]
+            #     # oidx = offset[0]*9+offset[1]*3+offset[2]
+            #     self.cached_idx[p,oidx] = self.grid_idx[base + offset]
+            #     self.cached_w[p,oidx] = self.p_F_backup[p].transpose() @ dN
+
+            # for i in range(3**self.dim):
+            #     wi = self.cached_w[p,i]
+            #     dofi = self.cached_idx[p,i]
+            #     nodei = ti.Vector([i//3,i%3])
+            #     # nodei = ti.Vector([i//9,(i%9)//3,(i%9)%3])
+            #     for j in range(3**self.dim):
+            #         wj = self.cached_w[p,j]
+            #         dofj = self.cached_idx[p,j]
+            #         nodej = ti.Vector([j//3,j%3])
+            #         # nodej = ti.Vector([j//9,(j%9)//3,(j%9)%3])
+                    
+            #         dFdX = self.computedFdX(dPdF, wi, wj)
+            #         dFdX = dFdX * vol * dt * dt
+
+
+            #         ioffset = dofi*nNbr+linear_offset(nodei-nodej)
+            #         self.entryCol[ioffset] = dofj
+            #         self.entryVal[ioffset] += dFdX 
+
+            if ti.static(self.dim == 2):
+                for offset in ti.static(ti.grouped(self.stencil_range())):
+                    dN = ti.Vector.zero(real, self.dim)
                     dN[0] = dw[offset[0]][0]*w[offset[1]][1] * self.inv_dx
                     dN[1] = w[offset[0]][0]*dw[offset[1]][1] * self.inv_dx
-                else:
+                    # dN[0] = dw[offset[0]][0]*w[offset[1]][1]*w[offset[2]][2] * self.inv_dx
+                    # dN[1] = w[offset[0]][0]*dw[offset[1]][1]*w[offset[2]][2] * self.inv_dx
+                    # dN[2] = w[offset[0]][0]*w[offset[1]][1]*dw[offset[2]][2] * self.inv_dx
+                    oidx = offset[0]*3+offset[1]
+                    # oidx = offset[0]*9+offset[1]*3+offset[2]
+                    self.cached_idx[p,oidx] = self.grid_idx[base + offset]
+                    self.cached_w[p,oidx] = self.p_F_backup[p].transpose() @ dN
+
+                for i in range(3**self.dim):
+                    wi = self.cached_w[p,i]
+                    dofi = self.cached_idx[p,i]
+                    nodei = ti.Vector([i//3,i%3])
+                    # nodei = ti.Vector([i//9,(i%9)//3,(i%9)%3])
+                    for j in range(3**self.dim):
+                        wj = self.cached_w[p,j]
+                        dofj = self.cached_idx[p,j]
+                        nodej = ti.Vector([j//3,j%3])
+                        # nodej = ti.Vector([j//9,(j%9)//3,(j%9)%3])
+                    
+                        dFdX = self.computedFdX(dPdF, wi, wj)
+                        dFdX = dFdX * vol * dt * dt
+
+
+                        ioffset = dofi*nNbr+linear_offset(nodei-nodej)
+                        self.entryCol[ioffset] = dofj
+                        self.entryVal[ioffset] += dFdX
+            if ti.static(self.dim == 3):
+                for offset in ti.static(ti.grouped(self.stencil_range())):
+                    dN = ti.Vector.zero(real, self.dim)
                     dN[0] = dw[offset[0]][0]*w[offset[1]][1]*w[offset[2]][2] * self.inv_dx
                     dN[1] = w[offset[0]][0]*dw[offset[1]][1]*w[offset[2]][2] * self.inv_dx
                     dN[2] = w[offset[0]][0]*w[offset[1]][1]*dw[offset[2]][2] * self.inv_dx
-                oidx = offset[0]*3+offset[1]
-                # oidx = offset[0]*9+offset[1]*3+offset[2]
-                self.cached_idx[p,oidx] = self.grid_idx[base + offset]
-                self.cached_w[p,oidx] = self.p_F_backup[p].transpose() @ dN
+                    oidx = offset[0]*9+offset[1]*3+offset[2]
+                    self.cached_idx[p,oidx] = self.grid_idx[base + offset]
+                    self.cached_w[p,oidx] = self.p_F_backup[p].transpose() @ dN
 
-            for i in range(3**self.dim):
-                wi = self.cached_w[p,i]
-                dofi = self.cached_idx[p,i]
-                nodei = ti.Vector([i//3,i%3])
-                # nodei = ti.Vector([i//9,(i%9)//3,(i%9)%3])
-                for j in range(3**self.dim):
-                    wj = self.cached_w[p,j]
-                    dofj = self.cached_idx[p,j]
-                    nodej = ti.Vector([j//3,j%3])
-                    # nodej = ti.Vector([j//9,(j%9)//3,(j%9)%3])
+                for i in range(3**self.dim):
+                    wi = self.cached_w[p,i]
+                    dofi = self.cached_idx[p,i]
+                    nodei = ti.Vector([i//9,(i%9)//3,(i%9)%3])
+                    for j in range(3**self.dim):
+                        wj = self.cached_w[p,j]
+                        dofj = self.cached_idx[p,j]
+                        nodej = ti.Vector([j//9,(j%9)//3,(j%9)%3])
                     
-                    dFdX = self.computedFdX(dPdF, wi, wj)
-                    dFdX = dFdX * vol * dt * dt
+                        dFdX = self.computedFdX3D(dPdF, wi, wj)
+                        dFdX = dFdX * vol * dt * dt
 
 
-                    ioffset = dofi*nNbr+linear_offset(nodei-nodej)
-                    self.entryCol[ioffset] = dofj
-                    self.entryVal[ioffset] += dFdX 
+                        ioffset = dofi*nNbr+linear_offset3D(nodei-nodej)
+                        self.entryCol[ioffset] = dofj
+                        self.entryVal[ioffset] += dFdX                
         
         # # Uncomment this part if no CG projection
         # ndof = self.num_active_grid[None]
@@ -507,7 +585,7 @@ class MPMSolverImplicit:
             # self.rhs[i*d+0] = self.dv[i*d+0] * m - dt * f[0] - dt * m * g[0]
             # self.rhs[i*d+1] = self.dv[i*d+1] * m - dt * f[1] - dt * m * g[1]
             for d in ti.static(range(self.dim)):
-                self.rhs[i*dim+d] = self.DV[i*dim+d] * m - dt * f[d] - dt * m * g[d]
+                self.rhs[i*dim+d] = self.DV[i*dim+d] * m - dt * f[d] - dt * m * self.gravity[None][d]
 
 
         # Uncomment this part if no CG projection
@@ -551,7 +629,10 @@ class MPMSolverImplicit:
         for i in range(self.num_active_grid[None]):
             gid = self.dof2idx[i]
             np_m[i] = self.grid_m[gid]
-            dv = ti.Vector([self.DV[2*i], self.DV[2*i+1]])
+            # dv = ti.Vector([self.DV[2*i], self.DV[2*i+1]])
+            dv = ti.Vector.zero(real, self.dim)
+            for d in ti.static(range(self.dim)):
+                dv[d] = self.DV[i*self.dim+d]
             np_m[i] = (dv.dot(dv)/2 - dt * dv.dot(self.gravity[None])) * self.grid_m[gid]
 
     def TotalEnergyNonParalell(self, dt):
@@ -567,9 +648,9 @@ class MPMSolverImplicit:
             Compute total energy
         '''
         ee = 0.0
-        for p in range(self.n_particles[None]):
-        # for I in ti.grouped(self.pid):
-        #     p = self.pid[I]
+        # for p in range(self.n_particles[None]):
+        for I in ti.grouped(self.pid):
+            p = self.pid[I]
             F = self.p_F[p]
             la, mu = self.p_la[p], self.p_mu[p]
             U, sig, V = svd(F)
@@ -577,22 +658,28 @@ class MPMSolverImplicit:
             ee += self.p_vol[p] * psi
 
         ke = 0.0
-        for i in range(self.num_active_grid[None]):
-            # dv = ti.Vector([self.DV[2*i], self.DV[2*i+1]])
-            dv = ti.Vector.zero(real, self.dim)
-            for d in ti.static(range(self.dim)):
-                dv[d] = self.DV[i*self.dim+d]
-            gid = self.dof2idx[i]
-            ke += dv.dot(dv) * self.grid_m[gid]
+        # for i in range(self.num_active_grid[None]):
+        for I in ti.grouped(self.grid_m):
+            if self.grid_m[I] > 0:
+                i = self.grid_idx[I]
+                # dv = ti.Vector([self.DV[2*i], self.DV[2*i+1]])
+                dv = ti.Vector.zero(real, self.dim)
+                for d in ti.static(range(self.dim)):
+                    dv[d] = self.DV[i*self.dim+d]
+                gid = self.dof2idx[i]
+                ke += dv.dot(dv) * self.grid_m[gid]
 
         ge = 0.0
-        for i in range(self.num_active_grid[None]):
-            # dv = ti.Vector([self.DV[2*i], self.DV[2*i+1]])
-            dv = ti.Vector.zero(real, self.dim)
-            for d in ti.static(range(self.dim)):
-                dv[d] = self.DV[i*self.dim+d]
-            gid = self.dof2idx[i]
-            ge -= dt * dv.dot(self.gravity[None]) * self.grid_m[gid]
+        # for i in range(self.num_active_grid[None]):
+        for I in ti.grouped(self.grid_m):
+            if self.grid_m[I] > 0:
+                i = self.grid_idx[I]
+                # dv = ti.Vector([self.DV[2*i], self.DV[2*i+1]])
+                dv = ti.Vector.zero(real, self.dim)
+                for d in ti.static(range(self.dim)):
+                    dv[d] = self.DV[i*self.dim+d]
+                gid = self.dof2idx[i]
+                ge -= dt * dv.dot(self.gravity[None]) * self.grid_m[gid]
 
         return ee + ke / 2 + ge
 
@@ -823,19 +910,23 @@ class MPMSolverImplicit:
         ndof = self.num_active_grid[None]
         for i in range(ndof):
             if self.boundary[i] == 1:
-                self.dv[i*2] = 0
-                self.dv[i*2+1] = 0
+                # self.dv[i*2] = 0
+                # self.dv[i*2+1] = 0
                 # self.dv[i*3] = 0
                 # self.dv[i*3+1] = 0
                 # self.dv[i*3+2] = 0
+                for d in ti.static(range(self.dim)):
+                    self.dv[i*self.dim+d] = 0
             else:
-                g = self.gravity[None]
+                # g = self.gravity[None]
                 # g = ti.Vector.zero(real, self.dim)
-                self.dv[i*2] = g[0]*dt
-                self.dv[i*2+1] = g[1]*dt
+                # self.dv[i*2] = g[0]*dt
+                # self.dv[i*2+1] = g[1]*dt
                 # self.dv[i*3] = g[0]*dt
                 # self.dv[i*3+1] = g[1]*dt
                 # self.dv[i*3+2] = g[1]*dt
+                for d in ti.static(range(self.dim)):
+                    self.dv[i*self.dim+d] = self.gravity[None][d]*dt
 
     @ti.kernel
     def BuildInitial(self, dt:real):
@@ -869,12 +960,15 @@ class MPMSolverImplicit:
     @ti.kernel
     def computeScaledNorm(self)->real:
         result = 0.0
-        for i in range(self.num_active_grid[None]):
-            # result += (self.rhs[2*i] ** 2 + self.rhs[2*i+1] ** 2)/(self.nodeCNTol[i] ** 2)
-            temp = 0.0
-            for d in ti.static(range(self.dim)):
-                temp += self.rhs[i*self.dim + d] ** 2
-            result += temp / self.nodeCNTol[i] ** 2
+        # for i in range(self.num_active_grid[None]):
+        for I in ti.grouped(self.grid_m):
+            if self.grid_m[I] > 0:
+                i = self.grid_idx[I]
+                # result += (self.rhs[2*i] ** 2 + self.rhs[2*i+1] ** 2)/(self.nodeCNTol[i] ** 2)
+                temp = 0.0
+                for d in ti.static(range(self.dim)):
+                    temp += self.rhs[i*self.dim + d] ** 2
+                result += temp / self.nodeCNTol[i] ** 2
         return result
 
 
@@ -1088,9 +1182,11 @@ class MPMSolverImplicit:
 
                 gid = self.grid_idx[base + offset]    
                 self.nodeCNTol[gid] += weight * self.p_mass[p] * dPdF.norm()
-        
+        CNcoef = eps * 8 * self.dx * dt
+        # if self.dim == 3:
+        #     CNcoef = eps * 24 * self.dx * self.dx * dt
         for i in range(self.num_active_grid[None]):
-            self.nodeCNTol[i] *= eps * 8 * self.dx * dt / self.grid_m[self.dof2idx[i]]
+            self.nodeCNTol[i] *= CNcoef / self.grid_m[self.dof2idx[i]]
             # self.nodeCNTol[i] *= eps * 24 * self.dx * self.dx * dt / self.grid_m[self.dof2idx[i]]
 
 
@@ -1172,8 +1268,9 @@ class MPMSolverImplicit:
     @ti.kernel
     def getMaxVelocity(self)-> ti.f32:
         max_v = 0.0
-        for i in range(self.n_particles[None]):
-            r = self.p_v[i].norm_sqr()
+        for I in ti.grouped(self.pid):
+            p = self.pid[I]
+            r = self.p_v[p].norm_sqr()
             ti.atomic_max(max_v, r)
         return ti.sqrt(max_v)
 
