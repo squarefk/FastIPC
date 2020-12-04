@@ -195,6 +195,33 @@ def sampleBoxGrid2D(minPoint, maxPoint, N, theta, dx, dy):
 
     return np_pos
 
+#Translated Box computed with Triangle
+def sampleTranslatedBox2D(minPoint, maxPoint, N, theta, dx, dy, args = 'qa0.0000075'):
+    dX = maxPoint[0] - minPoint[0]
+    dY = maxPoint[1] - minPoint[1]
+    newMin = [0 - dX/2.0, 0 - dY/2.0]
+    newMax = [0 + dX/2.0, 0 + dY/2.0]
+
+    A = dict(vertices=np.array(((newMin[0], newMin[1]), (newMax[0], newMin[1]), (newMax[0], newMax[1]), (newMin[0], newMax[1]))))
+    B = tr.triangulate(A, args)
+    x = B.get('vertices')
+
+    theta_rad = np.radians(theta)
+    c, s = np.cos(theta_rad), np.sin(theta_rad)
+    r = np.array(((c, -s),(s, c )))
+    positions = []
+    for p in x:
+        updatedVertex = r.dot(p)
+
+        updatedVertex[0] += dx
+        updatedVertex[1] += dy
+
+        positions.append(updatedVertex)
+
+    np_pos = np.array(positions)
+
+    return np_pos
+
 #Analytic Half Box (Ramp) Particle Sample
 def sampleRamp2D(minPoint, maxPoint, N):
     dX = maxPoint[0] - minPoint[0]

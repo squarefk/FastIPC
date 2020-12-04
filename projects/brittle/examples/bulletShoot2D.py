@@ -4,14 +4,22 @@ import sys
 from common.utils.particleSampling import *
 from common.utils.cfl import *
 from projects.brittle.DFGMPMSolver import *
+from projects.brittle.DFGMPMSolver_Old import *
 
-ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
-#ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
+#ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
+
+useOld = False
 
 #General Sim Params
 gravity = 0.0
-outputPath = "../output/bulletShoot2D/brittle.ply"
-outputPath2 = "../output/bulletShoot2D/brittle_nodes.ply"
+
+outputPath = "../output/bulletShoot2D/NEWbrittle.ply"
+outputPath2 = "../output/bulletShoot2D/NEWbrittle_nodes.ply"
+if useOld:
+    outputPath = "../output/bulletShoot2D/OLDbrittle.ply"
+    outputPath2 = "../output/bulletShoot2D/OLDbrittle_nodes.ply"
+
 fps = 60
 endFrame = 2 * fps
 
@@ -88,6 +96,8 @@ if(len(sys.argv) == 6):
     outputPath2 = sys.argv[5]
 
 solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
+if useOld:
+    solver = DFGMPMSolverOLD(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Add Damage Model
 Gf = 1e-3 #0.1 starts to get some red, but we wanna see it fast! TODO

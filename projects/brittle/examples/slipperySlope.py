@@ -13,61 +13,56 @@ gravity = -10
 outputPath = "../output/slipperySlope2D/brittle.ply"
 outputPath2 = "../output/slipperySlope2D/brittle_nodes.ply"
 fps = 24
-endFrame = fps * 10
+endFrame = fps * 5
 ppc = 9
 rho = 10
 E, nu = 50000.0, 0.2 # Young's modulus and Poisson's ratio
+EList = [E,E]
+nuList = [nu, nu]
+surfaceThreshold = 12
 
-surfaceThreshold1 = 27 #too high --> too few surface particles
-surfaceThreshold2 = 17
-
-rampMin = [0.05, 0.05]
-rampMax = [0.95, 0.2]
-xDiff = rampMax[0] - rampMin[0]
-yDiff = rampMax[1] - rampMin[1]
-subdivs = 40
-#vertices = sampleRamp2D(rampMin, rampMax, subdivs)
+args = 'qa0.000005'
 
 rampP1 = [0.05, 0.05]
 rampP2 = [0.95, 0.05]
 rampP3 = [0.05, 0.2]
-vertices = sampleTriangle2D(rampP1, rampP2, rampP3)
+yDiff = rampP3[1] - rampP1[1]
+xDiff = rampP2[0] - rampP1[0]
+vertices = sampleTriangle2D(rampP1, rampP2, rampP3, args)
 
 boxMin = [0.4, 0.4]
 boxMax = [0.5, 0.5]
 boxSubdivs = 26
 thetaRad = np.arctan(yDiff / xDiff)
 boxTheta = -1 * np.degrees(thetaRad)
-boxParticles = sampleBoxGrid2D(boxMin, boxMax, boxSubdivs, boxTheta, 0.2, 0.3)
+boxParticles = sampleTranslatedBox2D(boxMin, boxMax, boxSubdivs, boxTheta, 0.2, 0.27, args)
 
 particleCounts = [len(vertices), len(boxParticles)]
 vertices = np.concatenate((vertices, boxParticles))
 
-vol = (rampMax[0] - rampMin[0]) * (rampMax[1] - rampMin[1]) * 0.5
+vol = (xDiff) * (yDiff) * 0.5
 vol2 = (boxMax[0] - boxMin[0]) * (boxMax[1] - boxMin[1])
 pVol = vol / particleCounts[0]
 pVol2 = vol2 / particleCounts[1]
 largerVol = max(pVol, pVol2)
-#dx = (ppc * largerVol)**0.5
-dx = 0.015
+dx = (ppc * largerVol)**0.5
 
 #compute maxDt
 cfl = 0.4
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.7 * maxDt
 
-useFrictionalContact = True
-frictionCoefficient = 0.1
+useDFG = True
+frictionCoefficient = 0.2
 verbose = False
 useAPIC = False
+flipPicRatio = 0.0
 
 initialVelocity = [[0.0,0.0], [0.0,0.0]]
 particleMasses = [pVol * rho, pVol2 * rho]
 particleVolumes = [pVol, pVol2]
-surfaceThresholds = [surfaceThreshold1, surfaceThreshold2]
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC, 0.95)
-#solver = DFGMPMSolverWithPredefinedFields(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Collision Objects
 groundCenter = (0, 0.05)

@@ -69,7 +69,7 @@ if(len(sys.argv) == 6):
 solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Add Damage Model
-percentStretch = 2.4750225e-3 # 2.475021e-3 < p < 2.475025e-3
+percentStretch = 2.4750233e-3 # 2.4750232e-3 < p < 2.4750233e-3
 dMin = 0.25
 Gf = 1e-3 #1e-6 < Gf < 1e-5 
 

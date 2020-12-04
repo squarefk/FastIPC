@@ -12,11 +12,10 @@ outputPath = "../output/balls2D/brittle.ply"
 outputPath2 = "../output/balls2D/brittle_nodes.ply"
 fps = 24
 endFrame = fps * 10
-ppc = 9
 rho = 10
 E, nu = 5000.0, 0.2 # Young's modulus and Poisson's ratio
 
-surfaceThreshold = 15 #12 works for rad = 0.08 and 0.03
+surfaceThreshold = 4.5 #12 works for rad = 0.08 and 0.03
 
 c1 = [0.14, 0.14]
 c2 = [0.32, 0.14]
@@ -51,7 +50,7 @@ c23 = [0.5, 0.86]
 
 radius = 0.03
 nSubDivs = 64
-maxArea = 0.0001
+maxArea = 'qa0.000005'
 
 #NOTE: maxArea is HARD CODED for sampleCircle2D because passing it as float doesn't work due to string conversion!!
 
@@ -108,15 +107,15 @@ vertices = np.concatenate((vertices, circle23))
 
 vol = radius * radius * math.pi
 pVol = vol / len(circle2)
-#dx = (ppc * pVol)**0.5
-dx = 0.01
+ppc = 4
+dx = (ppc * pVol)**0.5
 
 #compute maxDt
 cfl = 0.4
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.7 * maxDt
 
-useFrictionalContact = True
+useDFG = True
 frictionCoefficient = 0.4
 verbose = False
 useAPIC = False
@@ -128,35 +127,39 @@ particleMasses = []
 particleVolumes = []
 surfaceThresholds = []
 particleCounts = []
+EList = []
+nuList = []
 for i in range(23):
     particleCounts.append(len(circle2))
     initialVelocity.append(initVel)
     particleMasses.append(pVol * rho)
     particleVolumes.append(pVol)
     surfaceThresholds.append(surfaceThreshold)
+    EList.append(E)
+    nuList.append(nu)
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC, flipPicRatio)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Collision Objects
 groundCenter = (0, 0.05)
 groundNormal = (0, 1)
 groundCollisionType = solver.surfaceSlip
-solver.addHalfSpace(groundCenter, groundNormal, groundCollisionType)
+solver.addHalfSpace(groundCenter, groundNormal, groundCollisionType, 0.0)
 
 leftWallCenter = (0.05, 0)
 leftWallNormal = (1, 0)
 leftWallCollisionType = solver.surfaceSlip
-solver.addHalfSpace(leftWallCenter, leftWallNormal, leftWallCollisionType)
+solver.addHalfSpace(leftWallCenter, leftWallNormal, leftWallCollisionType, 0.0)
 
 rightWallCenter = (0.95, 0)
 rightWallNormal = (-1, 0)
 rightWallCollisionType = solver.surfaceSlip
-solver.addHalfSpace(rightWallCenter, rightWallNormal, rightWallCollisionType)
+solver.addHalfSpace(rightWallCenter, rightWallNormal, rightWallCollisionType, 0.0)
 
 ceilingCenter = (0, 0.95)
 ceilingNormal = (0, -1)
 ceilingCollisionType = solver.surfaceSlip
-solver.addHalfSpace(ceilingCenter, ceilingNormal, ceilingCollisionType)
+solver.addHalfSpace(ceilingCenter, ceilingNormal, ceilingCollisionType, 0.0)
 
 #start sim!
 solver.simulate()

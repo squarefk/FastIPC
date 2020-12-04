@@ -15,6 +15,8 @@ vol = 0.2 * 0.2
 ppc = 4
 rho = 10.0
 E, nu = 1000.0, 0.2 # Young's modulus and Poisson's ratio
+EList = [E]
+nuList = [nu]
 
 #NOTE: surfaceThreshold tuning: 
 #NOTE: 50 subdivs-- for 1 too low, 6 too high, 5 is perfect
@@ -22,7 +24,7 @@ E, nu = 1000.0, 0.2 # Young's modulus and Poisson's ratio
 #NOTE: 70 subdivs-- 5 is also perfect omg!
 #NOTE: I wonder if this seems to stay working because of our way of setting dx by ppc and what not
 subdivs = 50
-surfaceThresholds = [5]
+surfaceThreshold = 5
 
 #Sample analtic box and get dx based on this distribution
 minP = [0.4, 0.4]
@@ -43,13 +45,13 @@ cfl = 0.4
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.7 * maxDt
 
-useFrictionalContact = True
+useDFG = True
 verbose = False
 useAPIC = False
 frictionCoefficient = 0.4
 flipPicRatio = 0.95
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, E, nu, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThresholds, useFrictionalContact, frictionCoefficient, verbose, useAPIC, flipPicRatio)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Collision Objects
 groundCenter = (0, 0.05)
