@@ -1182,12 +1182,18 @@ class MPMSolverImplicit:
 
                 gid = self.grid_idx[base + offset]    
                 self.nodeCNTol[gid] += weight * self.p_mass[p] * dPdF.norm()
-        CNcoef = eps * 8 * self.dx * dt
-        # if self.dim == 3:
-        #     CNcoef = eps * 24 * self.dx * self.dx * dt
-        for i in range(self.num_active_grid[None]):
-            self.nodeCNTol[i] *= CNcoef / self.grid_m[self.dof2idx[i]]
-            # self.nodeCNTol[i] *= eps * 24 * self.dx * self.dx * dt / self.grid_m[self.dof2idx[i]]
+        # CNcoef = eps * 8 * self.dx * dt
+        # # if self.dim == 3:
+        # #     CNcoef = eps * 24 * self.dx * self.dx * dt
+        # for i in range(self.num_active_grid[None]):
+        #     self.nodeCNTol[i] *= CNcoef / self.grid_m[self.dof2idx[i]]
+        #     # self.nodeCNTol[i] *= eps * 24 * self.dx * self.dx * dt / self.grid_m[self.dof2idx[i]]
+        if ti.static(self.dim==2):
+            for i in range(self.num_active_grid[None]):
+                self.nodeCNTol[i] *= eps * 8 * self.dx * dt / self.grid_m[self.dof2idx[i]]
+        if ti.static(self.dim==3):
+            for i in range(self.num_active_grid[None]):
+                self.nodeCNTol[i] *= eps * 24 * self.dx * self.dx * dt / self.grid_m[self.dof2idx[i]]            
 
 
     def advanceOneStepExplicit(self, dt):
