@@ -252,8 +252,8 @@ class MPMSolverImplicit:
                 self.p_F[p] = U @ sig @ V.transpose()
             
                 # Hardening coefficient: snow gets harder when compressed
-                # h = ti.exp(7 * (1.0 - self.p_Jp[p]))
-                h = ti.exp(ti.min(7 * (1.0 - self.p_Fp[p].determinant()), 1.0))
+                h = ti.exp(7 * (1.0 - self.p_Fp[p].determinant()))
+                # h = ti.exp(ti.min(7 * (1.0 - self.p_Fp[p].determinant()), 1.0))
                 self.p_mu[p], self.p_la[p] = self.mu_0 * h, self.lambda_0 * h 
 
     @ti.kernel
@@ -761,9 +761,12 @@ class MPMSolverImplicit:
             g1 = self.rhs.to_numpy()[0:ndof]
 
             self.BuildMatrix(dt)
-            self.matrix1.prepareColandVal(self.num_active_grid[None])
-            self.matrix1.setFromColandVal(self.entryCol, self.entryVal, self.num_active_grid[None])
-
+            if self.dim == 2:
+                self.matrix1.prepareColandVal(self.num_active_grid[None])
+                self.matrix1.setFromColandVal(self.entryCol, self.entryVal, self.num_active_grid[None])
+            else:
+                self.matrix1.prepareColandVal(self.num_active_grid[None],d=3)
+                self.matrix1.setFromColandVal3(self.entryCol, self.entryVal, self.num_active_grid[None])                
 
             self.RestoreStrain()
             self.UpdateDV(-1.0)
@@ -774,8 +777,13 @@ class MPMSolverImplicit:
             g2 = self.rhs.to_numpy()[0:ndof]
 
             self.BuildMatrix(dt)
-            self.matrix2.prepareColandVal(self.num_active_grid[None])
-            self.matrix2.setFromColandVal(self.entryCol, self.entryVal, self.num_active_grid[None])
+            if self.dim == 2:
+                self.matrix2.prepareColandVal(self.num_active_grid[None])
+                self.matrix2.setFromColandVal(self.entryCol, self.entryVal, self.num_active_grid[None])
+            else:
+                self.matrix2.prepareColandVal(self.num_active_grid[None], d=3)
+                self.matrix2.setFromColandVal3(self.entryCol, self.entryVal, self.num_active_grid[None])
+
 
             g_Err = ((E1-E2) - (g1+g2).dot(deltax))/h
             A, B = (E1-E2)/h , (g1+g2).dot(deltax)/h

@@ -50,6 +50,8 @@ if test_case == 1:  # physbam snow
     mpm.symplectic = False
     mpm.cfl = 0.6
     mpm.setDXandDT(DX=0.00502513, DT=0.004)
+    # mpm.symplectic = True
+    # mpm.setDXandDT(DX=0.00502513, DT=0.0005)
     mpm.setGravity((0, -2.0))
     mpm.setLameParameter(E=40, nu=0.2)
 

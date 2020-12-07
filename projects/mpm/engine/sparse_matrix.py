@@ -413,7 +413,7 @@ class CGSolver:
 
         zTr = self.dotProduct(self.r, self.q)
         residual_preconditioned_norm = ti.sqrt(zTr)
-        max_iterations = 250
+        max_iterations = 1000
         for cnt in range(max_iterations):
             # print(cnt, residual_preconditioned_norm)
             if residual_preconditioned_norm < 1e-10:

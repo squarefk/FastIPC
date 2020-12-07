@@ -7,7 +7,7 @@ from common.utils.logger import *
 
 ti.init(arch=ti.cpu, default_fp=ti.f64)
 
-test_case = 11
+test_case = 1
 
 
 directory = 'output/3d/' + str(test_case) + '/'
@@ -17,13 +17,13 @@ gui = ti.GUI("PNMPM-3D", res=512, background_color=0x112F41)
 mpm = MPMSolverImplicit(res=(64, 64, 64), size=10)
 
 if test_case == 1:  # jello drop on ground
-    mpm.symplectic = True
+    mpm.symplectic = False
     
     mpm.setDXandDT(DX=0.15625,DT=0.0003125)
-    mpm.setGravity((0, -100, 0))
-    mpm.setLameParameter(E=1e6, nu=0.2)
+    mpm.setGravity((0, -2.5, 0))
+    mpm.setLameParameter(E=360, nu=0.3)
 
-    mpm.add_cube(min_corner=(2, 1.0, 3), max_corner=(3, 2.0, 6), num_particles=20000, rho=1000)
+    mpm.add_cube(min_corner=(2, 1.0, 3), max_corner=(3, 2.0, 6), num_particles=20000, rho=2)
 
     mpm.add_surface_collider(point=(0.0, 0.15, 0.0), normal=(0.0, 1.0, 0.0))
     mpm.add_analytic_box(min_corner=(0.0, 0.0, 0.0), max_corner=(1.0, 0.05, 1.0))
