@@ -4,7 +4,7 @@ import numpy as np
 
 real = ti.float64
 
-MAX_LINEAR = 100000 # maximum size of linear system supported
+MAX_LINEAR = 1000000 # maximum size of linear system supported
 
 @ti.data_oriented
 class SparseMatrix:
@@ -413,7 +413,7 @@ class CGSolver:
 
         zTr = self.dotProduct(self.r, self.q)
         residual_preconditioned_norm = ti.sqrt(zTr)
-        max_iterations = 1000
+        max_iterations = 250
         for cnt in range(max_iterations):
             # print(cnt, residual_preconditioned_norm)
             if residual_preconditioned_norm < 1e-10:

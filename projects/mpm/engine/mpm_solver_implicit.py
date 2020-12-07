@@ -11,6 +11,7 @@ from common.utils.timer import *
 import math
 import scipy.sparse
 import scipy.sparse.linalg
+from scipy.spatial.transform import Rotation
 from projects.mpm.engine.sparse_matrix import SparseMatrix, CGSolver
 ##############################################################################
 real = ti.f64
@@ -82,6 +83,7 @@ class MPMSolverImplicit:
         # lame param: lambda and mu
         self.p_la = ti.field(dtype=real)
         self.p_mu = ti.field(dtype=real)
+        self.p_plastic = ti.field(dtype=ti.i32)
 
 
         if self.dim == 2:
@@ -135,7 +137,7 @@ class MPMSolverImplicit:
         self.particle = ti.root.dynamic(ti.i, max_num_particles, 2**20)
         self.particle.place(self.p_x, self.p_v, self.p_C, self.p_F, self.p_Fp,
                                 self.p_Jp, self.p_vol, self.p_rho, self.p_mass,
-                                self.p_la, self.p_mu,
+                                self.p_la, self.p_mu, self.p_plastic,
                                 self.p_F_backup)
 
         # Sparse Matrix for Newton iteration
@@ -151,7 +153,7 @@ class MPMSolverImplicit:
 
         self.nodeCNTol = ti.field(real, shape=MAX_LINEAR)
 
-        self.dof2idx = ti.Vector.field(self.dim, ti.i32, shape=100000000)
+        self.dof2idx = ti.Vector.field(self.dim, ti.i32, shape=MAX_LINEAR)
         self.num_entry = ti.field(ti.i32, shape=())
         
         self.total_step = ti.field(ti.i32, shape=())
@@ -975,7 +977,7 @@ class MPMSolverImplicit:
     def implicit_newton(self, dt):
         # perform one full newton
         # # Numerial test of gradient and hessian
-        # if self.frame >= 8:
+        # if self.frame >= 0:
         #     self.testGradient(dt)
             
         self.evaluatePerNodeCNTolerance(1e-7, dt)
@@ -1040,9 +1042,8 @@ class MPMSolverImplicit:
 
             self.RestoreStrain() 
       
-        print("aaaa", iter)
         if iter == max_iter_newton - 1:
-            print("Newton Max iteration reached!")
+            print("Newton Max iteration reached! iter =", max_iter_newton-1, "; residual =", rnorm)
         
         self.implicit_update(dt)
         # self.TotalEnergy()
@@ -1312,15 +1313,23 @@ class MPMSolverImplicit:
         # self.p_rho = 
         # self.p_mass = 
 
-    def add_cube(self, min_corner, max_corner, num_particles = 20000):
+    def add_cube(self, min_corner, max_corner, num_particles = None, rho=1000):
         a = ti.Vector(min_corner)
         b = ti.Vector(max_corner)
         b = b - a
 
-        self.sample_cube(a, b, num_particles)
+        vol = 1.0
+        for k in range(self.dim):
+            vol *= b[k]
+        if num_particles is None:
+            sample_density = 2**self.dim
+            num_particles = int(sample_density * vol / self.dx**self.dim + 1)
+            print("Sampling ", num_particles, "particles")
+               
+        self.sample_cube(a, b, num_particles, rho)
 
     @ti.kernel
-    def sample_cube(self, lower_corner: ti.template(), cube_size: ti.template(), new_particles: ti.i32):
+    def sample_cube(self, lower_corner: ti.template(), cube_size: ti.template(), new_particles: ti.i32, density: real):
         # new_particles = 20000
         area = 1.0
         for k in ti.static(range(self.dim)):
@@ -1337,8 +1346,7 @@ class MPMSolverImplicit:
             self.p_Fp[i] = ti.Matrix.identity(real, self.dim)
             self.p_Jp[i] = 1.0
             self.p_vol[i] = area_per_particle
-            self.p_rho[i] = 2
-            self.p_rho[i] = 1000
+            self.p_rho[i] = density
             self.p_mass[i] = self.p_vol[i] * self.p_rho[i]
             self.p_la[i] = self.lambda_0
             self.p_mu[i] = self.mu_0
@@ -1413,7 +1421,7 @@ class MPMSolverImplicit:
     def test(self):
         pass
 
-    def add_analytic_box(self, min_corner, max_corner, rotation = 0.0):
+    def add_analytic_box(self, min_corner, max_corner, rotation = (0.0, 0.0, 0.0, 1.0)):
 
         min_corner = ti.Vector(min_corner)
         max_corner = ti.Vector(max_corner)
@@ -1421,9 +1429,14 @@ class MPMSolverImplicit:
         b = (min_corner + max_corner) / 2
         half_edge = (max_corner - min_corner) / 2
 
-        theta = rotation
-        R = ti.Matrix([[ti.cos(theta), -ti.sin(theta)],[ti.sin(theta), ti.cos(theta)]])
-
+        # theta = rotation
+        # R = ti.Matrix([[ti.cos(theta), -ti.sin(theta)],[ti.sin(theta), ti.cos(theta)]])
+        if self.dim == 2:
+            theta = rotation[0]
+            R = ti.Matrix([[ti.cos(theta), -ti.sin(theta)],[ti.sin(theta), ti.cos(theta)]])
+        else:
+            rot_mat = Rotation.from_quat(rotation).as_matrix()
+            R = ti.Matrix(rot_mat)
 
 
         @ti.func
@@ -1462,21 +1475,32 @@ class MPMSolverImplicit:
                     gid = self.grid_idx[I]
                     self.boundary[gid] = 1
             
-        self.analytic_collision.append(particleCollision)
+        # self.analytic_collision.append(particleCollision)
         self.grid_collidable_objects.append(gridCollision)
 
 
-    def load_state(self):
-        filename = 'test1.txt'
+    def load_state(self, filename):
+        # filename = 'test1.txt'
         with open(filename,"r") as f:
-            for i in range(20000):
+            num = int(f.readline().split()[0])
+            for i in range(num):
                 line = f.readline().split()
                 data = [float(x) for x in line]
                 # print(data)
-                self.p_mass[i] = data[0]
-                self.p_vol[i] = data[1]
-                self.p_x[i] = ti.Vector([data[2], data[3]])
-                self.p_v[i] = ti.Vector([data[4], data[5]])
-                self.p_F[i] = ti.Matrix([[data[6], data[7]],[data[8], data[9]]])
-                self.p_la[i] = self.lambda_0
-                self.p_mu[i] = self.mu_0
+                if self.dim == 2:
+                    self.p_mass[i] = data[0]
+                    self.p_vol[i] = data[1]
+                    self.p_x[i] = ti.Vector([data[2], data[3]])
+                    self.p_v[i] = ti.Vector([data[4], data[5]])
+                    self.p_F[i] = ti.Matrix([[data[6], data[7]],[data[8], data[9]]])
+                    self.p_la[i] = self.lambda_0
+                    self.p_mu[i] = self.mu_0
+                else:
+                    self.p_mass[i] = data[0]
+                    self.p_vol[i] = data[1]
+                    self.p_x[i] = ti.Vector([data[2], data[3], data[4]])
+                    self.p_v[i] = ti.Vector([0.0, 0.0, 0.0])
+                    self.p_F[i] = ti.Matrix([[0.0, 0.0, 0.0],[0.0, 0.0, 0.0],[0.0, 0.0, 0.0]])
+                    self.p_la[i] = self.lambda_0
+                    self.p_mu[i] = self.mu_0                    
+            self.n_particles[None] = num
