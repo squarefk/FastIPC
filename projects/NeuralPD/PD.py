@@ -21,7 +21,7 @@
 #     # Memory growth must be set before GPUs have been initialized
 #     print(e)
 
-model = "fc_dpsi_linesearch"
+model = "fc_dpsi_localsearch"
 # descending_sigma = True
 neural = True
 # # mu_model = tf.keras.models.load_model("min_psi/nk_polar/mu".format(model), custom_objects={'tf': tf})
@@ -30,8 +30,9 @@ neural = True
 # mu_model.summary()
 # lam_model.summary()
 
-mu_scaling = 1
-lam_scaling = 100.
+mu_scaling = 1.
+# lam_scaling = 1
+lam_scaling = 1. 
 # lam_model = tf.keras.models.load_model("min_psi/nk_polar/lam".format(model), custom_objects={'tf': tf})
 
 # mu_model = tf.keras.models.load_model("svd_pd_fc/mu".format(surfix), custom_objects={'tf': tf})
@@ -111,12 +112,14 @@ V = mat()
 sigma = vec()
 sigma_Bp = vec()
 sigma_Bp_Prev = vec()
+P = vec()
 sigma_Bp_change = vec()
 energy_change = scalar()
 radius = scalar()
+scaling = scalar()
 # local_energy_change = scalar()
 ti.root.dense(ti.i, n_elements).place(F, U, V, sigma)
-ti.root.dense(ti.i, 2 * n_elements).place(Bp, sigma_Bp, sigma_Bp_Prev, radius, energy_change, sigma_Bp_change)
+ti.root.dense(ti.i, 2 * n_elements).place(Bp, sigma_Bp, sigma_Bp_Prev, radius, energy_change, sigma_Bp_change, scaling, P)
 
 MAX_LINEAR = 50000000 if dim == 3 else 5000000
 data_rhs = ti.field(real, shape=n_particles * dim)
@@ -124,17 +127,19 @@ data_row = ti.field(ti.i32, shape=MAX_LINEAR)
 data_col = ti.field(ti.i32, shape=MAX_LINEAR)
 data_val = ti.field(real, shape=MAX_LINEAR)
 data_sol = ti.field(real, shape=n_particles * dim)
+true_gradient = ti.field(real, shape=n_particles * dim)
 cnt = ti.field(ti.i32, shape=())
 inertia_energy = ti.field(real, shape=())
 elastic_energy = ti.field(real, shape=())
 elastic_energy_gt = ti.field(real, shape=())
 
-factor = None # prefactorize
+global_energy_change = ti.field(real, shape=())
 
-show_ground_truth = False
+factor = None # prefactorize
 
 dfx = ti.field(ti.i32, shape=n_particles * dim)
 last_D = np.array([True] * n_particles)
+
 
 @ti.func
 def compute_density(i):
@@ -188,6 +193,8 @@ def compute_restT_and_m():
     for i in range(n_elements):
         restT[i] = compute_T(i)
         B[i] = restT[i].inverse()
+        Bp[i] = ti.Matrix([[1., 0.], [0., 1.]])
+        Bp[i + n_elements] = ti.Matrix([[1., 0.], [0., 1.]])
         sigma_Bp[i] = ti.Vector([1., 1.])
         sigma_Bp[i + n_elements] = ti.Vector([1., 1.])
         mass = restT[i].determinant() / dim / (dim - 1) * compute_density(i) / (dim + 1)
@@ -246,7 +253,7 @@ def build_lhs():
                     c = cnt[None] + ele_idx * 36 + A_row_idx * 6 + A_col_idx
                     data_row[c], data_col[c], data_val[c] = lhs_row_idx, lhs_col_idx, 0.
                     for idx in ti.static(range(4)):
-                        data_val[c] += dt * dt * vol0 * (2 * mu_scaling * mu[ele_idx] + lam_scaling * la[ele_idx]) * (A_i[idx,A_row_idx] * A_i[idx,A_col_idx])
+                        data_val[c] += dt * dt * vol0 * (2 * scaling[ele_idx] * mu[ele_idx] + scaling[ele_idx + n_elements] * la[ele_idx]) * (A_i[idx,A_row_idx] * A_i[idx,A_col_idx])
         cnt[None] += n_elements * 36
     else:
         print("Not implemented")
@@ -279,6 +286,7 @@ def factorize(current_time):
     data_row.fill(0)
     data_col.fill(0)
     data_val.fill(0)
+
     
 
 @ti.kernel
@@ -344,7 +352,7 @@ def find_lowest_potential(r, s1, s2):
 
 
 @ti.kernel
-def proejct_F_dpsi():
+def proejct_F_dpsi() -> ti.int32:
     for e in range(n_elements):
         Bp[e] = U[e] @ V[e].transpose()
         # Construct volume preservation constraints:.
@@ -362,43 +370,122 @@ def proejct_F_dpsi():
         Bp[e + n_elements] = U[e] @ PP @ V[e].transpose()
         new_energy = (F[e] - Bp[e + n_elements]).norm_sqr()
         energy_change[e + n_elements] = new_energy - old_energy
+    return 1
 
 
 @ti.kernel
-def proejct_F_dpsi_linesearch():
-    E0 = 0.
+def project_F(offset: ti.int32) -> ti.int32:
+    for e in range(n_elements):
+        sigma_Bp_Prev[e+offset] = sigma_Bp[e+offset]
     E = 0.
-    succeed = True
+    E0 = 0.
+    E_dec = 0.
+    E_inc = 0.  
+    succeed = 0
+    has_decrease = 0
+
+    eps = 1e-6
+    # if offset == n_elements:
+    #     eps = global_energy_change[None] / dt / dt
+
+    for e in range(n_elements):
+        # Construct volume preservation constraints:.
+        sig = sigma[e]
+        dpsi = ti.Vector([1., 1.])
+        if offset == 0:
+            dpsi = 2. * (sig - ti.Vector([1., 1.]))
+        else:
+            s1, s2 = sig[0], sig[1]
+            sigmaProdm1lambda = 2. * (s1 * s2 - 1)
+            dpsi = ti.Vector([s2, s1]) * sigmaProdm1lambda
+        E0e = (sig - sigma_Bp[e + offset]).norm_sqr()
+        E0 += E0e
+        sigma_Bp[e + offset] = sig - 0.5 * dpsi / scaling[e + offset]
+        Ee = (sig - sigma_Bp[e + offset]).norm_sqr()
+        E += Ee
+        if Ee < E0e + eps:
+            E_dec += ti.abs(Ee - E0e)
+            has_decrease = 1
+        else:
+            E_inc += ti.abs(Ee - E0e)
+    
+    if has_decrease == 0 and E_inc > eps:
+        succeed = 2
+    elif E_inc < eps or ti.abs(E_inc - E_dec) < eps:
+        succeed = 1
+    else: # has_decrease and Einc > eps and  ti.abs(E_inc - E_dec) > eps
+        succeed = 0
+        # if has_decrease == 0:
+        #     succeed = 2
+        # ratio = ti.sqrt(E_dec / E_inc)
+        while E > E0 + eps:
+        # if True:
+            E = 0.
+            for e in range(n_elements):
+                sig = sigma[e]
+                # if True:
+                if (sigma_Bp_Prev[e + offset] - sig).norm_sqr() < (sigma_Bp[e + offset] - sig).norm_sqr():
+                    # sigma_Bp[e + offset] = sigma_Bp_Prev[e + offset]
+                    # sigma_Bp[e + offset] = sigma_Bp_Prev[e + offset] + 0.5 * (sigma_Bp[e + offset] - sigma_Bp_Prev[e + offset])
+                    sigma_Bp[e + offset] = sigma[e] + 0.5 * (sigma_Bp[e + offset] - sigma[e])
+                E += (sigma_Bp[e + offset] - sig).norm_sqr()
+
+    for e in range(n_elements):
+        sig = sigma[e]
+        PP = ti.Matrix.rows([[sigma_Bp[e+offset][0], 0.0], [0.0, sigma_Bp[e+offset][1]]])
+        old_energy = (sig - sigma_Bp_Prev[e + offset]).norm_sqr()
+        Bp[e + offset] = U[e] @ PP @ V[e].transpose()
+        new_energy = (sig - sigma_Bp[e + offset]).norm_sqr()
+        energy_change[e + offset] = new_energy - old_energy
+    
+    return succeed
+
+
+def proejct_F_dpsi_linesearch():
+    mu_succeed = project_F(0)
+    lam_succeed = project_F(n_elements)
+
+    if lam_succeed == 1:
+        return 1
+    elif lam_succeed == 2:
+        return 2
+    else:
+        return 0
+
+
+@ti.kernel
+def proejct_F_dpsi_scaling() -> ti.int32:
+    # backup
+    for e in range(n_elements):
+        sigma_Bp_Prev[e + n_elements] = sigma_Bp[e + n_elements]
+
     for e in range(n_elements):
         Bp[e] = U[e] @ V[e].transpose()
         # Construct volume preservation constraints:.
         sig = sigma[e]
         s1, s2 = sig[0], sig[1]
         sigmaProdm1lambda = 2. * (s1 * s2 - 1)
-        dpsi = ti.Vector([s2, s1]) * sigmaProdm1lambda
-        # r = ti.abs((s1 * s2 - 1)) / ti.sqrt(lam_scaling)
-        E0 += (sig - sigma_Bp[e + n_elements]).norm_sqr()
-        sigma_Bp[e + n_elements] = sig - 0.5 * dpsi / lam_scaling
-        E += (sig - sigma_Bp[e + n_elements]).norm_sqr()
-    
-
-    if E > E0:
-        succeed = False
-        while E > E0:
-            for e in range(n_elements):
-                E -= (sig - sigma_Bp[e + n_elements]).norm_sqr()
-                sigma_Bp[e + n_elements] = sig + 0.5 * (sigma_Bp[e + n_elements] - sig)
-                E += (sig - sigma_Bp[e + n_elements]).norm_sqr()
+        dpsi_new = ti.Vector([s2, s1]) * sigmaProdm1lambda
+        Bp_old = sigma_Bp_Prev[e + n_elements]
+        old_dist = (sig - Bp_old).norm()
+        new_dist = (0.5 * dpsi_new).norm()
+        target_radius = 100.
+        if new_dist < 1e-10 or old_dist < target_radius:
+            scaling[e + n_elements] = 1.
+        else:
+            scaling[e + n_elements] = new_dist / target_radius
+        sigma_Bp[e + n_elements] = sig - 0.5 * dpsi_new / scaling[e + n_elements]
 
 
     for e in range(n_elements):
         PP = ti.Matrix.rows([[sigma_Bp[e+n_elements][0], 0.0], [0.0, sigma_Bp[e+n_elements][1]]])
-        old_energy = (F[e] - Bp[e + n_elements]).norm_sqr()
+        sig = sigma[e]
+        old_energy = (sig - sigma_Bp_Prev[e + n_elements]).norm_sqr()
         Bp[e + n_elements] = U[e] @ PP @ V[e].transpose()
-        new_energy = (F[e] - Bp[e + n_elements]).norm_sqr()
+        new_energy = (sig - sigma_Bp[e + n_elements]).norm_sqr()
         energy_change[e + n_elements] = new_energy - old_energy
     
-    return succeed
+    return 1
 
 
 @ti.kernel
@@ -421,9 +508,10 @@ def proejct_F_dpsi_normalized():
 
     for e in range(n_elements):
         PP = ti.Matrix.rows([[sigma_Bp[e+n_elements][0], 0.0], [0.0, sigma_Bp[e+n_elements][1]]])
-        old_energy = (F[e] - Bp[e + n_elements]).norm_sqr()
+        sig = sigma[e]
+        old_energy = (sig - sigma_Bp_Prev[e + n_elements]).norm_sqr()
         Bp[e + n_elements] = U[e] @ PP @ V[e].transpose()
-        new_energy = (F[e] - Bp[e + n_elements]).norm_sqr()
+        new_energy = (sig - sigma_Bp[e + n_elements]).norm_sqr()
         energy_change[e + n_elements] = new_energy - old_energy
 
 
@@ -444,9 +532,10 @@ def project_F_restshape():
 
     for e in range(n_elements):
         PP = ti.Matrix.rows([[sigma_Bp[e+n_elements][0], 0.0], [0.0, sigma_Bp[e+n_elements][1]]])
-        old_energy = (F[e] - Bp[e + n_elements]).norm_sqr()
+        sig = sigma[e]
+        old_energy = (sig - sigma_Bp_Prev[e + n_elements]).norm_sqr()
         Bp[e + n_elements] = U[e] @ PP @ V[e].transpose()
-        new_energy = (F[e] - Bp[e + n_elements]).norm_sqr()
+        new_energy = (sig - sigma_Bp[e + n_elements]).norm_sqr()
         energy_change[e + n_elements] = new_energy - old_energy
 
 
@@ -470,9 +559,10 @@ def project_F_fc_naive():
 
     for e in range(n_elements):
         PP = ti.Matrix.rows([[sigma_Bp[e+n_elements][0], 0.0], [0.0, sigma_Bp[e+n_elements][1]]])
-        old_energy = (F[e] - Bp[e + n_elements]).norm_sqr()
+        sig = sigma[e]
+        old_energy = (sig - sigma_Bp_Prev[e + n_elements]).norm_sqr()
         Bp[e + n_elements] = U[e] @ PP @ V[e].transpose()
-        new_energy = (F[e] - Bp[e + n_elements]).norm_sqr()
+        new_energy = (sig - sigma_Bp[e + n_elements]).norm_sqr()
         energy_change[e + n_elements] = new_energy - old_energy
 
 
@@ -628,14 +718,10 @@ def compute_energy() -> real:
     # inertia
     for i in range(n_particles):
         total_energy += 0.5 * m[i] * (x[i] - xTilde[i]).norm_sqr()
-    inertia_energy[None] = total_energy
     # elasticity
-    elastic_energy_gt[None] = 0
     for e in range(n_elements):
         vol0 = restT[e].determinant() / dim / (dim - 1)
-        total_energy += (dt * dt) * vol0 * mu_scaling * mu[e] * (F[e] - Bp[e]).norm_sqr() + 0.5 * (dt * dt) * vol0 * lam_scaling * la[e] * (F[e] - Bp[e + n_elements]).norm_sqr()
-        elastic_energy_gt[None] +=  vol0 * elasticity_energy(sigma[e], la[e], mu[e])
-    elastic_energy[None] = (total_energy - inertia_energy[None]) / (dt * dt)
+        total_energy += (dt * dt) * vol0 * scaling[e] * mu[e] * (F[e] - Bp[e]).norm_sqr() + 0.5 * (dt * dt) * vol0 * scaling[e + n_elements] * la[e] * (F[e] - Bp[e + n_elements]).norm_sqr()
     return total_energy
 
 @ti.kernel
@@ -646,9 +732,9 @@ def compute_energy_fc() -> real:
         total_energy += 0.5 * m[i] * (x[i] - xTilde[i]).norm_sqr()
     # elasticity
     for e in range(n_elements):
-        F = compute_T(e) @ B[e]
+        F_ = compute_T(e) @ B[e]
         vol0 = restT[e].determinant() / dim / (dim - 1)
-        U, sig, V = ti.svd(F)
+        U, sig, V = ti.svd(F_)
         total_energy += elasticity_energy(sig, la[e], mu[e]) * dt * dt * vol0
     return total_energy
 
@@ -677,7 +763,7 @@ def compute_elasticity():
             F_vec = A_i @ local_x
             F_minus_Bp_mu = F_vec - Bp_i_vec_mu
             F_minus_Bp_lam = F_vec - Bp_i_vec_lam
-            AT_Bp = dt * dt * vol0 * A_i.transpose() @ (2 * mu_scaling * mu[ele_idx] * F_minus_Bp_mu + lam_scaling * la[ele_idx] * F_minus_Bp_lam)
+            AT_Bp = dt * dt * vol0 * A_i.transpose() @ (2 * scaling[ele_idx] * mu[ele_idx] * F_minus_Bp_mu + scaling[ele_idx + n_elements] * la[ele_idx] * F_minus_Bp_lam)
             # target_x_contribution = vol0 * (2 * mu[ele_idx] + la[ele_idx]) * A_i.transpose() @ (A_i @ local_target_x)
             # AT_Bp -= target_x_contribution # dirichlet projection
         
@@ -740,6 +826,34 @@ def compute_v():
     for i in range(n_particles):
         v[i] = (x[i] - xn[i]) / dt
 
+@ti.kernel
+def output_true_residual() -> real:
+    residual = 0.0
+    for i in range(n_particles):
+        for d in ti.static(range(dim)):
+            true_gradient[i * dim + d] -= m[i] * (x(d)[i] - xTilde(d)[i])
+    
+    for e in range(n_elements):
+        F = compute_T(e) @ B[e]
+        IB = B[e]
+        vol0 = restT[e].determinant() / dim / (dim - 1)
+        _la, _mu = la[e], mu[e]
+        P = elasticity_first_piola_kirchoff_stress(F, _la, _mu) * dt * dt * vol0
+        if ti.static(dim == 2):
+            true_gradient[vertices[e, 1] * 2 + 0] -= P[0, 0] * IB[0, 0] + P[0, 1] * IB[0, 1]
+            true_gradient[vertices[e, 1] * 2 + 1] -= P[1, 0] * IB[0, 0] + P[1, 1] * IB[0, 1]
+            true_gradient[vertices[e, 2] * 2 + 0] -= P[0, 0] * IB[1, 0] + P[0, 1] * IB[1, 1]
+            true_gradient[vertices[e, 2] * 2 + 1] -= P[1, 0] * IB[1, 0] + P[1, 1] * IB[1, 1]
+            true_gradient[vertices[e, 0] * 2 + 0] -= -P[0, 0] * IB[0, 0] - P[0, 1] * IB[0, 1] - P[0, 0] * IB[1, 0] - P[0, 1] * IB[1, 1]
+            true_gradient[vertices[e, 0] * 2 + 1] -= -P[1, 0] * IB[0, 0] - P[1, 1] * IB[0, 1] - P[1, 0] * IB[1, 0] - P[1, 1] * IB[1, 1]
+
+    for i in range(n_particles):
+        for d in ti.static(range(dim)):
+            if dfx[i * dim + d]:
+                true_gradient[i * dim + d] = 0.
+            # residual = max(residual, ti.abs(true_gradient[i * dim + d]))
+            residual += true_gradient[i * dim + d] ** 2
+    return residual
 
 @ti.kernel
 def output_residual() -> real:
@@ -747,6 +861,8 @@ def output_residual() -> real:
     for i in range(n_particles):
         for d in ti.static(range(dim)):
             residual = max(residual, ti.abs(data_sol[i * dim + d]))
+
+    
     return residual
 
 
@@ -804,6 +920,7 @@ if __name__ == "__main__":
         compute_restT_and_m()
         save_x0()
         zero.fill(0)
+        scaling.from_numpy(np.array([mu_scaling] * n_elements + [lam_scaling] * n_elements))
         write_image(0)
         f_start = 0
         if len(sys.argv) == 3:
@@ -821,6 +938,7 @@ if __name__ == "__main__":
                     compute_xn_and_xTilde()
                     move_nodes(current_time)
                     pd_iter = 0
+                    residual = 1
                     while True:
                         pd_iter += 1
                         print("-------------------- PD Iteration: ", pd_iter, " --------------------")
@@ -832,37 +950,70 @@ if __name__ == "__main__":
                             # else:
                             #     project_F_pd()
                             # if pd_iter % 2 == 1:
+                            succeed = 1
                             energy_change.fill(0)
+                            final_project = False
+                            line_search = False
                             # project_F_fc_naive()
                             # proejct_F_dpsi_normalized()
+                            # if residual < 1e-4 * dt:
                             # proejct_F_dpsi()
+                            #     succeed = 1
+                            #     # final_project = True
+                            #     line_search = True
+                            # else:
+                            # if (pd_iter < 10):
+                            update_F()
+                            print(f"[Before projection] total energy: {compute_energy_fc():.4f}, quadratic_energy: {compute_energy():.4f}")
                             succeed = proejct_F_dpsi_linesearch()
+                            if succeed == 2:
+                                line_search = True
+                            else:
+                                line_search = False
+                            # proejct_F_dpsi_scaling()
+                            # if proejct_F_dpsi_linesearch() == 0:
+                                # project_F_pd()
+                           
                             eg = energy_change.to_numpy()
+                            update_F()
                             print(f"element energy change mean: {eg.mean():.6f}, element energy change min: {eg.min():.6f}, element energy change max: {eg.max():.6f}, element energy change sum: {eg.sum():.6f}")
                             # project_F_fc_linesearch()
                             # else:
                             #     project_F_fc()
-                            compute_energy()
-                            print(f"inertial energy: {inertia_energy[None]:.4f}, elastic energy: {elastic_energy[None]:.4f}, elastic_energy_gt: {elastic_energy_gt[None]:.4f}")
+                            E_before = compute_energy()
+                            print(f"[After projection] total energy: {compute_energy_fc():.4f}, quadratic_energy: {E_before:.4f}")
                             build_rhs()
                         with Timer("Solve System"):
                             solve_system(current_time)
+                            residual = output_residual()
+                            print("Search Direction Residual : ", residual / dt, "Projection success: ", succeed)
+                            if succeed > 0 and residual < 1e-3 * dt:
+                                break
                             save_xPrev()
                             E0 = compute_energy_fc()
                             alpha = 1.
                             apply_sol(alpha)
-                            # update_F()
-                            # E = compute_energy_fc()
-                            # while E > E0:
-                            #     alpha *= 0.5
-                            #     apply_sol(alpha)
-                            #     update_F()
-                            #     E = compute_energy_fc()
-
-                        residual = output_residual()
-                        print("Search Direction Residual : ", residual / dt, "Projection success: ", )
-                        if pd_iter % 2 == 1 and residual < 1e-4 * dt:
-                            break
+                            if line_search:
+                                update_F()
+                                E = compute_energy_fc()
+                                while E > E0:
+                                    alpha *= 0.5
+                                    apply_sol(alpha)
+                                    update_F()
+                                    E = compute_energy_fc()
+                                print("[Step size after line search: ", alpha, "]")
+                            update_F()
+                            E_after = compute_energy()
+                            global_energy_change[None] = abs(E_after - E_before)
+                            print(f"[After global step] total energy: {compute_energy_fc():.4f}, quadratic_energy: {E_after:.4f}")
+                        true_gradient.fill(0)
+                        # residual = output_true_residual()
+                        # residual2 = output_residual()
+                        # print(residual2, residual)
+                        # print("Search Direction Residual : ", residual / dt, "Projection success: ", succeed)
+                        # if residual < 1e-3 * dt:
+                        # # if residual < 1.:
+                        #     break
                         
                     compute_v()
                     current_time += dt
