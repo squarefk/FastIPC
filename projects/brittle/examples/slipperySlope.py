@@ -53,9 +53,9 @@ maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.7 * maxDt
 
 useDFG = True
-frictionCoefficient = 0.2
+frictionCoefficient = 0.1
 verbose = False
-useAPIC = False
+useAPIC = True
 flipPicRatio = 0.0
 
 initialVelocity = [[0.0,0.0], [0.0,0.0]]

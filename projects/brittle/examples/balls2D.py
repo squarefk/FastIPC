@@ -118,7 +118,7 @@ dt = 0.7 * maxDt
 useDFG = True
 frictionCoefficient = 0.4
 verbose = False
-useAPIC = False
+useAPIC = True
 flipPicRatio = 0.95 #0 for full PIC, 1 for full FLIP
 
 initVel = [0,0]

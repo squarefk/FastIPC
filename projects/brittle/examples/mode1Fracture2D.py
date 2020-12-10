@@ -11,14 +11,14 @@ ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 gravity = 0.0
 outputPath = "../output/mode1Fracture/brittle.ply"
 outputPath2 = "../output/mode1Fracture/brittle_nodes.ply"
-fps = 24
-endFrame = 5 * fps
+fps = 30
+endFrame = 1 * fps
 
-E, nu = 1e5, 0.2 #TODO
+E, nu = 1e4, 0.15 #TODO
 EList = [E]
 nuList = [nu]
 
-st = 10  #10.5 is solid, but it fractures numerically at the notch TODO
+st = 4.9  #10 for dx0.005, 
 surfaceThreshold = st
 
 maxArea = 'qa0.0000025'
@@ -30,7 +30,7 @@ vertices = sampleNotchedBox2D(minPoint, maxPoint, maxArea)
 vertexCount = len(vertices)
 particleCounts = [vertexCount]
 
-rho = 10 #TODO
+rho = 1 #TODO
 vol = 0.2 * (0.2 + (grippedMaterial*2))
 pVol = vol / vertexCount
 mp = pVol * rho
@@ -41,8 +41,8 @@ initVel = [0,0]
 initialVelocity = [initVel]
 
 ppc = 4   #TODO: 16 from ziran
-#dx = (ppc * pVol)**0.5
-dx = 0.005 #TODO: 0.005 from ziran
+dx = (ppc * pVol)**0.5
+#dx = 0.005 #TODO: 0.005 from ziran
 
 #Compute max dt
 cfl = 0.4
@@ -53,7 +53,7 @@ useDFG = True
 verbose = False
 useAPIC = False
 frictionCoefficient = 0.0
-flipPicRatio = 0.95
+flipPicRatio = 0.9
 
 if(len(sys.argv) == 6):
     outputPath = sys.argv[4]
@@ -68,9 +68,15 @@ solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, v
 
 #Add Damage Model
 #E=1e5, Gf=1e-3, p=1e-3 looks wild, lots of little fractures
-percentStretch = 2e-3 # 1e-3 < p < 
+percentStretch = 1e-3 # 1.12e-4 < p < 1.123e-4 NOTE: trying 2e-4 to see if we can get it to fracture later when it has some give to separate, (it was too low)
+sigmaF = 33 #Gf1e-2: x < sigmaF < y ; Gf1e-4: 33 < sigmaF < 33.5 ; Gf1e-5: 10.572 < sigmaF < 10.575
 dMin = 0.25
-Gf = 1e-3 # 1.0 < Gf < 
+Gf = 1e-4 #1e-5
+
+#AnisoMPM Params
+sigmaC = 30
+eta = 1
+zeta = 1
 
 if(len(sys.argv) == 6):
     percentStretch = float(sys.argv[1])
@@ -78,7 +84,10 @@ if(len(sys.argv) == 6):
     dMin = float(sys.argv[3])
 
 damageList = [1]
-if useDFG == True: solver.addRankineDamage(damageList, percentStretch, Gf, dMin)
+if useDFG == True: 
+    #solver.addRankineDamage(damageList,Gf, dMin, percentStretch = percentStretch)
+    #solver.addRankineDamage(damageList,Gf, dMin, sigmaFRef = sigmaF)
+    solver.addAnisoMPMDamage(damageList, sigmaC, eta, dMin, zeta)
 
 #Collision Objects
 lowerCenter = (0.0, minPoint[1] + grippedMaterial)

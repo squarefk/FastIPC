@@ -39,9 +39,7 @@ def readOBJ(filepath):
 #Use Triangle to sample a triangulated square
 def sampleBox2D(minPoint, maxPoint, args = 'qa0.0000075'):
     A = dict(vertices=np.array(((minPoint[0], minPoint[1]), (maxPoint[0], minPoint[1]), (maxPoint[0], maxPoint[1]), (minPoint[0], maxPoint[1]))))
-    #args = 'qa0.0000075'
     B = tr.triangulate(A, args)
-
     return np.array(B.get('vertices'))
 
 def sampleNotchedWall2D(minPoint, maxPoint, args = 'qpa0.0000075'):
@@ -131,11 +129,7 @@ def sampleCircle2D(centerPoint, radius, N, args = 'qa0.0000075'):
     theta = np.linspace(0, 2 * np.pi, N, endpoint=False)
     pts = np.stack([centerPoint[0] + radius * np.cos(theta), centerPoint[1] + radius * np.sin(theta)], axis=1)
     A = dict(vertices=pts)    
-    #args = 'qa' + str(maxArea)
-    #args = 'qa0.0000075'
-    #args = 'qa0.0000035'
     B = tr.triangulate(A, args)
-
     return np.array(B.get('vertices'))
 
 def sampleRing2D(centerPoint, r1, r2, N1, N2, args = 'qpa0.0000075'):

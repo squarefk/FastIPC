@@ -82,25 +82,36 @@ if demoSetA[2]:
         
         if test:
 
-            GfList = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6]
-            percentList = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6]
-            dMinList = [0.1, 0.25, 0.4]
+            p = 1e-5
+            dMin = 0.25
+            minGf = 2.48e-7
+            maxGf = 3.04e-7
+            diff = maxGf - minGf
+            iters = 10
+            deltaGf = diff / float(iters)
+
+            # Gf = 1e-3
+            # dMinList = 0.25
+            # minPercent = 2.47502325e-3
+            # maxPercent = 2.4750233e-3
+            # diff = maxPercent - minPercent
+            # iters = 100
+            # deltaP = diff / float(iters)
+            
             outputBase = "../output/ringDrop2D_Wedging/p"
 
-            for i in range(len(GfList)):
-                Gf = GfList[i]
-                p = percentList[i]
-                for dMin in dMinList:
-                    outputPath = outputBase + str(p) + "_Gf" + str(Gf) + "_dMin" + str(int(dMin*100)) #+ "/brittle_p.ply"
-                    outputPath2 = outputPath + "/brittle_i.ply"
-                    
-                    mkdirCommand = 'mkdir ' + outputPath
-                    subprocess.call([mkdirCommand], shell=True)
+            for i in range(iters):
+                Gf = minGf + (deltaGf * i)
+                outputPath = outputBase + str(p) + "_Gf" + str(Gf) + "_dMin" + str(dMin) #+ "/brittle_p.ply"
+                outputPath2 = outputPath + "/brittle_i.ply"
+                
+                mkdirCommand = 'mkdir ' + outputPath
+                subprocess.call([mkdirCommand], shell=True)
 
-                    outputPath += "/brittle_p.ply"
-                    
-                    runCommand = 'python3 simpleRingDrop2D.py ' + str(p) + ' ' + str(Gf) + ' ' + str(dMin) + ' ' + outputPath + ' ' + outputPath2
-                    subprocess.call([runCommand], shell=True)
+                outputPath += "/brittle_p.ply"
+                
+                runCommand = 'python3 simpleRingDrop2D.py ' + str(p) + ' ' + str(Gf) + ' ' + str(dMin) + ' ' + outputPath + ' ' + outputPath2
+                subprocess.call([runCommand], shell=True)
 
 
 if demoSetA[3]:
@@ -108,22 +119,21 @@ if demoSetA[3]:
         
         if test:
 
-            GfList = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6]
-            percentList = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6]
-            dMinList = [0.1, 0.25, 0.4]
+            GfList = [5e-4]
+            percentList = [1e-3]
+            dMinList = [0.25, 0.4]
             outputBase = "../output/bulletShoot2D_Wedging/p"
 
-            for i in range(len(GfList)):
-                Gf = GfList[i]
-                p = percentList[i]
-                for dMin in dMinList:
-                    outputPath = outputBase + str(p) + "_Gf" + str(Gf) + "_dMin" + str(int(dMin*100)) #+ "/brittle_p.ply"
-                    outputPath2 = outputPath + "/brittle_i.ply"
-                    
-                    mkdirCommand = 'mkdir ' + outputPath
-                    subprocess.call([mkdirCommand], shell=True)
+            for Gf in GfList:
+                for p in percentList:
+                    for dMin in dMinList:
+                        outputPath = outputBase + str(p) + "_Gf" + str(Gf) + "_dMin" + str(int(dMin*100)) #+ "/brittle_p.ply"
+                        outputPath2 = outputPath + "/brittle_i.ply"
+                        
+                        mkdirCommand = 'mkdir ' + outputPath
+                        subprocess.call([mkdirCommand], shell=True)
 
-                    outputPath += "/brittle_p.ply"
-                    
-                    runCommand = 'python3 bulletShoot2D.py ' + str(p) + ' ' + str(Gf) + ' ' + str(dMin) + ' ' + outputPath + ' ' + outputPath2
-                    subprocess.call([runCommand], shell=True)
+                        outputPath += "/brittle_p.ply"
+                        
+                        runCommand = 'python3 dirichletBulletShoot2D.py ' + str(p) + ' ' + str(Gf) + ' ' + str(dMin) + ' ' + outputPath + ' ' + outputPath2
+                        subprocess.call([runCommand], shell=True)
