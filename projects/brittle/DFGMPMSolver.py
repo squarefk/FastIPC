@@ -72,12 +72,14 @@ class DFGMPMSolver:
 
         #AnisoMPM Damage Parameters
         self.eta = 1.0
-        self.sigmaC = 1.0
+        self.sigmaCRef = 1.0
+        self.sigmaC = ti.field(dtype=float, shape=self.numParticles) #each particle can have different sigmaC
+        self.dTildeH = ti.field(dtype=float, shape=self.numParticles) #keep track of the maximum driving force seen by this particle
         self.zeta = 1.0
         self.damageLaplacians = ti.field(dtype=float, shape=self.numParticles) #store the damage laplacians
         self.useAnisoMPMDamageList = ti.field(dtype=int, shape=self.numParticles)
         self.useAnisoMPMDamage = False
-        self.grid_d = ti.field(dtype=float, shape=(self.nGrid, self.nGrid)) #grid damage structure
+        self.grid_d = ti.Vector.field(4, dtype=float, shape=(self.nGrid, self.nGrid)) #grid damage structure, need both fields as well as numerator accumulator and denom accumulator
         #self.grid_d_denom = ti.field(dtype=float, shape=(self.nGrid, self.nGrid)) #grid damage structure
         #self.grid_laplacians = ti.field(dtype=float, shape=(self.nGrid, self.nGrid)) #store the grid laplacian operators for later computing damage laplacians
 
@@ -263,6 +265,14 @@ class DFGMPMSolver:
 
     ##########
 
+    #AnisoMPM Function Evaluations
+
+    @ti.func
+    def macaulay(self, x):
+        return (x + abs(x)) / 2.0
+
+    ##########
+
     #Simulation Routines
     @ti.kernel
     def reinitializeStructures(self):
@@ -286,6 +296,7 @@ class DFGMPMSolver:
             self.gridDG[i, j] = [0, 0] #reset grid node damage gradients
             self.gridMaxNorm[i,j] = 0 #reset max norm DG found at the grid node
             self.separable[i,j] = -1 #-1 for only one field, 0 for not separable, and 1 for separable
+            self.grid_d[i,j] = [0, 0, 0, 0]
         
         #Clear neighbor look up structures
         for I in ti.grouped(self.gridNumParticles):
@@ -339,51 +350,6 @@ class DFGMPMSolver:
                 self.sp[p] = 0
 
     @ti.kernel
-    def damageP2G(self):
-        
-        #damageP2G so we can compute the Laplacians
-        for p in range(self.numParticles): 
-            
-            #for particle p, compute base index
-            base = (self.x[p] * self.invDx - 0.5).cast(int)
-            fx = self.x[p] * self.invDx - base.cast(float)
-            
-            # Quadratic kernels  [http://mpm.graphics   Eqn. 123, with x=fx, fx-1,fx-2]
-            w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2] #2x3 in 2d
-
-            #Add damage contributions to grid nodes
-            for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
-                offset = ti.Vector([i, j])
-                gridIdx = base + offset                
-                weight = w[i][0] * w[j][1]
-
-                maxD = max(self.Dp[p], self.sp[p]) #use max of damage and surface particle markers so we detect green case correctly
-                self.grid_d[gridIdx] += weight * maxD #add damage to the grid
-
-    @ti.kernel
-    def computeLaplacians(self):
-        #basically G2P but to get damage laplacians
-        for p in range(self.numParticles): 
-            
-            #for particle p, compute base index
-            base = (self.x[p] * self.invDx - 0.5).cast(int)
-            fx = self.x[p] * self.invDx - base.cast(float)
-            
-            # Quadratic kernels  [http://mpm.graphics   Eqn. 123, with x=fx, fx-1,fx-2]
-            w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2] #2x3 in 2d
-            ddw = [1, -2, 1] #constant so we don't need more than 1x3 for 2d and 3d 
-
-            #Add damage contributions to grid nodes
-            for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
-                offset = ti.Vector([i, j])
-                gridIdx = base + offset                
-
-                #from ziran 2d: self.invDx**2 * (ddw[0](i) * w[1][j]) + (w[0][i] * ddw[1](j))
-                #from ziran 3d: self.invDx**2 * ((ddw[0](i) * w[1][j] * w[2][k]) + (ddw[1](i) * w[0][i] * w[2][k]) + (ddw[2](i) * w[0][i] *  w[1][j]))
-                laplacian = self.invDx**2 * ((ddw[i] * w[j][1]) + (w[i][0] * ddw[j]))
-                self.damageLaplacians[p] += self.grid_d[gridIdx] * laplacian
-
-    @ti.kernel
     def updateDamage(self):
         for p in range(self.numParticles):
             
@@ -422,7 +388,7 @@ class DFGMPMSolver:
                 #Update Particle Damage (only if maxEigVal is greater than this particle's sigmaF)
                 if(maxEigVal > self.sigmaF[p]): 
                     dNew = min(1.0, (1 + self.Hs[p]) * (1 - (self.sigmaF[p] / maxEigVal))) #take min with 1 to ensure we do not exceed 1
-                    self.Dp[p] = max(self.Dp[p], dNew) #irreversibility condition, cracks cannot heal          
+                    self.Dp[p] = max(self.Dp[p], dNew) #irreversibility condition, cracks cannot heal 
             
     @ti.kernel
     def computeParticleDG(self):
@@ -537,6 +503,125 @@ class DFGMPMSolver:
                     self.grid_m[i,j][0] += self.grid_m[i,j][1]
                     self.grid_m[i,j][1] = 0.0 #empty this in case we check mass again later
                     self.separable[i,j] = 0
+
+    @ti.kernel
+    def damageP2G(self):
+        
+        #damageP2G so we can compute the Laplacians
+        for p in range(self.numParticles): 
+            
+            #for particle p, compute base index
+            base = (self.x[p] * self.invDx - 0.5).cast(int)
+            fx = self.x[p] * self.invDx - base.cast(float)
+            
+            # Quadratic kernels  [http://mpm.graphics   Eqn. 123, with x=fx, fx-1,fx-2]
+            w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2] #2x3 in 2d
+
+            #Add damage contributions to grid nodes
+            for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
+                offset = ti.Vector([i, j])
+                gridIdx = base + offset                
+                weight = w[i][0] * w[j][1]
+
+                #Treat as either single-field or two-field
+                if self.separable[i,j] != 1:
+                    #Single Field
+                    self.grid_d[gridIdx][0] += weight * self.Dp[p]
+                    self.grid_d[gridIdx][2] += weight
+                else:
+                    #Two-Field
+                    fieldIdx = self.particleAF[p][i*3 + j]
+                    if fieldIdx == 0:
+                        self.grid_d[gridIdx][0] += weight * self.Dp[p]
+                        self.grid_d[gridIdx][2] += weight
+                    else:
+                        self.grid_d[gridIdx][1] += weight * self.Dp[p]
+                        self.grid_d[gridIdx][3] += weight
+        
+        #Now divide out the denominators for grid damage     
+        for i,j in self.grid_d:
+            gridIdx = ti.Vector([i, j])
+            if(self.grid_d[gridIdx][2] > 0): 
+                self.grid_d[gridIdx][0] /= self.grid_d[gridIdx][2] #divide numerator by denominator
+            else:
+                self.grid_d[gridIdx][0] = 0.0
+            if self.separable[gridIdx] == 1:
+                if(self.grid_d[gridIdx][3] > 0): 
+                    self.grid_d[gridIdx][1] /= self.grid_d[gridIdx][3] #divide numerator by denominator
+                else:
+                    self.grid_d[gridIdx][1] = 0.0
+
+    @ti.kernel
+    def computeLaplacians(self):
+        #basically G2P but to get damage laplacians
+        for p in range(self.numParticles): 
+            
+            #for particle p, compute base index
+            base = (self.x[p] * self.invDx - 0.5).cast(int)
+            fx = self.x[p] * self.invDx - base.cast(float)
+            
+            # Quadratic kernels  [http://mpm.graphics   Eqn. 123, with x=fx, fx-1,fx-2]
+            w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2] #2x3 in 2d
+            ddw = [1, -2, 1] #constant so we don't need more than 1x3 for 2d and 3d 
+
+            #Add damage contributions to grid nodes
+            self.damageLaplacians[p] = 0.0
+            for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
+                offset = ti.Vector([i, j])
+                gridIdx = base + offset                
+
+                #from ziran 2d: self.invDx**2 * (ddw[0](i) * w[1][j]) + (w[0][i] * ddw[1](j))
+                #from ziran 3d: self.invDx**2 * ((ddw[0](i) * w[1][j] * w[2][k]) + (ddw[1](i) * w[0][i] * w[2][k]) + (ddw[2](i) * w[0][i] *  w[1][j]))
+                laplacian = self.invDx**2 * ((ddw[i] * w[j][1]) + (w[i][0] * ddw[j]))
+
+                if self.separable[gridIdx] != 1:
+                    #treat as one field
+                    self.damageLaplacians[p] += self.grid_d[gridIdx][0] * laplacian
+                else:
+                    #node has two fields so choose the correct velocity contribution from the node
+                    fieldIdx = self.particleAF[p][i*3 + j] #grab the field that this particle is in for this node
+                    if fieldIdx == 0:
+                        self.damageLaplacians[p] += self.grid_d[gridIdx][0] * laplacian
+                    else:
+                        self.damageLaplacians[p] += self.grid_d[gridIdx][1] * laplacian
+
+    @ti.kernel
+    def updateAnisoMPMDamage(self):
+        for p in range(self.numParticles):
+            
+            U, sig, V = ti.svd(self.F[p])
+            J = 1.0
+
+            for d in ti.static(range(self.dim)):
+                J *= sig[d, d]
+
+            #---------ANISOMPM DAMAGE---------
+            if self.useAnisoMPMDamageList[p] and self.useDFG:
+                #Compute Geometric Resistance
+                dp = self.Dp[p]
+                Dc = dp - (self.l0**2 * self.damageLaplacians[p])
+                
+                #Get cauchy stress and its eigenvalues and eigenvectors, then construct sigmaPlus
+                kirchoff = self.kirchoff_NeoHookean(self.F[p], J, self.mu[p], self.la[p]) #compute kirchoff stress using the NH model from homel2016                
+                e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
+                sigmaPlus = (self.macaulay(e[0]) * v1.outer_product(v1)) + (self.macaulay(e[1]) * v2.outer_product(v2))
+
+                #Compute Phi
+                A = ti.Matrix.identity(float, self.dim) #set up structural tensor for later use
+                Asig = A @ sigmaPlus
+                sigA = sigmaPlus @ A
+                contraction = 0.0
+                for i in ti.static(range(self.dim)):
+                    for j in ti.static(range(self.dim)):
+                        contraction += Asig[i,j] * sigA[i,j]
+                phi = (1.0 / self.sigmaC[p]**2.0) * contraction
+
+                dTilde = max(self.dTildeH[p], self.zeta * self.macaulay(phi - 1)) #make sure driving force always increasing
+                self.dTildeH[p] = dTilde #update max
+
+                diff = ((1 - dp) * dTilde) - Dc
+                newD = dp + ((self.dt / self.eta) * self.macaulay(diff))
+                self.Dp[p] = min(1.0, newD)
 
     @ti.kernel
     def momentumP2GandComputeForces(self):
@@ -958,15 +1043,24 @@ class DFGMPMSolver:
         else:
             self.useDamage = True
 
-    def addAnisoMPMDamage(self, damageList, sigmaC, eta, dMin, zeta = 1.0):
+    def addAnisoMPMDamage(self, damageList, eta, dMin, sigmaC = -1.0, percentStretch = -1.0, zeta = 1.0):
+
+        if percentStretch < 0 and sigmaC < 0:
+            ValueError('ERROR: you must set either percentStretch or sigmaC to use AnisoMPM Damage')
+        elif percentStretch > 0 and sigmaC > 0:
+            ValueError('ERROR: you cannot set both percentStretch and sigmaC')
 
         print("[AnisoMPM Damage] Simulating with AnisoMPM Damage:")
-        print("[AnisoMPM Damage] SigmaC: ", sigmaC)
+        if percentStretch > 0: 
+            print("[AnisoMPM Damage] Percent Stretch: ", percentStretch)
+        else:
+            print("[AnisoMPM Damage] SigmaC:", sigmaC)
         print("[AnisoMPM Damage] Eta: ", eta)
         print("[AnisoMPM Damage] Zeta: ", zeta)
         print("[AnisoMPM Damage] dMin: ", dMin)
         self.damageList = np.array(damageList)
-        self.sigmaC = sigmaC
+        self.sigmaCRef = sigmaC
+        self.percentStretch = percentStretch
         self.eta = eta
         self.zeta = zeta
         self.dMin = dMin
@@ -1033,13 +1127,9 @@ class DFGMPMSolver:
             if self.elapsedTime == 0:
                 with Timer("Surface Detection"):
                     self.surfaceDetection()
-            if self.useAnisoMPMDamage:
-                with Timer("Damage P2G"):
-                    self.damageP2G()
-                with Timer("Compute Laplacians"):
-                    self.computeLaplacians()
-            with Timer("Update Damage"): #NOTE: make sure to do this before we compute the damage gradients!
-                self.updateDamage()
+            if self.useRankineDamage:
+                with Timer("Update Damage"): #NOTE: make sure to do this before we compute the damage gradients!
+                    self.updateDamage()
             with Timer("Compute Particle DGs"):
                 self.computeParticleDG()
             with Timer("Compute Grid DGs"):
@@ -1048,6 +1138,13 @@ class DFGMPMSolver:
                 self.massP2G()
             with Timer("Compute Separability"):
                 self.computeSeparability()
+            if self.useAnisoMPMDamage:
+                with Timer("Damage P2G"):
+                    self.damageP2G()
+                with Timer("Compute Laplacians"):
+                    self.computeLaplacians()
+                with Timer("Update AnisoMPM Damage"):
+                    self.updateAnisoMPMDamage()
         
         with Timer("Momentum P2G and Forces"):
             self.momentumP2GandComputeForces()
@@ -1078,7 +1175,7 @@ class DFGMPMSolver:
     @ti.kernel
     def reset(self, arr: ti.ext_arr(), partCount: ti.ext_arr(), initVel: ti.ext_arr(), pMasses: ti.ext_arr(), pVols: ti.ext_arr(), EList: ti.ext_arr(), nuList: ti.ext_arr(), damageList: ti.ext_arr()):
         self.gravity[None] = [0, self.gravMag]
-        stretchedSigmaF = 0.0
+        stretchedSigma = 0.0
         for i in range(self.numParticles):
             self.x[i] = [ti.cast(arr[i,0], ti.f64), ti.cast(arr[i,1], ti.f64)]
             self.material[i] = 0
@@ -1089,7 +1186,9 @@ class DFGMPMSolver:
             self.Dp[i] = 0
             self.sp[i] = 0
             self.sigmaMax[i] = 0.0
-            if self.useAnisoMPMDamage: self.damageLaplacians[i] = 0.0
+            if self.useAnisoMPMDamage: 
+                self.damageLaplacians[i] = 0.0
+                self.dTildeH[i] = 0.0
             # if (self.x[i][0] > 0.45) and self.x[i][1] > 0.546 and self.x[i][1] < 0.554: #put damaged particles as a band in the center
             #     self.Dp[i] = 1
             #     self.material[i] = 1
@@ -1103,7 +1202,6 @@ class DFGMPMSolver:
             for i in range(self.numObjects):
                 objCount = partCount[i]
                 for j in range(objCount):
-                    stretchedSigmaF = -1.0
                     self.v[idx] = [ti.cast(initVel[i,0], ti.f64), ti.cast(initVel[i,1], ti.f64)]
                     self.mp[idx] = ti.cast(pMasses[i], ti.f64)
                     self.Vp[idx] = ti.cast(pVols[i], ti.f64)
@@ -1114,6 +1212,17 @@ class DFGMPMSolver:
                     self.la[idx] = E * nu / ((1+nu) * (1 - 2 * nu))
                     if self.useAnisoMPMDamage:
                         self.useAnisoMPMDamageList[idx] = ti.cast(damageList[i], ti.i32)
+                        if self.percentStretch > 0:
+                            #compute sigmaC based on percentStretch
+                            stretch = 1 + self.percentStretch
+                            stretchF = ti.Matrix([[stretch, 0], [0, stretch]])
+                            stretchJ = stretch**2
+                            stretchKirchoff = self.kirchoff_NeoHookean(stretchF, stretchJ, self.mu[idx], self.la[idx])
+                            e, v1, v2 = self.eigenDecomposition2D(stretchKirchoff / stretchJ)
+                            stretchedSigma = e[0] if e[0] > e[1] else e[1]
+                            self.sigmaC[idx] = stretchedSigma
+                        else:
+                            self.sigmaC[idx] = self.sigmaCRef
                     if self.useRankineDamage:
                         self.useRankineDamageList[idx] = ti.cast(damageList[i], ti.i32)
                         if self.percentStretch > 0:
@@ -1123,15 +1232,19 @@ class DFGMPMSolver:
                             stretchJ = stretch**2
                             stretchKirchoff = self.kirchoff_NeoHookean(stretchF, stretchJ, self.mu[idx], self.la[idx])
                             e, v1, v2 = self.eigenDecomposition2D(stretchKirchoff / stretchJ)
-                            stretchedSigmaF = e[0] if e[0] > e[1] else e[1]
-                            self.sigmaF[idx] = stretchedSigmaF
+                            stretchedSigma = e[0] if e[0] > e[1] else e[1]
+                            self.sigmaF[idx] = stretchedSigma
                         else:
                             self.sigmaF[idx] = self.sigmaFRef #if we don't have a percentStretch we instead use sigmaFRef (which we should have)
                     idx += 1 
 
         if self.useRankineDamage:
             if self.percentStretch > 0:
-                print("[Rankine Damage] Stretched SigmaF:", stretchedSigmaF)
+                print("[Rankine Damage] Stretched SigmaF:", stretchedSigma)
+
+        if self.useAnisoMPMDamage:
+            if self.percentStretch > 0:
+                print("[AnisoMPM Damage] Stretched SigmaC:", stretchedSigma)
 
         #Now set up damage settings
         #Compute Weibull Distributed SigmaF for TimeToFailure Model
@@ -1140,7 +1253,7 @@ class DFGMPMSolver:
             if self.useWeibull:
                 if self.useRankineDamageList[p]:
                     R = ti.cast(ti.random(ti.f32), ti.f64) #ti.random is broken for f64, so use f32
-                    sigmaF = stretchedSigmaF
+                    sigmaF = stretchedSigma
                     if self.percentStretch <= 0:
                         sigmaF = self.sigmaFRef #use this if we don't have the stretch
                     self.sigmaF[p] = sigmaF * ( ((self.vRef * ti.log(R)) / (self.Vp[p] * ti.log(0.5)))**(1.0 / self.m) )
@@ -1171,7 +1284,7 @@ class DFGMPMSolver:
         writer.add_vertex_channel("m_p", "double", self.mp.to_numpy()) #add damage
         writer.add_vertex_channel("Dp", "double", self.Dp.to_numpy()) #add damage
         if self.useRankineDamage: writer.add_vertex_channel("sigmaF", "double", self.sigmaF.to_numpy()) #add sigmaF
-        if self.useRankineDamage: writer.add_vertex_channel("sigmaMax", "double", self.sigmaMax.to_numpy()) #add sigmaMax
+        writer.add_vertex_channel("sigmaMax", "double", self.sigmaMax.to_numpy()) #add sigmaMax
         if self.useAnisoMPMDamage: writer.add_vertex_channel("damageLaplacian", "double", self.damageLaplacians.to_numpy()) #add damageLaplacians
         writer.add_vertex_channel("sp", "int", self.sp.to_numpy()) #add surface tracking
         writer.add_vertex_channel("useDamage", "int", self.useTimeToFailureDamageList.to_numpy())
@@ -1191,6 +1304,7 @@ class DFGMPMSolver:
         gridFrictionForces = np.zeros((self.nGrid**2, 4), dtype=float)
         np_DG = np.zeros((self.nGrid**2, 2), dtype=float)
         np_separabilityValue = np.zeros((self.nGrid**2, 2), dtype=float)
+        np_gridDamage = np.zeros((self.nGrid**2, 2), dtype=float)
         for i in range(self.nGrid):
             for j in range(self.nGrid):
                 gridIdx = i * self.nGrid + j
@@ -1201,6 +1315,8 @@ class DFGMPMSolver:
                 np_DG[gridIdx, 1] = self.gridDG[i,j][1]
                 np_separabilityValue[gridIdx, 0] = self.gridSeparability[i,j][0]
                 np_separabilityValue[gridIdx, 1] = self.gridSeparability[i,j][1]
+                np_gridDamage[gridIdx, 0] = self.grid_d[i,j][0]
+                np_gridDamage[gridIdx, 1] = self.grid_d[i,j][1]
                 gridVelocities[gridIdx, 0] = self.grid_v[i, j, 0][0]
                 gridVelocities[gridIdx, 1] = self.grid_v[i, j, 0][1]
                 gridVelocities[gridIdx, 2] = self.grid_v[i, j, 1][0]
@@ -1221,6 +1337,9 @@ class DFGMPMSolver:
         writer2.add_vertex_channel("sep", "int", np_separability)
         writer2.add_vertex_channel("sep1", "float", np_separabilityValue[:,0])
         writer2.add_vertex_channel("sep2", "float", np_separabilityValue[:,1])
+        if self.useAnisoMPMDamage:
+            writer2.add_vertex_channel("d1", "float", np_gridDamage[:,0])
+            writer2.add_vertex_channel("d2", "float", np_gridDamage[:,1])
         writer2.add_vertex_channel("DGx", "double", np_DG[:,0]) #add particle DG x
         writer2.add_vertex_channel("DGy", "double", np_DG[:,1]) #add particle DG y
         writer2.add_vertex_channel("N_field1_x", "double", gridNormals[:,0]) #add grid_n for field 1 x

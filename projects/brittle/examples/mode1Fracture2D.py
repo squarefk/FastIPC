@@ -12,7 +12,7 @@ gravity = 0.0
 outputPath = "../output/mode1Fracture/brittle.ply"
 outputPath2 = "../output/mode1Fracture/brittle_nodes.ply"
 fps = 30
-endFrame = 1 * fps
+endFrame = 2 * fps
 
 E, nu = 1e4, 0.15 #TODO
 EList = [E]
@@ -55,9 +55,14 @@ useAPIC = False
 frictionCoefficient = 0.0
 flipPicRatio = 0.9
 
+# python3 script.py percentStretch eta zeta dMin outputPath1 outputPath2
 if(len(sys.argv) == 6):
     outputPath = sys.argv[4]
     outputPath2 = sys.argv[5]
+
+if(len(sys.argv) == 7):
+    outputPath = sys.argv[5]
+    outputPath2 = sys.argv[6]
 
 solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
@@ -68,26 +73,34 @@ solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, v
 
 #Add Damage Model
 #E=1e5, Gf=1e-3, p=1e-3 looks wild, lots of little fractures
-percentStretch = 1e-3 # 1.12e-4 < p < 1.123e-4 NOTE: trying 2e-4 to see if we can get it to fracture later when it has some give to separate, (it was too low)
+percentStretch = 8e-4 # 1.12e-4 < p < 1.123e-4 NOTE: trying 2e-4 to see if we can get it to fracture later when it has some give to separate, (it was too low)
 sigmaF = 33 #Gf1e-2: x < sigmaF < y ; Gf1e-4: 33 < sigmaF < 33.5 ; Gf1e-5: 10.572 < sigmaF < 10.575
 dMin = 0.25
 Gf = 1e-4 #1e-5
 
 #AnisoMPM Params
 sigmaC = 30
-eta = 1
-zeta = 1
+p = 1.5e-2 #6e-3 < ? < 8e-3
+eta = 1e-4
+zeta = 1e4
 
 if(len(sys.argv) == 6):
     percentStretch = float(sys.argv[1])
     Gf = float(sys.argv[2])
     dMin = float(sys.argv[3])
 
+if(len(sys.argv) == 7):
+    p = float(sys.argv[1])
+    eta = float(sys.argv[2])
+    zeta = float(sys.argv[3])
+    dMin = float(sys.argv[4])
+
 damageList = [1]
 if useDFG == True: 
     #solver.addRankineDamage(damageList,Gf, dMin, percentStretch = percentStretch)
     #solver.addRankineDamage(damageList,Gf, dMin, sigmaFRef = sigmaF)
-    solver.addAnisoMPMDamage(damageList, sigmaC, eta, dMin, zeta)
+    #solver.addAnisoMPMDamage(damageList, eta, dMin, sigmaC = sigmaC, zeta = zeta)
+    solver.addAnisoMPMDamage(damageList, eta, dMin, percentStretch = p, zeta = zeta)
 
 #Collision Objects
 lowerCenter = (0.0, minPoint[1] + grippedMaterial)

@@ -16,12 +16,8 @@ ti.init(arch=ti.gpu) # Try to run on GPU
 
 @ti.kernel
 def test():
-    for i in range(10):
-        num = ti.random()
-        print(num)
-    x = 10
-    y = 15
-    print(ti.atomic_max(x, y))
+    I = ti.Matrix.identity(float, 2)
+    print('contraction:', I*I) #NOTE: this turns out to NOT be contraction lol
     # for i in range(n):
     #     ti.append(x.parent(), [], i)
 

@@ -78,13 +78,21 @@ percentStretch = 1e-3 #9.5e-4
 Gf = 5e-4 #5e-4
 dMin = 0.4 #TODO, this controls how much damage must accumulate before we allow a node to separate
 
+#AnisoMPM Params
+sigmaC = 30
+p = 1e-1 #6e-3 < ? < 8e-3
+eta = 1e-5
+zeta = 1e4
+
 if(len(sys.argv) == 6):
     percentStretch = float(sys.argv[1])
     Gf = float(sys.argv[2])
     dMin = float(sys.argv[3])
 
 damageList = [1, 0]
-if useDFG == True: solver.addRankineDamage(damageList, percentStretch, Gf, dMin)
+if useDFG == True: 
+    #solver.addRankineDamage(damageList, percentStretch, Gf, dMin)
+    solver.addAnisoMPMDamage(damageList, eta, dMin, percentStretch = p, zeta = zeta)
 
 useWeibull = False
 vRef = volWall
