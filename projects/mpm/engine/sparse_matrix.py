@@ -413,11 +413,12 @@ class CGSolver:
 
         zTr = self.dotProduct(self.r, self.q)
         residual_preconditioned_norm = ti.sqrt(zTr)
-        max_iterations = 1000
+        max_iterations = 5000
         for cnt in range(max_iterations):
-            # print(cnt, residual_preconditioned_norm)
-            if residual_preconditioned_norm < 1e-10:
-                # print("CG terminates at", cnt, "; residual =", residual_preconditioned_norm)
+            # if cnt % 100 == 0:
+            #     print(cnt, residual_preconditioned_norm)
+            if residual_preconditioned_norm < 1e-9:
+                print("CG terminates at", cnt, "; residual =", residual_preconditioned_norm)
                 return
             # print(zTrK)
             self.computAp(self.p)

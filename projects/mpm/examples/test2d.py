@@ -8,7 +8,7 @@ from common.utils.logger import *
 ti.init(arch=ti.cpu, default_fp=ti.f64)
 # ti.init(arch=ti.gpu, default_fp=ti.f64)
 
-test_case = 1
+test_case = 10
 fps = 24
 max_num_frame =200
 
@@ -22,12 +22,16 @@ if test_case == 0:  # jello drop on ground
     mpm.symplectic = True
     mpm.setDXandDT(DX=0.0078125, DT=0.00015625)
     mpm.setGravity((0, -1.0))
-    mpm.setLameParameter(E=1e5, nu=0.2)
+    mpm.setLameParameter(E=40, nu=0.2)
 
-    mpm.add_cube(min_corner=(0.4, 0.6),
-                 max_corner=(0.7, 0.9),
+    mpm.add_cube(min_corner=(0.5, 0.6),
+                 max_corner=(0.6, 0.9),
+                 num_particles=3333,
+                 rho=2)
+    mpm.add_cube(min_corner=(0.4, 0.2),
+                 max_corner=(0.7, 0.5),
                  num_particles=10000,
-                 rho=1000)
+                 rho=2)
     mpm.add_analytic_box(min_corner=(0.0, 0.0), max_corner=(1.0, 0.05))
 
 if test_case == 10:  # jello drop on mound

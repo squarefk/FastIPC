@@ -6,8 +6,9 @@ from projects.mpm.engine.mpm_solver_implicit import MPMSolverImplicit
 from common.utils.logger import *
 
 ti.init(arch=ti.cpu, default_fp=ti.f64)
+# ti.init(arch=ti.gpu, default_fp=ti.f64)
 
-test_case = 1
+test_case = 10
 
 
 directory = 'output/3d/' + str(test_case) + '/'
@@ -29,7 +30,7 @@ if test_case == 1:  # jello drop on ground
     mpm.add_analytic_box(min_corner=(0.0, 0.0, 0.0), max_corner=(1.0, 0.05, 1.0))
 
 if test_case == 10:  # jello drop on ground
-    mpm.symplectic = True
+    mpm.symplectic = False
     
     mpm.setDXandDT(DX=0.15625,DT=0.0003125)
     mpm.setGravity((0, -100, 0))
