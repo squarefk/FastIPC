@@ -80,7 +80,7 @@ Gf = 1e-4 #1e-5
 
 #AnisoMPM Params
 sigmaC = 30
-p = 1.5e-2 #6e-3 < ? < 8e-3
+p = 1.7e-2 #1.5e-3 < ? < 1.8e-2
 eta = 1e-4
 zeta = 1e4
 

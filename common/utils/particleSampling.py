@@ -36,6 +36,10 @@ def readOBJ(filepath):
 
     return np.array(positions)
 
+#Read OBJ and then triangulate using Triangle
+def readOBJAndTriangulate(filepath, args):
+    return 0
+
 #Use Triangle to sample a triangulated square
 def sampleBox2D(minPoint, maxPoint, args = 'qa0.0000075'):
     A = dict(vertices=np.array(((minPoint[0], minPoint[1]), (maxPoint[0], minPoint[1]), (maxPoint[0], maxPoint[1]), (minPoint[0], maxPoint[1]))))
@@ -188,6 +192,24 @@ def sampleBoxGrid2D(minPoint, maxPoint, N, theta, dx, dy):
     np_pos = np.array(positions)
 
     return np_pos
+
+#Analytic Box Grid Particle Sample
+def sampleBoxGrid3D(minPoint, maxPoint, N):
+    dX = maxPoint[0] - minPoint[0]
+    dY = maxPoint[1] - minPoint[1]
+    dZ = maxPoint[2] - minPoint[2]
+    xDiff = dX / float(N)
+    yDiff = dY / float(N)
+    zDiff = dZ / float(N)
+    positions = []
+    #positions.append(minPoint)
+    for i in range(N+1):
+        for j in range(N+1):
+            for k in range(N+1):
+                vertex = np.array((minPoint[0] + (xDiff * i), minPoint[1] + (yDiff * j), minPoint[2] + (zDiff * k)))
+                positions.append(vertex)
+
+    return np.array(positions)
 
 #Translated Box computed with Triangle
 def sampleTranslatedBox2D(minPoint, maxPoint, N, theta, dx, dy, args = 'qa0.0000075'):
