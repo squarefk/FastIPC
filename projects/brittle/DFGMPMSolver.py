@@ -172,6 +172,13 @@ class DFGMPMSolver:
 
     ##########
 
+    #General Sim Functions
+
+    def stencil_range(self):
+        return ti.ndrange(*((3, ) * self.dim))
+
+    ##########
+
     #Constitutive Model
     @ti.func 
     def kirchoff_FCR(self, F, R, J, mu, la):
@@ -429,8 +436,7 @@ class DFGMPMSolver:
 
             #Now iterate over the grid nodes particle p maps to to set Di!
             base = (pos * self.invDx - 0.5).cast(int)
-            for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
-                offset = ti.Vector([i, j])
+            for offset in ti.static(ti.grouped(self.stencil_range())): # Loop over grid node stencil
                 gridIdx = base + offset
                 ti.atomic_max(self.gridMaxNorm[gridIdx], nablaDBar.norm()) #take max between our stored gridMaxNorm at this node and the norm of our nablaDBar
 
@@ -441,10 +447,8 @@ class DFGMPMSolver:
             pos = self.x[p]
             base = (pos * self.invDx - 0.5).cast(int)
             currParticleDG = self.particleDG[p]
-            for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
-                offset = ti.Vector([i, j])
+            for offset in ti.static(ti.grouped(self.stencil_range())): # Loop over grid node stencil
                 gridIdx = base + offset
-
                 if self.gridMaxNorm[gridIdx] == currParticleDG.norm():
                     self.gridDG[gridIdx] = currParticleDG
 
@@ -461,11 +465,12 @@ class DFGMPMSolver:
             w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2]
 
             #P2G for mass, set active fields, and compute separability conditions
-            for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
-                offset = ti.Vector([i, j])
+            for offset in ti.static(ti.grouped(self.stencil_range())): # Loop over grid node stencil
                 gridIdx = base + offset
                 dpos = (offset.cast(float) - fx) * self.dx
-                weight = w[i][0] * w[j][1]
+                weight = 1.0
+                for d in ti.static(range(self.dim)):
+                    weight *= w[offset[d]][d]
 
                 maxD = max(self.Dp[p], self.sp[p]) #use max of damage and surface particle markers so we detect green case correctly
 
@@ -474,13 +479,13 @@ class DFGMPMSolver:
                     self.grid_m[gridIdx][0] += weight * self.mp[p] #add mass to active field for this particle
                     self.gridSeparability[gridIdx][0] += weight * maxD * self.mp[p] #numerator, field 1
                     self.gridSeparability[gridIdx][2] += weight * self.mp[p] #denom, field 1
-                    self.particleAF[p][i*3 + j] = 0 #set this particle's AF to 0 for this grid node
+                    self.particleAF[p][offset[0]*3 + offset[1]] = 0 #set this particle's AF to 0 for this grid node
                     ti.atomic_max(self.gridMaxDamage[gridIdx][0], maxD) #compute the max damage seen in this field at this grid node
                 else:
                     self.grid_m[gridIdx][1] += weight * self.mp[p] #add mass to active field for this particle
                     self.gridSeparability[gridIdx][1] += weight * maxD * self.mp[p] #numerator, field 2
                     self.gridSeparability[gridIdx][3] += weight * self.mp[p] #denom, field 2
-                    self.particleAF[p][i*3 + j] = 1 #set this particle's AF to 1 for this grid node
+                    self.particleAF[p][offset[0]*3 + offset[1]] = 1 #set this particle's AF to 1 for this grid node
                     ti.atomic_max(self.gridMaxDamage[gridIdx][1], maxD) #compute the max damage seen in this field at this grid node
 
     @ti.kernel
@@ -527,19 +532,20 @@ class DFGMPMSolver:
             w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2] #2x3 in 2d
 
             #Add damage contributions to grid nodes
-            for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
-                offset = ti.Vector([i, j])
-                gridIdx = base + offset                
-                weight = w[i][0] * w[j][1]
+            for offset in ti.static(ti.grouped(self.stencil_range())): # Loop over grid node stencil
+                gridIdx = base + offset   
+                weight = 1.0 #w[i][0] * w[j][1]
+                for d in ti.static(range(self.dim)):
+                    weight *= w[offset[d]][d]
 
                 #Treat as either single-field or two-field
-                if self.separable[i,j] != 1:
+                if self.separable[gridIdx] != 1:
                     #Single Field
                     self.grid_d[gridIdx][0] += weight * self.Dp[p]
                     self.grid_d[gridIdx][2] += weight
                 else:
                     #Two-Field
-                    fieldIdx = self.particleAF[p][i*3 + j]
+                    fieldIdx = self.particleAF[p][offset[0]*3 + offset[1]]
                     if fieldIdx == 0:
                         self.grid_d[gridIdx][0] += weight * self.Dp[p]
                         self.grid_d[gridIdx][2] += weight
@@ -575,20 +581,19 @@ class DFGMPMSolver:
 
             #Add damage contributions to grid nodes
             self.damageLaplacians[p] = 0.0
-            for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
-                offset = ti.Vector([i, j])
+            for offset in ti.static(ti.grouped(self.stencil_range())): # Loop over grid node stencil
                 gridIdx = base + offset                
 
                 #from ziran 2d: self.invDx**2 * (ddw[0](i) * w[1][j]) + (w[0][i] * ddw[1](j))
                 #from ziran 3d: self.invDx**2 * ((ddw[0](i) * w[1][j] * w[2][k]) + (ddw[1](i) * w[0][i] * w[2][k]) + (ddw[2](i) * w[0][i] *  w[1][j]))
-                laplacian = self.invDx**2 * ((ddw[i] * w[j][1]) + (w[i][0] * ddw[j]))
+                laplacian = self.invDx**2 * ((ddw[offset[0]] * w[offset[1]][1]) + (w[offset[0]][0] * ddw[offset[1]])) #TODO: 3D
 
                 if self.separable[gridIdx] != 1:
                     #treat as one field
                     self.damageLaplacians[p] += self.grid_d[gridIdx][0] * laplacian
                 else:
                     #node has two fields so choose the correct velocity contribution from the node
-                    fieldIdx = self.particleAF[p][i*3 + j] #grab the field that this particle is in for this node
+                    fieldIdx = self.particleAF[p][offset[0]*3 + offset[1]] #grab the field that this particle is in for this node
                     if fieldIdx == 0:
                         self.damageLaplacians[p] += self.grid_d[gridIdx][0] * laplacian
                     else:
@@ -663,15 +668,16 @@ class DFGMPMSolver:
             self.sigmaMax[p] = e[0] if e[0] > e[1] else e[1]
 
             #P2G for velocity, force update, and update velocity
-            for i, j in ti.static(ti.ndrange(3, 3)): # Loop over 3x3 grid node neighborhood
-                offset = ti.Vector([i, j])
+            for offset in ti.static(ti.grouped(self.stencil_range())): # Loop over grid node stencil
                 gridIdx = base + offset
                 dpos = (offset.cast(float) - fx) * self.dx
-                weight = w[i][0] * w[j][1]
+                weight = 1.0 #w[i][0] * w[j][1] in 2D
+                for d in ti.static(range(self.dim)):
+                    weight *= w[offset[d]][d]
                 
-                dweight = ti.Vector.zero(float,2)
-                dweight[0] = self.invDx * dw[i][0] * w[j][1]
-                dweight[1] = self.invDx * w[i][0] * dw[j][1]
+                dweight = ti.Vector.zero(float,2) #TODO: 3D
+                dweight[0] = self.invDx * dw[offset[0]][0] * w[offset[1]][1]
+                dweight[1] = self.invDx * w[offset[0]][0] * dw[offset[1]][1]
 
                 force = -self.Vp[p] * kirchoff @ dweight
 
@@ -690,7 +696,7 @@ class DFGMPMSolver:
 
                 else:
                     #treat node as having two fields
-                    fieldIdx = self.particleAF[p][i*3 + j] #grab the field that this particle is in for this node
+                    fieldIdx = self.particleAF[p][offset[0]*3 + offset[1]] #grab the field that this particle is in for this node
                     
                     if(self.useAPIC):
                         self.grid_q[gridIdx, fieldIdx] += self.mp[p] * weight * (self.v[p] + self.C[p] @ dpos) #momentum transfer (APIC)
@@ -824,18 +830,20 @@ class DFGMPMSolver:
             new_v = ti.Vector.zero(float, 2) #contain the blend velocity
             new_C = ti.Matrix.zero(float, 2, 2)
             new_F = ti.Matrix.zero(float, 2, 2)
-            for i, j in ti.static(ti.ndrange(3, 3)): # loop over 3x3 grid node neighborhood
-                dpos = ti.Vector([i, j]).cast(float) - fx
-                gridIdx = base + ti.Vector([i, j])
+            for offset in ti.static(ti.grouped(self.stencil_range())): # Loop over grid node stencil
+                dpos = offset.cast(float) - fx
+                gridIdx = base + offset
                 g_v_n = self.grid_vn[gridIdx, 0] #v_i^n field 1
                 g_v2_n = self.grid_vn[gridIdx, 1] #v_i^n field 2
                 g_v_np1 = self.grid_v[gridIdx, 0] #v_i^n+1 field 1
                 g_v2_np1 = self.grid_v[gridIdx, 1] #v_i^n+1 field 2
-                weight = w[i][0] * w[j][1]
+                weight = 1.0 #w[i][0] * w[j][1] in 2D
+                for d in ti.static(range(self.dim)):
+                    weight *= w[offset[d]][d]
 
-                dweight = ti.Vector.zero(float,2)
-                dweight[0] = self.invDx * dw[i][0] * w[j][1]
-                dweight[1] = self.invDx * w[i][0] * dw[j][1]
+                dweight = ti.Vector.zero(float,2) #TODO: 3D
+                dweight[0] = self.invDx * dw[offset[0]][0] * w[offset[1]][1]
+                dweight[1] = self.invDx * w[offset[0]][0] * dw[offset[1]][1]
 
                 if self.separable[gridIdx] != 1:
                     #treat as one field
@@ -845,7 +853,7 @@ class DFGMPMSolver:
                     new_F += g_v_np1.outer_product(dweight)
                 else:
                     #node has two fields so choose the correct velocity contribution from the node
-                    fieldIdx = self.particleAF[p][i*3 + j] #grab the field that this particle is in for this node
+                    fieldIdx = self.particleAF[p][offset[0]*3 + offset[1]] #grab the field that this particle is in for this node
                     if fieldIdx == 0:
                         new_v_PIC += weight * g_v_np1
                         new_v_FLIP += weight * (g_v_np1 - g_v_n)
