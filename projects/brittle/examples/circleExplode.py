@@ -91,7 +91,8 @@ c = (0.5, 0.5)
 strength = -1e4
 startTime = 0.0
 duration = 3.0 / float(fps)
-solver.addImpulse(c, strength, startTime, duration)
+if useDFG == True:
+    solver.addImpulse(c, strength, startTime, duration)
 
 useWeibull = False
 vRef = vol
