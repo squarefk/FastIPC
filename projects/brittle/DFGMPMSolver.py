@@ -661,8 +661,12 @@ class DFGMPMSolver:
                 gridIdx = base + offset                
 
                 #from ziran 2d: self.invDx**2 * (ddw[0](i) * w[1][j]) + (w[0][i] * ddw[1](j))
-                #from ziran 3d: self.invDx**2 * ((ddw[0](i) * w[1][j] * w[2][k]) + (ddw[1](i) * w[0][i] * w[2][k]) + (ddw[2](i) * w[0][i] *  w[1][j]))
-                laplacian = self.invDx**2 * ((ddw[offset[0]] * w[offset[1]][1]) + (w[offset[0]][0] * ddw[offset[1]])) #TODO: 3D
+                #from ziran 3d: self.invDx**3 * ((ddw[0](i) * w[1][j] * w[2][k]) + (ddw[1](i) * w[0][i] * w[2][k]) + (ddw[2](i) * w[0][i] *  w[1][j]))
+                laplacian = 0.0
+                if ti.static(self.dim == 2):
+                    laplacian = self.invDx**2 * ((ddw[offset[0]] * w[offset[1]][1]) + (w[offset[0]][0] * ddw[offset[1]]))
+                else:
+                    laplacian = self.invDx**3 * ((ddw[offset[0]] * w[offset[1]][1] * w[offset[2]][2]) + (ddw[offset[1]] * w[offset[0]][0] * w[offset[2]][2]) + (ddw[offset[2]] * w[offset[0]][0] *  w[offset[1]][1]))
 
                 if self.separable[gridIdx] != 1:
                     #treat as one field
@@ -758,10 +762,15 @@ class DFGMPMSolver:
                 for d in ti.static(range(self.dim)):
                     weight *= w[offset[d]][d]
                 
-                dweight = ti.Vector.zero(float,2) #TODO: 3D
-                dweight[0] = self.invDx * dw[offset[0]][0] * w[offset[1]][1]
-                dweight[1] = self.invDx * w[offset[0]][0] * dw[offset[1]][1]
-
+                dweight = ti.Vector.zero(float,self.dim)
+                if ti.static(self.dim == 2):
+                    dweight[0] = self.invDx * dw[offset[0]][0] * w[offset[1]][1]
+                    dweight[1] = self.invDx * w[offset[0]][0] * dw[offset[1]][1]
+                else:
+                    dweight[0] = dw[offset[0]][0]*w[offset[1]][1]*w[offset[2]][2] * self.inv_dx
+                    dweight[1] = w[offset[0]][0]*dw[offset[1]][1]*w[offset[2]][2] * self.inv_dx
+                    dweight[2] = w[offset[0]][0]*w[offset[1]][1]*dw[offset[2]][2] * self.inv_dx
+                
                 force = -self.Vp[p] * kirchoff @ dweight
 
                 if self.separable[gridIdx] != 1: 
@@ -928,9 +937,14 @@ class DFGMPMSolver:
                 for d in ti.static(range(self.dim)):
                     weight *= w[offset[d]][d]
 
-                dweight = ti.Vector.zero(float,2) #TODO: 3D
-                dweight[0] = self.invDx * dw[offset[0]][0] * w[offset[1]][1]
-                dweight[1] = self.invDx * w[offset[0]][0] * dw[offset[1]][1]
+                dweight = ti.Vector.zero(float,self.dim)
+                if ti.static(self.dim == 2):
+                    dweight[0] = self.invDx * dw[offset[0]][0] * w[offset[1]][1]
+                    dweight[1] = self.invDx * w[offset[0]][0] * dw[offset[1]][1]
+                else:
+                    dweight[0] = dw[offset[0]][0]*w[offset[1]][1]*w[offset[2]][2] * self.inv_dx
+                    dweight[1] = w[offset[0]][0]*dw[offset[1]][1]*w[offset[2]][2] * self.inv_dx
+                    dweight[2] = w[offset[0]][0]*w[offset[1]][1]*dw[offset[2]][2] * self.inv_dx
 
                 if self.separable[gridIdx] != 1:
                     #treat as one field
