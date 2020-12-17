@@ -53,7 +53,7 @@ cfl = 0.4
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.9 * maxDt
 
-useDFG = True
+useDFG = False
 verbose = True
 useAPIC = False
 frictionCoefficient = 0.0

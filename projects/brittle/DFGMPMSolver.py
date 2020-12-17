@@ -190,8 +190,8 @@ class DFGMPMSolver:
         self.grid_block_size = 128
         self.leaf_block_size = 16 if self.dim == 2 else 8
         self.indices = ti.ij if self.dim == 2 else ti.ijk
-        self.offset = tuple(-self.grid_size // 2 for _ in range(self.dim))
-        #self.offset = tuple(0 for _ in range(self.dim))
+        #self.offset = tuple(-self.grid_size // 2 for _ in range(self.dim))
+        self.offset = tuple(0 for _ in range(self.dim))
         #---Grid Shapes and Pointers
         self.grid = ti.root.pointer(self.indices, self.grid_size // self.grid_block_size) # 32
         self.block = self.grid.pointer(self.indices, self.grid_block_size // self.leaf_block_size) # 8
@@ -896,6 +896,7 @@ class DFGMPMSolver:
     def momentumToVelocity(self):
         self.activeNodes[None] = 0
         for I in ti.grouped(self.grid_m):
+            #print('I:', I)
             if self.grid_m[I][0] > 0:
                 self.grid_v1[I] = self.grid_q1[I] / self.grid_m[I][0]
                 self.grid_vn1[I] = self.grid_q1[I] / self.grid_m[I][0]
