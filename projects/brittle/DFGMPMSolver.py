@@ -33,7 +33,7 @@ class DFGMPMSolver:
         self.numSubsteps = int(self.frameDt // dt)
         self.dim = len(vertices[0])
         if self.dim != 2 and self.dim != 3:
-            ValueError('ERROR: Dimension must be 2 or 3')
+            raise ValueError('ERROR: Dimension must be 2 or 3')
         self.cfl = cfl
         self.ppc = ppc
         self.outputPath = outputPath
@@ -121,13 +121,16 @@ class DFGMPMSolver:
         # self.grid_v2 = ti.Vector.field(self.dim, dtype=float, shape=(self.nGrid, self.nGrid)) # grid node velocity, store two vectors at each grid node (for each field)
         # self.grid_vn1 = ti.Vector.field(self.dim, dtype=float, shape=(self.nGrid, self.nGrid)) # use this to store grid v_i^n so we can use this for FLIP
         # self.grid_vn2 = ti.Vector.field(self.dim, dtype=float, shape=(self.nGrid, self.nGrid)) # use this to store grid v_i^n so we can use this for FLIP
-        # self.grid_m = ti.Vector.field(2, dtype=float, shape=(self.nGrid, self.nGrid)) # grid node mass is nGrid x nGrid x 2, each grid node has a mass for each field
+        # self.grid_m1 = ti.field(dtype=float, shape=(self.nGrid, self.nGrid)) # grid node field 1 mass is nGrid x nGrid, each grid node has a mass for each field
+        # self.grid_m2 = ti.field(dtype=float, shape=(self.nGrid, self.nGrid)) # grid node field 2 mass is nGrid x nGrid, each grid node has a mass for each field
         # self.grid_n1 = ti.Vector.field(self.dim, dtype=float, shape=(self.nGrid, self.nGrid)) # grid node normals for two field nodes, store two vectors at each grid node (one for each field)
         # self.grid_n2 = ti.Vector.field(self.dim, dtype=float, shape=(self.nGrid, self.nGrid)) # grid node normals for two field nodes, store two vectors at each grid node (one for each field)
         # self.grid_f1 = ti.Vector.field(self.dim, dtype=float, shape=(self.nGrid, self.nGrid)) # grid node forces so we can apply them later
         # self.grid_f2 = ti.Vector.field(self.dim, dtype=float, shape=(self.nGrid, self.nGrid)) # grid node forces so we can apply them later
         # self.grid_fct1 = ti.Vector.field(self.dim, dtype=float, shape=(self.nGrid, self.nGrid)) # grid node contact forces for two field nodes, store two vectors at each grid node (one for each field)
         # self.grid_fct2 = ti.Vector.field(self.dim, dtype=float, shape=(self.nGrid, self.nGrid)) # grid node contact forces for two field nodes, store two vectors at each grid node (one for each field)
+        # #---Active Node Indexing
+        # self.grid_idx = ti.field(dtype=int, shape=(self.nGrid,self.nGrid))
         # #---DFG Grid Structures
         # self.gridDG = ti.Vector.field(self.dim, dtype=float, shape=(self.nGrid, self.nGrid)) #grid node damage gradients
         # self.gridMaxNorm = ti.field(dtype=float, shape=(self.nGrid, self.nGrid)) #grid max norm holds the maximum DG norm found for this grid node, this will later help to determine the grid DG
@@ -136,35 +139,35 @@ class DFGMPMSolver:
         # self.separable = ti.field(dtype=int, shape=(self.nGrid,self.nGrid)) # whether grid node is separable or not
         
         #Particle Fields
-        #---Lame Parameters
-        self.mu = ti.field(dtype=float, shape=self.numParticles)
-        self.la = ti.field(dtype=float, shape=self.numParticles)
-        #---General Simulation
-        self.x = ti.Vector.field(self.dim, dtype=float, shape=self.numParticles) # position
-        self.v = ti.Vector.field(self.dim, dtype=float, shape=self.numParticles) # velocity
-        self.C = ti.Matrix.field(self.dim, self.dim, dtype=float, shape=self.numParticles) # affine velocity field
-        self.F = ti.Matrix.field(self.dim, self.dim, dtype=float, shape=self.numParticles) # deformation gradient
-        self.material = ti.field(dtype=int, shape=self.numParticles) # material id
-        self.mp = ti.field(dtype=float, shape=self.numParticles) # particle masses
-        self.Vp = ti.field(dtype=float, shape=self.numParticles) # particle volumes
-        self.Jp = ti.field(dtype=float, shape=self.numParticles) # plastic deformation
-        #---DFG Fields
-        self.Dp = ti.field(dtype=float, shape=self.numParticles) #particle damage
-        self.sp = ti.field(dtype=int, shape=self.numParticles) #particle surface boolean int -- 1 = surface particle, 0 = interior particle
-        self.particleDG = ti.Vector.field(self.dim, dtype=float, shape=self.numParticles) #keep track of particle damage gradients 
-        #self.st = ti.field(dtype=float, shape=self.numParticles) #now we can have different thresholds for different objects and particle distributions!        
-        #---AnisoMPM Damage
-        self.sigmaC = ti.field(dtype=float, shape=self.numParticles) #each particle can have different sigmaC
-        self.dTildeH = ti.field(dtype=float, shape=self.numParticles) #keep track of the maximum driving force seen by this particle
-        self.damageLaplacians = ti.field(dtype=float, shape=self.numParticles) #store the damage laplacians
-        self.useAnisoMPMDamageList = ti.field(dtype=int, shape=self.numParticles)
-        #---Rankine Damage
-        self.Hs = ti.field(dtype=float, shape=self.numParticles) #weibull will make these different from eahc other
-        self.sigmaF = ti.field(dtype=float, shape=self.numParticles) #each particle can have different sigmaF based on Weibull dist
-        self.sigmaMax = ti.field(dtype=float, shape=self.numParticles) #track sigmaMax for each particle to visualize stress
-        self.useRankineDamageList = ti.field(dtype=int, shape=self.numParticles)
-        #---Time To Failure Damage
-        self.useTimeToFailureDamageList = ti.field(dtype=int, shape=self.numParticles)               
+        # #---Lame Parameters
+        # self.mu = ti.field(dtype=float, shape=self.numParticles)
+        # self.la = ti.field(dtype=float, shape=self.numParticles)
+        # #---General Simulation
+        # self.x = ti.Vector.field(self.dim, dtype=float, shape=self.numParticles) # position
+        # self.v = ti.Vector.field(self.dim, dtype=float, shape=self.numParticles) # velocity
+        # self.C = ti.Matrix.field(self.dim, self.dim, dtype=float, shape=self.numParticles) # affine velocity field
+        # self.F = ti.Matrix.field(self.dim, self.dim, dtype=float, shape=self.numParticles) # deformation gradient
+        # self.material = ti.field(dtype=int, shape=self.numParticles) # material id
+        # self.mp = ti.field(dtype=float, shape=self.numParticles) # particle masses
+        # self.Vp = ti.field(dtype=float, shape=self.numParticles) # particle volumes
+        # self.Jp = ti.field(dtype=float, shape=self.numParticles) # plastic deformation
+        # #---DFG Fields
+        # self.Dp = ti.field(dtype=float, shape=self.numParticles) #particle damage
+        # self.sp = ti.field(dtype=int, shape=self.numParticles) #particle surface boolean int -- 1 = surface particle, 0 = interior particle
+        # self.particleDG = ti.Vector.field(self.dim, dtype=float, shape=self.numParticles) #keep track of particle damage gradients 
+        # #self.st = ti.field(dtype=float, shape=self.numParticles) #now we can have different thresholds for different objects and particle distributions!        
+        # #---AnisoMPM Damage
+        # self.sigmaC = ti.field(dtype=float, shape=self.numParticles) #each particle can have different sigmaC
+        # self.dTildeH = ti.field(dtype=float, shape=self.numParticles) #keep track of the maximum driving force seen by this particle
+        # self.damageLaplacians = ti.field(dtype=float, shape=self.numParticles) #store the damage laplacians
+        # self.useAnisoMPMDamageList = ti.field(dtype=int, shape=self.numParticles)
+        # #---Rankine Damage
+        # self.Hs = ti.field(dtype=float, shape=self.numParticles) #weibull will make these different from eahc other
+        # self.sigmaF = ti.field(dtype=float, shape=self.numParticles) #each particle can have different sigmaF based on Weibull dist
+        # self.sigmaMax = ti.field(dtype=float, shape=self.numParticles) #track sigmaMax for each particle to visualize stress
+        # self.useRankineDamageList = ti.field(dtype=int, shape=self.numParticles)
+        # #---Time To Failure Damage
+        # self.useTimeToFailureDamageList = ti.field(dtype=int, shape=self.numParticles)               
         
         #Active Fields
         self.particleAF = ti.Vector.field(3**self.dim, dtype=int, shape=self.numParticles) #store which activefield each particle belongs to for the 9 grid nodes it maps to
@@ -183,27 +186,64 @@ class DFGMPMSolver:
         self.particleShape.place(self.particleNumNeighbors) #particleNumNeighbors is nParticles x 1
         self.particleShape.dense(ti.j, self.maxNeighbors).place(self.particleNeighbors) #particleNeighbors is nParticles x maxNeighbors
 
-        #Sparse Grids
+        #Dynamic Particle Structures
         #---Params
         self.max_num_particles = 2**27
+        #---Lame Parameters
+        self.mu = ti.field(dtype=float)
+        self.la = ti.field(dtype=float)
+        #---General Simulation
+        self.x = ti.Vector.field(self.dim, dtype=float) # position
+        self.v = ti.Vector.field(self.dim, dtype=float) # velocity
+        self.C = ti.Matrix.field(self.dim, self.dim, dtype=float) # affine velocity field
+        self.F = ti.Matrix.field(self.dim, self.dim, dtype=float) # deformation gradient
+        self.material = ti.field(dtype=int) # material id
+        self.mp = ti.field(dtype=float) # particle masses
+        self.Vp = ti.field(dtype=float) # particle volumes
+        self.Jp = ti.field(dtype=float) # plastic deformation
+        #---DFG Fields
+        self.Dp = ti.field(dtype=float) #particle damage
+        self.sp = ti.field(dtype=int) #particle surface boolean int -- 1 = surface particle, 0 = interior particle
+        self.particleDG = ti.Vector.field(self.dim, dtype=float) #keep track of particle damage gradients 
+        #self.st = ti.field(dtype=float) #now we can have different thresholds for different objects and particle distributions!        
+        #---AnisoMPM Damage
+        self.sigmaC = ti.field(dtype=float) #each particle can have different sigmaC
+        self.dTildeH = ti.field(dtype=float) #keep track of the maximum driving force seen by this particle
+        self.damageLaplacians = ti.field(dtype=float) #store the damage laplacians
+        self.useAnisoMPMDamageList = ti.field(dtype=int)
+        #---Rankine Damage
+        self.Hs = ti.field(dtype=float) #weibull will make these different from eahc other
+        self.sigmaF = ti.field(dtype=float) #each particle can have different sigmaF based on Weibull dist
+        self.sigmaMax = ti.field(dtype=float) #track sigmaMax for each particle to visualize stress
+        self.useRankineDamageList = ti.field(dtype=int)
+        #---Time To Failure Damage
+        self.useTimeToFailureDamageList = ti.field(dtype=int) 
+        #---Shape and Then Place Structures
+        self.particle = ti.root.dynamic(ti.i, self.max_num_particles, 2**19) #2**20 causes problems in CUDA (maybe asking for too much space)
+        self.particle.place(self.mu, self.la, self.x, self.v, self.C, self.F, self.material, self.mp, self.Vp, self.Jp, self.Dp, self.sp, self.particleDG, self.sigmaC, self.dTildeH, self.damageLaplacians, self.useAnisoMPMDamageList, self.Hs, self.sigmaF, self.sigmaMax, self.useRankineDamageList, self.useTimeToFailureDamageList)
+
+        #Sparse Grids
+        #---Params
         self.grid_size = 4096
         self.grid_block_size = 128
         self.leaf_block_size = 16 if self.dim == 2 else 8
         self.indices = ti.ij if self.dim == 2 else ti.ijk
         #self.offset = tuple(-self.grid_size // 2 for _ in range(self.dim))
         self.offset = tuple(0 for _ in range(self.dim))
-        #---Grid Shapes and Pointers
+        #---Grid Shapes for PID
         self.grid = ti.root.pointer(self.indices, self.grid_size // self.grid_block_size) # 32
         self.block = self.grid.pointer(self.indices, self.grid_block_size // self.leaf_block_size) # 8
-        def block_component(c):
-            self.block.dense(self.indices, self.leaf_block_size).place(c, offset=self.offset) # 16 in 3D, 8 in 2D (-2048, 2048) or (0, 4096) w/o offset
-        #---Particle ID Structure
-        self.pid = ti.field(ti.i32)
+        self.pid = ti.field(int)
         self.block.dynamic(ti.indices(self.dim), 1024 * 1024, chunk_size=self.leaf_block_size**self.dim * 8).place(self.pid, offset=self.offset + (0, ))
         #---Neighbor Search Fields
         #self.gridNumParticles_sparse = ti.field(int)
         #self.backGrid_sparse = ti.field(int)
         #block_component(self.gridNumParticles_sparse) #NOTE: gridNumParticles is nGrid x nGrid
+        #---Grid Shapes for Rest of Grid Structures
+        self.grid2 = ti.root.pointer(self.indices, self.grid_size // self.grid_block_size) # 32
+        self.block2 = self.grid2.pointer(self.indices, self.grid_block_size // self.leaf_block_size) # 8
+        def block_component(c):
+            self.block2.dense(self.indices, self.leaf_block_size).place(c, offset=self.offset) # 16 in 3D, 8 in 2D (-2048, 2048) or (0, 4096) w/o offset
         #---Grid Simulation Structures
         self.grid_d = ti.Vector.field(4, dtype=float) #always vec4, field 1 numerator, field 2 numerator, field 1 denom, field 2 denom
         self.grid_q1 = ti.Vector.field(self.dim, dtype=float)
@@ -212,7 +252,8 @@ class DFGMPMSolver:
         self.grid_v2 = ti.Vector.field(self.dim, dtype=float)
         self.grid_vn1 = ti.Vector.field(self.dim, dtype=float)
         self.grid_vn2 = ti.Vector.field(self.dim, dtype=float)
-        self.grid_m = ti.Vector.field(2, dtype=float) #always vec2, field 1 mass, field 2 mass
+        self.grid_m1 = ti.field(dtype=float)
+        self.grid_m2 = ti.field(dtype=float)
         self.grid_n1 = ti.Vector.field(self.dim, dtype=float)
         self.grid_n2 = ti.Vector.field(self.dim, dtype=float)
         self.grid_f1 = ti.Vector.field(self.dim, dtype=float)
@@ -242,8 +283,8 @@ class DFGMPMSolver:
             block_component(vn1)
         for vn2 in self.grid_vn2.entries: # use this to store grid v_i^n so we can use this for FLIP, field 2
             block_component(vn2)
-        for m in self.grid_m.entries: # grid node mass is nGrid x nGrid x 2, each grid node has a mass for each field
-            block_component(m)
+        block_component(self.grid_m1) # grid node field 1 mass is nGrid x nGrid, each grid node has a mass for each field
+        block_component(self.grid_m2) # grid node field 2 mass is nGrid x nGrid, each grid node has a mass for each field        
         for n1 in self.grid_n1.entries: # grid node normals for two field nodes, field 1
             block_component(n1)
         for n2 in self.grid_n2.entries: # grid node normals for two field nodes, field 2
@@ -416,7 +457,7 @@ class DFGMPMSolver:
     @ti.kernel
     def reinitializeStructures(self):
         #re-initialize grid quantities
-        # for I in ti.grouped(self.grid_m):
+        # for I in ti.grouped(self.grid_m1):
         #     self.grid_q1[I] = [0, 0] #field 1 momentum
         #     self.grid_q2[I] = [0, 0] #field 2 momentum
         #     self.grid_v1[I] = [0, 0] #field 1 vel
@@ -429,13 +470,15 @@ class DFGMPMSolver:
         #     self.grid_f2[I] = [0, 0] #f2 nodal force
         #     self.grid_fct1[I] = [0, 0] #f1 nodal force
         #     self.grid_fct2[I] = [0, 0] #f2 nodal force
-        #     self.grid_m[I] = [0, 0] #stacked to contain mass for each field
+        #     self.grid_m1[I] = 0 # field 1 mass
+        #     self.grid_m2[I] = 0 #field 2 mass
         #     self.gridSeparability[I] = [0, 0, 0, 0] #stackt fields, and we use the space to add up the numerator and denom for each field
         #     self.gridMaxDamage[I] = [0, 0] #stackt fields
         #     self.gridDG[I] = [0, 0] #reset grid node damage gradients
         #     self.gridMaxNorm[I] = 0 #reset max norm DG found at the grid node
         #     self.separable[I] = -1 #-1 for only one field, 0 for not separable, and 1 for separable
         #     self.grid_d[I] = [0, 0, 0, 0]
+        #     self.grid_idx[I] = -1
         
         #Clear neighbor look up structures
         for I in ti.grouped(self.gridNumParticles):
@@ -449,6 +492,7 @@ class DFGMPMSolver:
     def backGridSort(self):
         #Sort particles into backGrid
         ti.block_dim(256)
+        ti.no_activate(self.particle)
         for I in ti.grouped(self.pid):
             p = self.pid[I]
             cell = self.backGridIdx(self.x[p]) #grab cell idx (vector of ints)
@@ -460,6 +504,7 @@ class DFGMPMSolver:
         #Sort into particle neighbor lists
         #See https://github.com/taichi-dev/taichi/blob/master/examples/pbf2d.py for reference
         ti.block_dim(256)
+        ti.no_activate(self.particle)
         for I in ti.grouped(self.pid):
             p_i = self.pid[I]
             pos = self.x[p_i]
@@ -480,6 +525,7 @@ class DFGMPMSolver:
         #Surface Detection (set sp values before DGs!!!)
         #NOTE: Set whether this particle is a surface particle or not by comparing the kernel sum, S(x), against a user threshold
         ti.block_dim(256)
+        ti.no_activate(self.particle)
         for I in ti.grouped(self.pid):
             p = self.pid[I]
             pos = self.x[p]
@@ -497,6 +543,7 @@ class DFGMPMSolver:
     @ti.kernel
     def updateDamage(self):
         ti.block_dim(256)
+        ti.no_activate(self.particle)
         for I in ti.grouped(self.pid):
             p = self.pid[I]
             
@@ -542,6 +589,7 @@ class DFGMPMSolver:
         #Compute DG for all particles and for all grid nodes 
         # NOTE: grid node DG is based on max of mapped particle DGs, in this loop we simply create a list of candidates, then we will take max after
         ti.block_dim(256)
+        ti.no_activate(self.particle)
         for I in ti.grouped(self.pid):
             p = self.pid[I]
             pos = self.x[p]
@@ -580,6 +628,7 @@ class DFGMPMSolver:
     def computeGridDG(self):
         #Now iterate over particles and grid nodes again to capture the gridDGs!
         ti.block_dim(256)
+        ti.no_activate(self.particle)
         for I in ti.grouped(self.pid):
             p = self.pid[I]
             pos = self.x[p]
@@ -599,6 +648,7 @@ class DFGMPMSolver:
         # P2G for mass, set active fields, and compute separability conditions
         #ti.no_activate(self.particle)
         ti.block_dim(256)
+        ti.no_activate(self.particle)
         for I in ti.grouped(self.pid):
             p = self.pid[I]
             
@@ -626,13 +676,13 @@ class DFGMPMSolver:
                 # if ti.static(self.dim == 3): 
                 #     afIdx = offset[0]*3 + offset[1]*3 + offset[2]
                 if self.particleDG[p].dot(self.gridDG[gridIdx]) >= 0:
-                    self.grid_m[gridIdx][0] += weight * self.mp[p] #add mass to active field for this particle
+                    self.grid_m1[gridIdx] += weight * self.mp[p] #add mass to active field for this particle
                     self.gridSeparability[gridIdx][0] += weight * maxD * self.mp[p] #numerator, field 1
                     self.gridSeparability[gridIdx][2] += weight * self.mp[p] #denom, field 1
                     self.particleAF[p][offset[0]*3 + offset[1]] = 0 #set this particle's AF to 0 for this grid node #TODO: 3D
                     ti.atomic_max(self.gridMaxDamage[gridIdx][0], maxD) #compute the max damage seen in this field at this grid node
                 else:
-                    self.grid_m[gridIdx][1] += weight * self.mp[p] #add mass to active field for this particle
+                    self.grid_m2[gridIdx] += weight * self.mp[p] #add mass to active field for this particle
                     self.gridSeparability[gridIdx][1] += weight * maxD * self.mp[p] #numerator, field 2
                     self.gridSeparability[gridIdx][3] += weight * self.mp[p] #denom, field 2
                     self.particleAF[p][offset[0]*3 + offset[1]] = 1 #set this particle's AF to 1 for this grid node #TODO: 3D
@@ -641,7 +691,7 @@ class DFGMPMSolver:
     @ti.kernel
     def computeSeparability(self):
         #Iterate grid nodes to compute separability condition and maxDamage (both for each field)
-        for I in ti.grouped(self.grid_m):
+        for I in ti.grouped(self.grid_m1):
             #Compute seperability for field 1 and store as idx 0
             if(self.gridSeparability[I][2] > 0): 
                 self.gridSeparability[I][0] /= self.gridSeparability[I][2] #divide numerator by denominator
@@ -655,15 +705,15 @@ class DFGMPMSolver:
                 self.gridSeparability[I][1] = 0.0
 
             #NOTE: separable[I] = -1 for one field, 0 for two non-separable fields, and 1 for two separable fields
-            if self.grid_m[I][0] > 0 and self.grid_m[I][1] > 0:
+            if self.grid_m1[I] > 0 and self.grid_m2[I] > 0:
                 minSep = self.gridSeparability[I][0] if self.gridSeparability[I][0] < self.gridSeparability[I][1] else self.gridSeparability[I][1]
                 maxMax = self.gridMaxDamage[I][0] if self.gridMaxDamage[I][0] > self.gridMaxDamage[I][1] else self.gridMaxDamage[I][1]
                 if maxMax >= self.minDp and minSep > self.dMin:
                     self.separable[I] = 1
                 else:
                     #Now add the masses together into the first field because we'll treat this as a single field
-                    self.grid_m[I][0] += self.grid_m[I][1]
-                    self.grid_m[I][1] = 0.0 #empty this in case we check mass again later
+                    self.grid_m1[I] += self.grid_m2[I]
+                    self.grid_m2[I] = 0.0 #empty this in case we check mass again later
                     self.separable[I] = 0
 
     @ti.kernel
@@ -671,6 +721,7 @@ class DFGMPMSolver:
         
         #damageP2G so we can compute the Laplacians
         ti.block_dim(256)
+        ti.no_activate(self.particle)
         for I in ti.grouped(self.pid):
             p = self.pid[I] 
             
@@ -707,7 +758,7 @@ class DFGMPMSolver:
                         self.grid_d[gridIdx][3] += weight
         
         #Now divide out the denominators for grid damage     
-        for I in ti.grouped(self.grid_m):
+        for I in ti.grouped(self.grid_m1):
             if(self.grid_d[I][2] > 0): 
                 self.grid_d[I][0] /= self.grid_d[I][2] #divide numerator by denominator
             else:
@@ -722,6 +773,7 @@ class DFGMPMSolver:
     def computeLaplacians(self):
         #basically G2P but to get damage laplacians
         ti.block_dim(256)
+        ti.no_activate(self.particle)
         for I in ti.grouped(self.pid):
             p = self.pid[I] 
             
@@ -763,6 +815,7 @@ class DFGMPMSolver:
     @ti.kernel
     def updateAnisoMPMDamage(self):
         ti.block_dim(256)
+        ti.no_activate(self.particle)
         for I in ti.grouped(self.pid):
             p = self.pid[I]
             
@@ -804,8 +857,11 @@ class DFGMPMSolver:
     def momentumP2GandComputeForces(self):
         # P2G and Internal Grid Forces
         ti.block_dim(256)
+        ti.no_activate(self.particle)
+        particleCount = 0
         for I in ti.grouped(self.pid):
             p = self.pid[I]
+            particleCount += 1
             base = ti.floor(self.x[p] * self.invDx - 0.5).cast(int)
             #print('massP2G base before:', base)
             for D in ti.static(range(self.dim)):
@@ -833,12 +889,12 @@ class DFGMPMSolver:
 
             #NOTE Grab the sigmaMax here so we can learn how to better threshold the stress for damage
             e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
-            self.sigmaMax[p] = e[0] if e[0] > e[1] else e[1]
+            self.sigmaMax[p] = e[0] if e[0] > e[1] else e[1] #TODO: 3d
 
             #P2G for velocity, force update, and update velocity
             for offset in ti.static(ti.grouped(self.stencil_range())): # Loop over grid node stencil
                 gridIdx = base + offset
-                #print('offset:', offset)
+                #print('base:', base)
                 #print('gridIDx:', gridIdx)
                 dpos = (offset.cast(float) - fx) * self.dx
                 weight = 1.0 #w[i][0] * w[j][1] in 2D
@@ -856,7 +912,8 @@ class DFGMPMSolver:
                 
                 force = -self.Vp[p] * kirchoff @ dweight
 
-                if self.separable[gridIdx] != 1: 
+                if self.separable[gridIdx] != 1 or self.useDFG == False: 
+                    #print("getting to if case")
                     #treat node as one field
                     if(self.useAPIC):
                         self.grid_q1[gridIdx] += self.mp[p] * weight * (self.v[p] + self.C[p] @ dpos) #momentum transfer (APIC)
@@ -864,12 +921,13 @@ class DFGMPMSolver:
                         self.grid_q1[gridIdx] += self.mp[p] * weight * self.v[p] #momentum transfer (PIC)
 
                     if(self.useDFG == False): #need to do this because for explicitMPM we skip the massP2G routine
-                        self.grid_m[gridIdx][0] += weight * self.mp[p] #add mass to active field for this particle
+                        #print("grid_m1 gridIdx:", gridIdx)
+                        self.grid_m1[gridIdx] += weight * self.mp[p] #add mass to active field for this particle
 
                     self.grid_f1[gridIdx] += force #accumulate grid forces
                     self.grid_n1[gridIdx] += dweight * self.mp[p] #add to the normal for this field at this grid node, remember we need to normalize it later!
 
-                else:
+                elif self.separable[gridIdx] == 1:
                     #treat node as having two fields
                     #afIdx = offset[0]*3 + offset[1] if self.dim == 2 else offset[0]*3 + offset[1]*3 + offset[2]
                     fieldIdx = self.particleAF[p][offset[0]*3 + offset[1]] #grab the field that this particle is in for this node #TODO: 3D
@@ -890,16 +948,18 @@ class DFGMPMSolver:
                         self.grid_f2[gridIdx] += force                    
                         self.grid_n2[gridIdx] += dweight * self.mp[p] #add to the normal for this field at this grid node, remember we need to normalize it later!
                     else:
-                        ValueError('ERROR: invalid field idx somehow')
+                        print("ERROR: why did we get here???")
+                        #raise ValueError('ERROR: invalid field idx somehow')
+        #print('particle count for p2g:', particleCount)
 
     @ti.kernel
     def momentumToVelocity(self):
         self.activeNodes[None] = 0
-        for I in ti.grouped(self.grid_m):
-            #print('I:', I)
-            if self.grid_m[I][0] > 0:
-                self.grid_v1[I] = self.grid_q1[I] / self.grid_m[I][0]
-                self.grid_vn1[I] = self.grid_q1[I] / self.grid_m[I][0]
+        for I in ti.grouped(self.grid_m1):
+            if self.grid_m1[I] > 0:
+                #print("I:", I, " m1:", self.grid_m1[I])
+                self.grid_v1[I] = self.grid_q1[I] / self.grid_m1[I]
+                self.grid_vn1[I] = self.grid_q1[I] / self.grid_m1[I]
 
                 #Setup our grid indeces <-> DOF mapping
                 idx = self.activeNodes[None].atomic_add(1)
@@ -907,32 +967,33 @@ class DFGMPMSolver:
                 self.dof2idx[idx] = I
 
             if self.separable[I] == 1:
-                self.grid_v2[I] = self.grid_q2[I] / self.grid_m[I][1] 
-                self.grid_vn2[I] = self.grid_q2[I] / self.grid_m[I][1]
+                self.grid_v2[I] = self.grid_q2[I] / self.grid_m2[I] 
+                self.grid_vn2[I] = self.grid_q2[I] / self.grid_m2[I]
+        #print('activeNodes:', self.activeNodes[None])
 
     @ti.kernel
     def addGridForces(self):
-        for I in ti.grouped(self.grid_m):
-            if self.grid_m[I][0] > 0:
-                self.grid_v1[I] += (self.grid_f1[I] * self.dt) / self.grid_m[I][0]
+        for I in ti.grouped(self.grid_m1):
+            if self.grid_m1[I] > 0:
+                self.grid_v1[I] += (self.grid_f1[I] * self.dt) / self.grid_m1[I]
             if self.separable[I] == 1:
-                self.grid_v2[I] += (self.grid_f2[I] * self.dt) / self.grid_m[I][1]
+                self.grid_v2[I] += (self.grid_f2[I] * self.dt) / self.grid_m2[I]
 
     @ti.kernel
     def addGravity(self):
          #Add Gravity
-        for I in ti.grouped(self.grid_m):
-            if self.grid_m[I][0] > 0:
+        for I in ti.grouped(self.grid_m1):
+            if self.grid_m1[I] > 0:
                 self.grid_v1[I] += self.dt * self.gravity[None]
             if self.separable[I] == 1:
                 self.grid_v2[I] += self.dt * self.gravity[None]
 
     @ti.kernel
     def applyImpulse(self):
-        for I in ti.grouped(self.grid_m):
+        for I in ti.grouped(self.grid_m1):
             dist = self.impulseCenter - (self.dx * I)
             dv = dist / (0.01 + dist.norm()) * self.impulseStrength * self.dt
-            if self.grid_m[I][0] > 0:
+            if self.grid_m1[I] > 0:
                 self.grid_v1[I] += dv
             if self.separable[I] == 1:
                 self.grid_v2[I] += dv
@@ -940,16 +1001,16 @@ class DFGMPMSolver:
     @ti.kernel
     def computeContactForces(self):
         #Frictional Contact Forces
-        for I in ti.grouped(self.grid_m):
+        for I in ti.grouped(self.grid_m1):
             if self.separable[I] == 1: #only apply these forces to separable nodes with two fields
                 #momentium
-                q_1 = self.grid_v1[I] * self.grid_m[I][0]
-                q_2 = self.grid_v2[I] * self.grid_m[I][1]
+                q_1 = self.grid_v1[I] * self.grid_m1[I]
+                q_2 = self.grid_v2[I] * self.grid_m2[I]
                 q_cm = q_1 + q_2 
 
                 #mass
-                m_1 = self.grid_m[I][0]
-                m_2 = self.grid_m[I][1]
+                m_1 = self.grid_m1[I]
+                m_2 = self.grid_m2[I]
                 m_cm = m_1 + m_2
 
                 #velocity
@@ -1003,16 +1064,17 @@ class DFGMPMSolver:
     @ti.kernel
     def addContactForces(self):
         #Add Friction Forces
-        for I in ti.grouped(self.grid_m):    
+        for I in ti.grouped(self.grid_m1):    
             if self.separable[I] == 1:
                 if(self.useFrictionalContact):
-                    self.grid_v1[I] += (self.grid_fct1[I] / self.grid_m[I][0]) * self.dt # use field 1 force to update field 1 particles (for green nodes, ie separable contact)
-                    self.grid_v2[I] += (self.grid_fct2[I] / self.grid_m[I][1]) * self.dt # use field 2 force to update field 2 particles
+                    self.grid_v1[I] += (self.grid_fct1[I] / self.grid_m1[I]) * self.dt # use field 1 force to update field 1 particles (for green nodes, ie separable contact)
+                    self.grid_v2[I] += (self.grid_fct2[I] / self.grid_m2[I]) * self.dt # use field 2 force to update field 2 particles
 
     @ti.kernel
     def G2P(self):
         # grid to particle (G2P)
         ti.block_dim(256)
+        ti.no_activate(self.particle)
         for I in ti.grouped(self.pid):
             p = self.pid[I]
             base = ti.floor(self.x[p] * self.invDx - 0.5).cast(int)
@@ -1109,10 +1171,10 @@ class DFGMPMSolver:
 
         @ti.kernel
         def collide(id: ti.i32):
-            for I in ti.grouped(self.grid_m):
+            for I in ti.grouped(self.grid_m1):
                 if self.separable[I] != 1:
                     #treat as one field
-                    nodalMass = self.grid_m[I][0]
+                    nodalMass = self.grid_m1[I]
                     if nodalMass > 0:
                         updatedCenter = self.collisionObjectCenters[id]
                         offset = I * self.dx - updatedCenter
@@ -1139,8 +1201,8 @@ class DFGMPMSolver:
 
                 else:
                     #treat as two fields
-                    nodalMass1 = self.grid_m[I][0]
-                    nodalMass2 = self.grid_m[I][1]
+                    nodalMass1 = self.grid_m1[I]
+                    nodalMass2 = self.grid_m2[I]
                     if nodalMass1 > 0 and nodalMass2 > 0:
                         updatedCenter = self.collisionObjectCenters[id]
                         offset = I * self.dx - updatedCenter
@@ -1191,10 +1253,10 @@ class DFGMPMSolver:
 
         @ti.kernel
         def collide(id: ti.i32):
-            for I in ti.grouped(self.grid_m):
+            for I in ti.grouped(self.grid_m1):
                 if self.separable[I] != 1:
                     #treat as one field
-                    nodalMass = self.grid_m[I][0]
+                    nodalMass = self.grid_m1[I]
                     if nodalMass > 0:
                         updatedCenter = self.collisionObjectCenters[id]
                         offset = I * self.dx - updatedCenter
@@ -1217,8 +1279,8 @@ class DFGMPMSolver:
 
                 else:
                     #treat as two fields
-                    nodalMass1 = self.grid_m[I][0]
-                    nodalMass2 = self.grid_m[I][1]
+                    nodalMass1 = self.grid_m1[I]
+                    nodalMass2 = self.grid_m2[I]
                     if nodalMass1 > 0 and nodalMass2 > 0:
                         updatedCenter = self.collisionObjectCenters[id]
                         offset = I * self.dx - updatedCenter
@@ -1276,16 +1338,16 @@ class DFGMPMSolver:
         self.vRef = vRef
         self.m = m
         if self.useDamage:
-            ValueError('ERROR: you can only use one damage model at a time!')
+            raise ValueError('ERROR: you can only use one damage model at a time!')
         else:
             self.useDamage = True
 
     def addAnisoMPMDamage(self, damageList, eta, dMin, sigmaC = -1.0, percentStretch = -1.0, zeta = 1.0):
 
         if percentStretch < 0 and sigmaC < 0:
-            ValueError('ERROR: you must set either percentStretch or sigmaC to use AnisoMPM Damage')
+            raise ValueError('ERROR: you must set either percentStretch or sigmaC to use AnisoMPM Damage')
         elif percentStretch > 0 and sigmaC > 0:
-            ValueError('ERROR: you cannot set both percentStretch and sigmaC')
+            raise ValueError('ERROR: you cannot set both percentStretch and sigmaC')
 
         print("[AnisoMPM Damage] Simulating with AnisoMPM Damage:")
         if percentStretch > 0: 
@@ -1304,16 +1366,16 @@ class DFGMPMSolver:
         self.minDp = 1.0
         self.useAnisoMPMDamage = True
         if self.useDamage:
-            ValueError('ERROR: you can only use one damage model at a time!')
+            raise ValueError('ERROR: you can only use one damage model at a time!')
         else:
             self.useDamage = True
 
     def addRankineDamage(self, damageList, Gf, dMin, percentStretch = -1.0, sigmaFRef = -1.0):
 
         if percentStretch < 0 and sigmaFRef < 0:
-            ValueError('ERROR: you must set either percentStretch or sigmaFRef to use Rankine Damage')
+            raise ValueError('ERROR: you must set either percentStretch or sigmaFRef to use Rankine Damage')
         elif percentStretch > 0 and sigmaFRef > 0:
-            ValueError('ERROR: you cannot set both percentStretch and sigmaFRef')
+            raise ValueError('ERROR: you cannot set both percentStretch and sigmaFRef')
 
         print("[Rankine Damage] Simulating with Rankine Damage:")
         if percentStretch > 0: 
@@ -1330,21 +1392,21 @@ class DFGMPMSolver:
         self.minDp = 1.0
         self.useRankineDamage = True
         if self.useDamage:
-            ValueError('ERROR: you can only use one damage model at a time!')
+            raise ValueError('ERROR: you can only use one damage model at a time!')
         else:
             self.useDamage = True
 
     def addWeibullDistribution(self, vRef, m):
 
         if self.useRankineDamage == False:
-            ValueError('ERROR: You must use Rankine with Weibull')
+            raise ValueError('ERROR: You must use Rankine with Weibull')
 
         self.useWeibull = True
         self.vRef = vRef
         self.m = m
         print("[Weibull Distribution] m: ", m)
         if self.useDamage == False:
-            ValueError('ERROR: you must set a damage model before adding a Weibull distributed sigmaF!')
+            raise ValueError('ERROR: you must set a damage model before adding a Weibull distributed sigmaF!')
         
     #------------Simulation Routines---------------
 
@@ -1524,21 +1586,51 @@ class DFGMPMSolver:
             print('[Simulation]: Writing substep ', s, 'of frame ', frame, '...')
 
         #Write PLY Files
-        np_x = self.x.to_numpy()
+        #initialize writer and numpy arrays to hold data
         writer = ti.PLYWriter(num_vertices=self.numParticles)
-        if self.dim == 2: writer.add_vertex_pos(np_x[:,0], np_x[:, 1], np.zeros(self.numParticles)) #add position
-        elif self.dim == 3: writer.add_vertex_pos(np_x[:,0], np_x[:, 1], np_x[:,2]) #add position
-        writer.add_vertex_channel("vx", "double", self.v.to_numpy()[:,0]) #add particle vx
-        writer.add_vertex_channel("vy", "double", self.v.to_numpy()[:,1]) #add particle vy
-        writer.add_vertex_channel("m_p", "double", self.mp.to_numpy()) #add damage
-        writer.add_vertex_channel("Dp", "double", self.Dp.to_numpy()) #add damage
-        if self.useRankineDamage: writer.add_vertex_channel("sigmaF", "double", self.sigmaF.to_numpy()) #add sigmaF
-        writer.add_vertex_channel("sigmaMax", "double", self.sigmaMax.to_numpy()) #add sigmaMax
-        if self.useAnisoMPMDamage: writer.add_vertex_channel("damageLaplacian", "double", self.damageLaplacians.to_numpy()) #add damageLaplacians
-        writer.add_vertex_channel("sp", "int", self.sp.to_numpy()) #add surface tracking
-        writer.add_vertex_channel("useDamage", "int", self.useTimeToFailureDamageList.to_numpy())
-        writer.add_vertex_channel("DGx", "double", self.particleDG.to_numpy()[:,0]) #add particle DG x
-        writer.add_vertex_channel("DGy", "double", self.particleDG.to_numpy()[:,1]) #add particle DG y
+        np_xp = np.zeros((self.numParticles, self.dim), dtype=float)
+        np_vp = np.zeros((self.numParticles, self.dim), dtype=float)
+        np_DGp = np.zeros((self.numParticles, self.dim), dtype=float)
+        np_mp = np.zeros(self.numParticles, dtype=float)
+        np_Dp = np.zeros(self.numParticles, dtype=float)
+        np_sigmaF = np.zeros(self.numParticles, dtype=float)
+        np_sigmaMax = np.zeros(self.numParticles, dtype=float)
+        np_dLaplacian = np.zeros(self.numParticles, dtype=float)
+        np_sp = np.zeros(self.numParticles, dtype=int)
+        np_useDamage = np.zeros(self.numParticles, dtype=int)
+        for i in range(self.numParticles):
+            for d in ti.static(range(self.dim)):
+                np_xp[i,d] = self.x[i][d]
+                np_vp[i,d] = self.v[i][d]
+                np_DGp[i,d] = self.particleDG[i][d]
+            np_mp[i] = self.mp[i]
+            np_Dp[i] = self.Dp[i]
+            np_sigmaF[i] = self.sigmaF[i]
+            np_sigmaMax[i] = self.sigmaMax[i]
+            np_dLaplacian[i] = self.damageLaplacians[i]
+            np_sp[i] = self.sp[i]
+            np_useDamage[i] = self.useAnisoMPMDamageList[i]
+        if self.dim == 2: 
+            writer.add_vertex_pos(np_xp[:,0], np_xp[:, 1], np.zeros(self.numParticles)) #add position
+            writer.add_vertex_channel("vx", "double", np_vp[:,0]) #add vx
+            writer.add_vertex_channel("vy", "double", np_vp[:,1]) #add vy
+            writer.add_vertex_channel("DGx", "double", np_DGp[:,0]) #add DGx
+            writer.add_vertex_channel("DGy", "double", np_DGp[:,1]) #add DGy
+        elif self.dim == 3: 
+            writer.add_vertex_pos(np_xp[:,0], np_xp[:, 1], np_xp[:,2]) #add position
+            writer.add_vertex_channel("vx", "double", np_vp[:,0]) #add vx
+            writer.add_vertex_channel("vy", "double", np_vp[:,1]) #add vy
+            writer.add_vertex_channel("vz", "double", np_vp[:,2]) #add vz
+            writer.add_vertex_channel("DGx", "double", np_DGp[:,0]) #add DGx
+            writer.add_vertex_channel("DGy", "double", np_DGp[:,1]) #add DGy
+            writer.add_vertex_channel("DGz", "double", np_DGp[:,2]) #add DGz
+        writer.add_vertex_channel("m_p", "double", np_mp) #add damage
+        writer.add_vertex_channel("Dp", "double", np_Dp) #add damage
+        if self.useRankineDamage: writer.add_vertex_channel("sigmaF", "double", np_sigmaF) #add sigmaF
+        writer.add_vertex_channel("sigmaMax", "double", np_sigmaMax) #add sigmaMax
+        if self.useAnisoMPMDamage: writer.add_vertex_channel("damageLaplacian", "double", np_dLaplacian) #add damageLaplacians
+        writer.add_vertex_channel("sp", "int", np_sp) #add surface tracking
+        writer.add_vertex_channel("useDamage", "int", np_useDamage)
         if(s == -1):
             writer.export_frame(frame, self.outputPath)
         else:
@@ -1578,8 +1670,8 @@ class DFGMPMSolver:
                 gridForces[gridIdx, 1] = self.grid_f1[i, j][1]
                 gridForces[gridIdx, 2] = self.grid_f2[i, j][0]
                 gridForces[gridIdx, 3] = self.grid_f2[i, j][1]
-                gridMasses[gridIdx, 0] = self.grid_m[i, j][0]
-                gridMasses[gridIdx, 1] = self.grid_m[i, j][1]
+                gridMasses[gridIdx, 0] = self.grid_m1[i, j]
+                gridMasses[gridIdx, 1] = self.grid_m2[i, j]
                 gridNormals[gridIdx, 0] = self.grid_n1[i, j][0]
                 gridNormals[gridIdx, 1] = self.grid_n1[i, j][1]
                 gridNormals[gridIdx, 2] = self.grid_n2[i, j][0]
@@ -1656,8 +1748,8 @@ class DFGMPMSolver:
             #         gridForces[gridIdx, 1] = self.grid_f1[i, j][1]
             #         gridForces[gridIdx, 2] = self.grid_f2[i, j][0]
             #         gridForces[gridIdx, 3] = self.grid_f2[i, j][1]
-            #         gridMasses[gridIdx, 0] = self.grid_m[i, j][0]
-            #         gridMasses[gridIdx, 1] = self.grid_m[i, j][1]
+            #         gridMasses[gridIdx, 0] = self.grid_m1[i, j]
+            #         gridMasses[gridIdx, 1] = self.grid_m2[i, j]
             #         gridNormals[gridIdx, 0] = self.grid_n1[i, j][0]
             #         gridNormals[gridIdx, 1] = self.grid_n1[i, j][1]
             #         gridNormals[gridIdx, 2] = self.grid_n2[i, j][0]

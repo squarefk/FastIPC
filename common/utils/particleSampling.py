@@ -2,6 +2,84 @@ import numpy as np
 import triangle as tr
 import matplotlib.pyplot as plt
 
+#Sample from TetWild tetrahedral mesh
+def sampleFromTetWild(filename, density):
+    X = []
+    idx = []
+    readTetWildFile(filename, X, idx)
+    return np.array(X)
+
+#Read from TetWild tet mesh to get points and indeces
+def readTetWildFile(filename, samples, indeces):
+    readingPoints = False
+    readingTriangles = False
+    readingTets = False
+    numPoints = 0
+    numTris = 0
+    numTets = 0
+    try:
+        f = open(filename)
+        for line in f:
+            if line[:4] == "Mesh":
+                continue
+            elif line[:9] == "Dimension":
+                continue
+            elif line[:8] == "Vertices":
+                readingPoints = True
+                readingTriangles = False
+                readingTets = False
+                continue
+            elif line[:9] == "Triangles":
+                readingPoints = False
+                readingTriangles = True
+                readingTets = False
+                continue
+            elif line[:10] == "Tetrahedra":
+                readingPoints = False
+                readingTriangles = False
+                readingTets = True
+                continue
+            elif line[:3] == "End":
+                continue
+            elif numPoints == 0 and readingPoints:
+                numPoints = int(line)
+                #print("numPoints:", numPoints)
+                continue
+            elif numTris == 0 and readingTriangles:
+                numTris = int(line)
+                #print("numTris:", numTris)
+                if numTris == 0:
+                    readingTriangles = False
+                continue
+            elif numTets == 0 and readingTets:
+                numTets = int(line)
+                #print("numTets:", numTets)
+                continue
+            elif readingPoints:
+                index1 = 0
+                index2 = line.find(" ", index1 + 1)
+                index3 = line.find(" ", index2 + 1)
+                index4 = line.find(" ", index3 + 1)
+                vertex = (float(line[index1:index2]), float(line[index2:index3]), float(line[index3:index4]))
+                samples.append(vertex)
+            elif readingTriangles:
+                continue
+            elif readingTets:
+                index1 = 0
+                index2 = line.find(" ", index1 + 1)
+                index3 = line.find(" ", index2 + 1)
+                index4 = line.find(" ", index3 + 1)
+                index5 = line.find(" ", index4 + 1)
+                idx = (int(line[index1:index2]), int(line[index2:index3]), int(line[index3:index4]), int(line[index4:index5]))
+                indeces.append(idx)
+        f.close()
+        assert(numPoints == len(samples))
+        assert(numTets == len(indeces))
+    except IOError:
+        print("IO ERROR: .mesh file not found")
+    return
+
+
 #Read OBJ file and return list of particle positions
 def readOBJ(filepath):
     positions = []
