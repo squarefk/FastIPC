@@ -101,10 +101,6 @@ class DFGMPMSolver:
         self.damageList = np.array(EList) #dummy list
         self.cf = 1.0
         self.timeToFail = 1.0
-        
-        #Neighbor Search Variables - NOTE: if these values are too low, we get data races!!! Try to keep these as high as possible (RIP to ur RAM)
-        self.maxNeighbors = 1024 #TODO: figure out how best to set these/is there a way around them? p sure they came from reference code
-        self.maxPPC = 1024
 
         #DFG Parameters
         self.rp = (3*(dx**2))**0.5 if self.dim == 3 else (2*(dx**2))**0.5 #set rp based on dx (this changes if dx != dy)
@@ -168,27 +164,12 @@ class DFGMPMSolver:
         # self.useRankineDamageList = ti.field(dtype=int, shape=self.numParticles)
         # #---Time To Failure Damage
         # self.useTimeToFailureDamageList = ti.field(dtype=int, shape=self.numParticles)               
-        
-        #Active Fields
-        self.particleAF = ti.Vector.field(3**self.dim, dtype=int, shape=self.numParticles) #store which activefield each particle belongs to for the 9 grid nodes it maps to
-
-        #Neighbor Search Fields
-        self.gridNumParticles = ti.field(int)      #track number of particles in each cell using cell index
-        self.backGrid = ti.field(int)              #background grid to map grid cells to a list of particles they contain
-        self.particleNumNeighbors = ti.field(int)  #track how many neighbors each particle has
-        self.particleNeighbors = ti.field(int)     #map a particle to its list of neighbors
-        #Shape the neighbor fields
-        self.gridShape = ti.root.dense(ti.ij, (self.nGrid,self.nGrid))
-        self.gridShape.place(self.gridNumParticles) #gridNumParticles is nGrid x nGrid
-        self.gridShape.dense(ti.k, self.maxPPC).place(self.backGrid) #backGrid is nGrid x nGrid x maxPPC
-        #NOTE: backgrid uses nGrid x nGrid even though dx != rp, but rp is ALWAYs larger than dx so it's okay!
-        self.particleShape = ti.root.dense(ti.i, self.numParticles)
-        self.particleShape.place(self.particleNumNeighbors) #particleNumNeighbors is nParticles x 1
-        self.particleShape.dense(ti.j, self.maxNeighbors).place(self.particleNeighbors) #particleNeighbors is nParticles x maxNeighbors
+        # #---Active Fields Tracking
+        #self.particleAF = ti.Vector.field(3**self.dim, dtype=int, shape=self.numParticles) #store which activefield each particle belongs to for the 9 grid nodes it maps to
 
         #Dynamic Particle Structures
         #---Params
-        self.max_num_particles = 2**27
+        self.max_num_particles = 2**20 #~1 million
         #---Lame Parameters
         self.mu = ti.field(dtype=float)
         self.la = ti.field(dtype=float)
@@ -218,9 +199,11 @@ class DFGMPMSolver:
         self.useRankineDamageList = ti.field(dtype=int)
         #---Time To Failure Damage
         self.useTimeToFailureDamageList = ti.field(dtype=int) 
+        #---Active Fields Tracking
+        self.particleAF = ti.Vector.field(3**self.dim, dtype=int) #store which activefield each particle belongs to for the 9 grid nodes it maps to
         #---Shape and Then Place Structures
         self.particle = ti.root.dynamic(ti.i, self.max_num_particles, 2**19) #2**20 causes problems in CUDA (maybe asking for too much space)
-        self.particle.place(self.mu, self.la, self.x, self.v, self.C, self.F, self.material, self.mp, self.Vp, self.Jp, self.Dp, self.sp, self.particleDG, self.sigmaC, self.dTildeH, self.damageLaplacians, self.useAnisoMPMDamageList, self.Hs, self.sigmaF, self.sigmaMax, self.useRankineDamageList, self.useTimeToFailureDamageList)
+        self.particle.place(self.mu, self.la, self.x, self.v, self.C, self.F, self.material, self.mp, self.Vp, self.Jp, self.Dp, self.sp, self.particleDG, self.sigmaC, self.dTildeH, self.damageLaplacians, self.useAnisoMPMDamageList, self.Hs, self.sigmaF, self.sigmaMax, self.useRankineDamageList, self.useTimeToFailureDamageList, self.particleAF)
 
         #Sparse Grids
         #---Params
@@ -228,17 +211,13 @@ class DFGMPMSolver:
         self.grid_block_size = 128
         self.leaf_block_size = 16 if self.dim == 2 else 8
         self.indices = ti.ij if self.dim == 2 else ti.ijk
-        self.offset = tuple(-self.grid_size // 2 for _ in range(self.dim))
-        #self.offset = tuple(0 for _ in range(self.dim))
+        #self.offset = tuple(-self.grid_size // 2 for _ in range(self.dim))
+        self.offset = tuple(0 for _ in range(self.dim)) #NOTE: this means we assume everything to be in quadrant 1 --> this is useful for aligning with the spatial hash for neighbor search
         #---Grid Shapes for PID
         self.grid = ti.root.pointer(self.indices, self.grid_size // self.grid_block_size) # 32
         self.block = self.grid.pointer(self.indices, self.grid_block_size // self.leaf_block_size) # 8
         self.pid = ti.field(int)
         self.block.dynamic(ti.indices(self.dim), 1024 * 1024, chunk_size=self.leaf_block_size**self.dim * 8).place(self.pid, offset=self.offset + (0, ))
-        #---Neighbor Search Fields
-        #self.gridNumParticles_sparse = ti.field(int)
-        #self.backGrid_sparse = ti.field(int)
-        #block_component(self.gridNumParticles_sparse) #NOTE: gridNumParticles is nGrid x nGrid
         #---Grid Shapes for Rest of Grid Structures
         self.grid2 = ti.root.pointer(self.indices, self.grid_size // self.grid_block_size) # 32
         self.block2 = self.grid2.pointer(self.indices, self.grid_block_size // self.leaf_block_size) # 8
@@ -307,9 +286,26 @@ class DFGMPMSolver:
             block_component(maxD)
         block_component(self.separable) # whether grid node is separable or not
 
-        #TODO: 8 n x n dense grid structures
-        #TODO: 6 n x n x 2 grid structures to split into two dense structures
-        #TODO: 1 n x n x maxPPC structure to turn into dynamic
+        #Neighbor Search Structures
+        #---Parameters---NOTE: if these values are too low, we get data races!!! Try to keep these as high as possible (RIP to ur RAM)
+        self.maxNeighbors = 2**10
+        self.maxPPC = 2**10
+        #---Structures---
+        self.gridNumParticles = ti.field(int)      #track number of particles in each cell using cell index
+        self.backGrid = ti.field(int)              #background grid to map grid cells to a list of particles they contain
+        self.particleNumNeighbors = ti.field(int)  #track how many neighbors each particle has
+        self.particleNeighbors = ti.field(int)     #map a particle to its list of neighbors
+        #Shape the neighbor fields
+        ti.root.dense(self.indices, self.nGrid).place(self.gridNumParticles)    #gridNumParticles is nGrid x nGrid
+        backGridIndeces = ti.ijk if self.dim == 2 else ti.ijkl
+        backGridShape = (self.nGrid, self.nGrid, self.maxPPC) if self.dim == 2 else (self.nGrid, self.nGrid, self.nGrid, self.maxPPC)
+        ti.root.dense(backGridIndeces, backGridShape).place(self.backGrid)      #backGrid is nGrid x nGrid x maxPPC
+        #self.gridShape.place(self.gridNumParticles) 
+        #self.gridShape.dense(ti.k, self.maxPPC).place(self.backGrid) 
+        #NOTE: backgrid uses nGrid x nGrid even though dx != rp, but rp is ALWAYs larger than dx so it's okay!
+        self.particleShape = ti.root.dense(ti.i, self.numParticles)
+        self.particleShape.place(self.particleNumNeighbors) #particleNumNeighbors is nParticles x 1
+        self.particleShape.dense(ti.j, self.maxNeighbors).place(self.particleNeighbors) #particleNeighbors is nParticles x maxNeighbors
 
         #Sparse Matrix Fields
         MAX_LINEAR = 5000000
