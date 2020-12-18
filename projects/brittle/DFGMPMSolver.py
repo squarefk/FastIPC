@@ -228,8 +228,8 @@ class DFGMPMSolver:
         self.grid_block_size = 128
         self.leaf_block_size = 16 if self.dim == 2 else 8
         self.indices = ti.ij if self.dim == 2 else ti.ijk
-        #self.offset = tuple(-self.grid_size // 2 for _ in range(self.dim))
-        self.offset = tuple(0 for _ in range(self.dim))
+        self.offset = tuple(-self.grid_size // 2 for _ in range(self.dim))
+        #self.offset = tuple(0 for _ in range(self.dim))
         #---Grid Shapes for PID
         self.grid = ti.root.pointer(self.indices, self.grid_size // self.grid_block_size) # 32
         self.block = self.grid.pointer(self.indices, self.grid_block_size // self.leaf_block_size) # 8
@@ -613,7 +613,8 @@ class DFGMPMSolver:
                 nablaS += (omegaPrime * rBarGrad)
 
             nablaDBar = (nablaD * DandS[1] - DandS[0] * nablaS) / (DandS[1]**2) #final particle DG
-            self.particleDG[p] = nablaDBar #store particle DG
+            
+            self.particleDG[p] = nablaDBar if DandS[1] != 0 else ti.Vector.zero(float, self.dim) #if particle has no neighbors set DG to zeros
 
             #Now iterate over the grid nodes particle p maps to to set Di!
             base = ti.floor(pos * self.invDx - 0.5).cast(int)
@@ -718,7 +719,7 @@ class DFGMPMSolver:
 
     @ti.kernel
     def damageP2G(self):
-        
+
         #damageP2G so we can compute the Laplacians
         ti.block_dim(256)
         ti.no_activate(self.particle)
@@ -1415,6 +1416,7 @@ class DFGMPMSolver:
 
         with Timer("Reinitialize Structures"):
             self.grid.deactivate_all() #clear sparse grid structures
+            self.grid2.deactivate_all()
             self.reinitializeStructures()
 
         with Timer("Build Particle IDs"):
