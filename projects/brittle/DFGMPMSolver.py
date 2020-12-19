@@ -61,7 +61,7 @@ class DFGMPMSolver:
             raise ValueError('flipPicRatio must be between 0 and 1')
         self.useDamage = False
         self.activeNodes = ti.field(dtype=int, shape=())
-        self.gravity = ti.Vector.field(self.dim, dtype=float, shape=())
+        #self.gravity = ti.Vector.field(self.dim, dtype=float, shape=())
         
         #Collision Variables
         self.collisionCallbacks = [] #hold function callbacks for post processing velocity
@@ -296,7 +296,7 @@ class DFGMPMSolver:
         self.particleNumNeighbors = ti.field(int)  #track how many neighbors each particle has
         self.particleNeighbors = ti.field(int)     #map a particle to its list of neighbors
         #Shape the neighbor fields
-        ti.root.dense(self.indices, self.nGrid).place(self.gridNumParticles)    #gridNumParticles is nGrid x nGrid
+        block_component(self.gridNumParticles) #place this on the sparse grid
         backGridIndeces = ti.ijk if self.dim == 2 else ti.ijkl
         backGridShape = (self.nGrid, self.nGrid, self.maxPPC) if self.dim == 2 else (self.nGrid, self.nGrid, self.nGrid, self.maxPPC)
         ti.root.dense(backGridIndeces, backGridShape).place(self.backGrid)      #backGrid is nGrid x nGrid x maxPPC
@@ -401,7 +401,7 @@ class DFGMPMSolver:
         return int(x/self.rp)
 
     @ti.func
-    def isInGrid(self, x):
+    def isInGrid(self, x): #TODO: 3d
         return 0 <= x[0] and x[0] < self.nGrid and 0 <= x[1] and x[1] < self.nGrid
 
     ##########
@@ -452,33 +452,7 @@ class DFGMPMSolver:
     #Simulation Routines
     @ti.kernel
     def reinitializeStructures(self):
-        #re-initialize grid quantities
-        # for I in ti.grouped(self.grid_m1):
-        #     self.grid_q1[I] = [0, 0] #field 1 momentum
-        #     self.grid_q2[I] = [0, 0] #field 2 momentum
-        #     self.grid_v1[I] = [0, 0] #field 1 vel
-        #     self.grid_v2[I] = [0, 0] #field 2 vel
-        #     self.grid_vn1[I] = [0, 0] #field 1 vel v_i^n
-        #     self.grid_vn2[I] = [0, 0] #field 2 vel v_i^n
-        #     self.grid_n1[I] = [0, 0] #field 1 normal
-        #     self.grid_n2[I] = [0, 0] #field 2 normal
-        #     self.grid_f1[I] = [0, 0] #f1 nodal force
-        #     self.grid_f2[I] = [0, 0] #f2 nodal force
-        #     self.grid_fct1[I] = [0, 0] #f1 nodal force
-        #     self.grid_fct2[I] = [0, 0] #f2 nodal force
-        #     self.grid_m1[I] = 0 # field 1 mass
-        #     self.grid_m2[I] = 0 #field 2 mass
-        #     self.gridSeparability[I] = [0, 0, 0, 0] #stackt fields, and we use the space to add up the numerator and denom for each field
-        #     self.gridMaxDamage[I] = [0, 0] #stackt fields
-        #     self.gridDG[I] = [0, 0] #reset grid node damage gradients
-        #     self.gridMaxNorm[I] = 0 #reset max norm DG found at the grid node
-        #     self.separable[I] = -1 #-1 for only one field, 0 for not separable, and 1 for separable
-        #     self.grid_d[I] = [0, 0, 0, 0]
-        #     self.grid_idx[I] = -1
-        
         #Clear neighbor look up structures
-        for I in ti.grouped(self.gridNumParticles):
-            self.gridNumParticles[I] = 0
         for p in range(self.numParticles):
             self.particleNumNeighbors[p] = 0
             self.particleAF[p] = [-1, -1, -1, -1, -1, -1, -1, -1, -1] if self.dim == 2 else [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1] #idk why I did it this way LOL
@@ -981,9 +955,13 @@ class DFGMPMSolver:
          #Add Gravity
         for I in ti.grouped(self.grid_m1):
             if self.grid_m1[I] > 0:
-                self.grid_v1[I] += self.dt * self.gravity[None]
+                self.grid_v1[I][1] += self.dt * self.gravMag
             if self.separable[I] == 1:
-                self.grid_v2[I] += self.dt * self.gravity[None]
+                self.grid_v2[I][1] += self.dt * self.gravMag
+            # if self.grid_m1[I] > 0:
+            #     self.grid_v1[I] += self.dt * self.gravity[None]
+            # if self.separable[I] == 1:
+            #     self.grid_v2[I] += self.dt * self.gravity[None]
 
     @ti.kernel
     def applyImpulse(self):
@@ -1127,13 +1105,16 @@ class DFGMPMSolver:
                         new_F += g_v2_np1.outer_product(dweight)
 
             #Finish computing FLIP velocity: v_p^n+1 = v_p^n + dt (v_i^n+1 - v_i^n) * wip
-            new_v_FLIP = self.v[p] + (self.dt * new_v_FLIP)
+            #new_v_FLIP = self.v[p] + (self.dt * new_v_FLIP)
+            new_v_FLIP *= self.dt
+            new_v_FLIP += self.v[p]
 
             #Compute the blend
             new_v = (self.flipPicRatio * new_v_FLIP) + ((1.0 - self.flipPicRatio) * new_v_PIC)
 
             self.v[p], self.C[p] = new_v, new_C #set v_p n+1 to be the blended velocity
 
+            #print("x[p]: ", self.x[p], "newvPIC:", new_v_PIC)
             self.x[p] += self.dt * new_v_PIC # advection, use PIC velocity for advection regardless of PIC, FLIP, or APIC
             self.F[p] = (ti.Matrix.identity(float, self.dim) + (self.dt * new_F)) @ self.F[p] #updateF (explicitMPM way)
 
@@ -1415,15 +1396,12 @@ class DFGMPMSolver:
             self.grid2.deactivate_all()
             self.reinitializeStructures()
 
-        print("finished reinitializing")
-
         with Timer("Build Particle IDs"):
             self.build_pid()
 
-        #print("A")
-
         #these routines are unique to DFGMPM
         if self.useDFG:
+            #print("A")
             with Timer("Back Grid Sort"):
                 self.backGridSort()
                 #print("B")
@@ -1490,7 +1468,7 @@ class DFGMPMSolver:
 
     @ti.kernel
     def reset(self, arr: ti.ext_arr(), partCount: ti.ext_arr(), initVel: ti.ext_arr(), pMasses: ti.ext_arr(), pVols: ti.ext_arr(), EList: ti.ext_arr(), nuList: ti.ext_arr(), damageList: ti.ext_arr()):
-        self.gravity[None] = [0, self.gravMag] if self.dim == 2 else [0, self.gravMag, 0]
+        #self.gravity[None] = [0.0, float(self.gravMag)] if self.dim == 2 else [0.0, float(self.gravMag), 0.0]
         stretchedSigma = 0.0
         for i in range(self.numParticles):
             self.x[i] = [ti.cast(arr[i,0], ti.f64), ti.cast(arr[i,1], ti.f64)] if self.dim == 2 else [ti.cast(arr[i,0], ti.f64), ti.cast(arr[i,1], ti.f64), ti.cast(arr[i,2], ti.f64)] 
@@ -1739,5 +1717,4 @@ class DFGMPMSolver:
                             self.writeData(frame, s) #NOTE: activate to write every substep
                     with Timer("Compute Substep"):
                         self.substep()
-                    print("completed substep", s)
         Timer_Print()

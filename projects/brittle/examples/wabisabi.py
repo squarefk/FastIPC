@@ -21,7 +21,7 @@ EList = [E]
 nuList = [nu]
 
 rho = 1
-filename = "../Data/TetMesh/bowl2_50k.mesh"
+filename = "../Data/TetMesh/bowl2_5k.mesh"
 vertices, vol = sampleFromTetWild(filename, rho)
 surfaceThreshold = 4.4
 
@@ -50,7 +50,7 @@ cfl = 0.4
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.9 * maxDt
 
-useDFG = True
+useDFG = False
 verbose = True
 useAPIC = False
 frictionCoefficient = 0.0
