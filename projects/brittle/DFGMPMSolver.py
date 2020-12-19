@@ -479,10 +479,9 @@ class DFGMPMSolver:
         #Clear neighbor look up structures
         for I in ti.grouped(self.gridNumParticles):
             self.gridNumParticles[I] = 0
-        for I in ti.grouped(self.particleNeighbors):
-            self.particleNeighbors[I] = -1
-        for I in ti.grouped(self.particleAF):
-            self.particleAF[I] = [-1, -1, -1, -1, -1, -1, -1, -1, -1] #TODO: 3d
+        for p in range(self.numParticles):
+            self.particleNumNeighbors[p] = 0
+            self.particleAF[p] = [-1, -1, -1, -1, -1, -1, -1, -1, -1] if self.dim == 2 else [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1] #idk why I did it this way LOL
     
     @ti.kernel
     def backGridSort(self):
@@ -493,6 +492,7 @@ class DFGMPMSolver:
             p = self.pid[I]
             cell = self.backGridIdx(self.x[p]) #grab cell idx (vector of ints)
             offs = ti.atomic_add(self.gridNumParticles[cell], 1) #atomically add one to our grid cell's particle count NOTE: returns the OLD value before add
+            #print("cell:", cell, "offs:", offs)
             self.backGrid[cell, offs] = p #place particle idx into the grid cell bucket at the correct place in the cell's neighbor list (using offs)
 
     @ti.kernel
@@ -903,9 +903,9 @@ class DFGMPMSolver:
                     dweight[0] = self.invDx * dw[offset[0]][0] * w[offset[1]][1]
                     dweight[1] = self.invDx * w[offset[0]][0] * dw[offset[1]][1]
                 else:
-                    dweight[0] = dw[offset[0]][0]*w[offset[1]][1]*w[offset[2]][2] * self.inv_dx
-                    dweight[1] = w[offset[0]][0]*dw[offset[1]][1]*w[offset[2]][2] * self.inv_dx
-                    dweight[2] = w[offset[0]][0]*w[offset[1]][1]*dw[offset[2]][2] * self.inv_dx
+                    dweight[0] = dw[offset[0]][0]*w[offset[1]][1]*w[offset[2]][2] * self.invDx
+                    dweight[1] = w[offset[0]][0]*dw[offset[1]][1]*w[offset[2]][2] * self.invDx
+                    dweight[2] = w[offset[0]][0]*w[offset[1]][1]*dw[offset[2]][2] * self.invDx
                 
                 force = -self.Vp[p] * kirchoff @ dweight
 
@@ -1101,9 +1101,9 @@ class DFGMPMSolver:
                     dweight[0] = self.invDx * dw[offset[0]][0] * w[offset[1]][1]
                     dweight[1] = self.invDx * w[offset[0]][0] * dw[offset[1]][1]
                 else:
-                    dweight[0] = dw[offset[0]][0]*w[offset[1]][1]*w[offset[2]][2] * self.inv_dx
-                    dweight[1] = w[offset[0]][0]*dw[offset[1]][1]*w[offset[2]][2] * self.inv_dx
-                    dweight[2] = w[offset[0]][0]*w[offset[1]][1]*dw[offset[2]][2] * self.inv_dx
+                    dweight[0] = dw[offset[0]][0]*w[offset[1]][1]*w[offset[2]][2] * self.invDx
+                    dweight[1] = w[offset[0]][0]*dw[offset[1]][1]*w[offset[2]][2] * self.invDx
+                    dweight[2] = w[offset[0]][0]*w[offset[1]][1]*dw[offset[2]][2] * self.invDx
 
                 if self.separable[gridIdx] != 1:
                     #treat as one field
@@ -1135,7 +1135,7 @@ class DFGMPMSolver:
             self.v[p], self.C[p] = new_v, new_C #set v_p n+1 to be the blended velocity
 
             self.x[p] += self.dt * new_v_PIC # advection, use PIC velocity for advection regardless of PIC, FLIP, or APIC
-            self.F[p] = (ti.Matrix.identity(float, 2) + (self.dt * new_F)) @ self.F[p] #updateF (explicitMPM way)
+            self.F[p] = (ti.Matrix.identity(float, self.dim) + (self.dt * new_F)) @ self.F[p] #updateF (explicitMPM way)
 
     #------------Collision Objects---------------
 
@@ -1146,7 +1146,7 @@ class DFGMPMSolver:
         
     #dummy transform for default value
     def noTransform(time: ti.f64):
-        return (0.0, 0.0), (0.0, 0.0)
+        return -1, -1
 
     #add half space collision object
     def addHalfSpace(self, center, normal, surface, friction, transform = noTransform):
@@ -1415,22 +1415,30 @@ class DFGMPMSolver:
             self.grid2.deactivate_all()
             self.reinitializeStructures()
 
+        print("finished reinitializing")
+
         with Timer("Build Particle IDs"):
             self.build_pid()
+
+        #print("A")
 
         #these routines are unique to DFGMPM
         if self.useDFG:
             with Timer("Back Grid Sort"):
                 self.backGridSort()
+                #print("B")
             with Timer("Particle Neighbor Sorting"):
                 self.particleNeighborSorting()
+                #print("C")
             #Only perform surface detection on the very first substep to prevent artificial DFG fracture
             if self.elapsedTime == 0:
                 with Timer("Surface Detection"):
                     self.surfaceDetection()
+                    #print("D")
             if self.useRankineDamage:
                 with Timer("Update Damage"): #NOTE: make sure to do this before we compute the damage gradients!
                     self.updateDamage()
+                    #print("E")
             with Timer("Compute Particle DGs"):
                 self.computeParticleDG()
             with Timer("Compute Grid DGs"):
@@ -1470,7 +1478,9 @@ class DFGMPMSolver:
         with Timer("Collision Objects"):
             for i in range(self.collisionObjectCount):
                 t, v = self.transformCallbacks[i](self.elapsedTime) #get the current translation and velocity based on current time
-                self.collisionVelocities[i] = ti.Vector(v)
+                if t == -1 and v == -1: #if we used the dummy function, noTransform
+                    vel = (0.0, 0.0) if self.dim == 2 else (0.0, 0.0, 0.0)
+                self.collisionVelocities[i] = ti.Vector(vel)
                 self.updateCollisionObjects(i)
                 self.collisionCallbacks[i](i)
         with Timer("G2P"):
@@ -1578,11 +1588,6 @@ class DFGMPMSolver:
 
     def writeData(self, frame: ti.i32, s: ti.i32):
         
-        if(s == -1):
-            print('[Simulation]: Writing frame ', frame, '...')
-        else:
-            print('[Simulation]: Writing substep ', s, 'of frame ', frame, '...')
-
         #Write PLY Files
         #initialize writer and numpy arrays to hold data
         writer = ti.PLYWriter(num_vertices=self.numParticles)
@@ -1712,79 +1717,11 @@ class DFGMPMSolver:
                 writer2.export_frame(frame, self.outputPath2)
             else:
                 writer2.export_frame(frame * self.numSubsteps + s, self.outputPath2)
-            
-            #OLD WAY (w/o sparse grids)
-            #Construct positions for grid nodes
-            # gridX = np.zeros((self.nGrid**2, 2), dtype=float) #format as 1d array of nodal positions
-            # np_separability = np.zeros(self.nGrid**2, dtype=int)
-            # gridNormals = np.zeros((self.nGrid**2, 4), dtype=float)
-            # gridMasses = np.zeros((self.nGrid**2, 2), dtype=float)
-            # gridVelocities = np.zeros((self.nGrid**2, 4), dtype=float)
-            # gridForces = np.zeros((self.nGrid**2, 4), dtype=float)
-            # gridFrictionForces = np.zeros((self.nGrid**2, 4), dtype=float)
-            # np_DG = np.zeros((self.nGrid**2, 2), dtype=float)
-            # np_separabilityValue = np.zeros((self.nGrid**2, 2), dtype=float)
-            # np_gridDamage = np.zeros((self.nGrid**2, 2), dtype=float)
-            # for i in range(self.nGrid):
-            #     for j in range(self.nGrid):
-            #         gridIdx = i * self.nGrid + j
-            #         gridX[gridIdx,0] = i * self.dx
-            #         gridX[gridIdx,1] = j * self.dx
-            #         np_separability[gridIdx] = self.separable[i, j] #grab separability
-            #         #TODO: 3D and sparse!!!
-            #         np_DG[gridIdx, 0] = self.gridDG[i, j][0]
-            #         np_DG[gridIdx, 1] = self.gridDG[i, j][1]
-            #         np_separabilityValue[gridIdx, 0] = self.gridSeparability[i, j][0]
-            #         np_separabilityValue[gridIdx, 1] = self.gridSeparability[i, j][1]
-            #         np_gridDamage[gridIdx, 0] = self.grid_d[i, j][0]
-            #         np_gridDamage[gridIdx, 1] = self.grid_d[i, j][1]
-            #         gridVelocities[gridIdx, 0] = self.grid_v1[i, j][0]
-            #         gridVelocities[gridIdx, 1] = self.grid_v1[i, j][1]
-            #         gridVelocities[gridIdx, 2] = self.grid_v2[i, j][0]
-            #         gridVelocities[gridIdx, 3] = self.grid_v2[i, j][1]
-            #         gridForces[gridIdx, 0] = self.grid_f1[i, j][0]
-            #         gridForces[gridIdx, 1] = self.grid_f1[i, j][1]
-            #         gridForces[gridIdx, 2] = self.grid_f2[i, j][0]
-            #         gridForces[gridIdx, 3] = self.grid_f2[i, j][1]
-            #         gridMasses[gridIdx, 0] = self.grid_m1[i, j]
-            #         gridMasses[gridIdx, 1] = self.grid_m2[i, j]
-            #         gridNormals[gridIdx, 0] = self.grid_n1[i, j][0]
-            #         gridNormals[gridIdx, 1] = self.grid_n1[i, j][1]
-            #         gridNormals[gridIdx, 2] = self.grid_n2[i, j][0]
-            #         gridNormals[gridIdx, 3] = self.grid_n2[i, j][1]
-            #         if self.separable[i, j] == 1:
-            #             gridFrictionForces[gridIdx, 0] = self.grid_fct1[i, j][0]
-            #             gridFrictionForces[gridIdx, 1] = self.grid_fct1[i, j][1]
-            #             gridFrictionForces[gridIdx, 2] = self.grid_fct2[i, j][0]
-            #             gridFrictionForces[gridIdx, 3] = self.grid_fct2[i, j][1]
-            # writer2 = ti.PLYWriter(num_vertices=self.nGrid**2)
-            # writer2.add_vertex_pos(gridX[:,0], gridX[:, 1], np.zeros(self.nGrid**2)) #add position
-            # writer2.add_vertex_channel("sep", "int", np_separability)
-            # writer2.add_vertex_channel("sep1", "float", np_separabilityValue[:,0])
-            # writer2.add_vertex_channel("sep2", "float", np_separabilityValue[:,1])
-            # if self.useAnisoMPMDamage:
-            #     writer2.add_vertex_channel("d1", "float", np_gridDamage[:,0])
-            #     writer2.add_vertex_channel("d2", "float", np_gridDamage[:,1])
-            # writer2.add_vertex_channel("DGx", "double", np_DG[:,0]) #add particle DG x
-            # writer2.add_vertex_channel("DGy", "double", np_DG[:,1]) #add particle DG y
-            # writer2.add_vertex_channel("N_field1_x", "double", gridNormals[:,0]) #add grid_n for field 1 x
-            # writer2.add_vertex_channel("N_field1_y", "double", gridNormals[:,1]) #add grid_n for field 1 y
-            # writer2.add_vertex_channel("N_field2_x", "double", gridNormals[:,2]) #add grid_n for field 2 x
-            # writer2.add_vertex_channel("N_field2_y", "double", gridNormals[:,3]) #add grid_n for field 2 y
-            # writer2.add_vertex_channel("f_field1_x", "double", gridForces[:,0]) #add grid_fct for field 1 x
-            # writer2.add_vertex_channel("f_field1_y", "double", gridForces[:,1]) #add grid_fct for field 1 y
-            # writer2.add_vertex_channel("f_field2_x", "double", gridForces[:,2]) #add grid_fct for field 2 x
-            # writer2.add_vertex_channel("f_field2_y", "double", gridForces[:,3]) #add grid_fct for field 2 y
-            # writer2.add_vertex_channel("fct_field1_x", "double", gridFrictionForces[:,0]) #add grid_fct for field 1 x
-            # writer2.add_vertex_channel("fct_field1_y", "double", gridFrictionForces[:,1]) #add grid_fct for field 1 y
-            # writer2.add_vertex_channel("fct_field2_x", "double", gridFrictionForces[:,2]) #add grid_fct for field 2 x
-            # writer2.add_vertex_channel("fct_field2_y", "double", gridFrictionForces[:,3]) #add grid_fct for field 2 y
-            # writer2.add_vertex_channel("v_field1_x", "double", gridVelocities[:,0])
-            # writer2.add_vertex_channel("v_field1_y", "double", gridVelocities[:,1])
-            # writer2.add_vertex_channel("v_field2_x", "double", gridVelocities[:,2])
-            # writer2.add_vertex_channel("v_field2_y", "double", gridVelocities[:,3])
-            # writer2.add_vertex_channel("m1", "double", gridMasses[:,0])
-            # writer2.add_vertex_channel("m2", "double", gridMasses[:,1])
+        
+        if(s == -1):
+            print('[Simulation]: Finished writing frame ', frame, '...')
+        else:
+            print('[Simulation]: Finished writing substep ', s, 'of frame ', frame, '...')
 
     def simulate(self):
         print("[Simulation] Particle Count: ", self.numParticles)
@@ -1802,4 +1739,5 @@ class DFGMPMSolver:
                             self.writeData(frame, s) #NOTE: activate to write every substep
                     with Timer("Compute Substep"):
                         self.substep()
+                    print("completed substep", s)
         Timer_Print()

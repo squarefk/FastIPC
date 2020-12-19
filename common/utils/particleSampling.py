@@ -7,7 +7,21 @@ def sampleFromTetWild(filename, density):
     X = []
     idx = []
     readTetWildFile(filename, X, idx)
-    return np.array(X)
+
+    #Now compute the total volume
+    volume = 0.0
+    for i in range(len(idx)): #iterate over tets
+        a = X[idx[i][0]]
+        b = X[idx[i][1]]
+        c = X[idx[i][2]]
+        d = X[idx[i][3]]
+        A = np.matrix([[a[0], b[0], c[0], d[0]], [a[1], b[1], c[1], d[1]], [a[2], b[2], c[2], d[2]], [1.0, 1.0, 1.0, 1.0]])
+        currVol = np.linalg.det(A) / 6.0
+        if currVol < 0: currVol *= -1
+        volume += currVol
+
+    print("[Particle Sampling] Total TetMesh Volume: ", volume)
+    return np.array(X), volume
 
 #Read from TetWild tet mesh to get points and indeces
 def readTetWildFile(filename, samples, indeces):
@@ -70,7 +84,7 @@ def readTetWildFile(filename, samples, indeces):
                 index3 = line.find(" ", index2 + 1)
                 index4 = line.find(" ", index3 + 1)
                 index5 = line.find(" ", index4 + 1)
-                idx = (int(line[index1:index2]), int(line[index2:index3]), int(line[index3:index4]), int(line[index4:index5]))
+                idx = (int(line[index1:index2]) - 1, int(line[index2:index3]) - 1, int(line[index3:index4]) - 1, int(line[index4:index5]) - 1) #NOTE: need to subtract by 1 to each index since they start at 1 (*sigh* plebs)
                 indeces.append(idx)
         f.close()
         assert(numPoints == len(samples))

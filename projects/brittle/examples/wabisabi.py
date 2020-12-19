@@ -5,13 +5,14 @@ from common.utils.particleSampling import *
 from common.utils.cfl import *
 from projects.brittle.DFGMPMSolver import *
 
-ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+#ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+ti.init(default_fp=ti.f64, arch=ti.cpu)  #CPU, parallel
 #ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10.0
 outputPath = "../output/wabisabi/brittle.ply"
 outputPath2 = "../output/wabisabi/brittle_nodes.ply"
-fps = 240
+fps = 30
 endFrame = 3 * fps
 
 E = 1e4 #1e5
@@ -21,14 +22,12 @@ nuList = [nu]
 
 rho = 1
 filename = "../Data/TetMesh/bowl2_50k.mesh"
-vertices = sampleFromTetWild(filename, rho)
+vertices, vol = sampleFromTetWild(filename, rho)
 surfaceThreshold = 4.4
 
 vertexCount = len(vertices)
 particleCounts = [vertexCount]
 
-
-vol = 0.2**3.0
 pVol = vol / vertexCount
 mp = pVol * rho
 particleMasses = [mp]
@@ -42,7 +41,8 @@ initVel = [xVel,yVel,zVel]
 initialVelocity = [initVel]
 
 #dx = 0.01 #TODO
-ppc = 8 #want 2 per dimension
+ppd = 3 #particles per dimension
+ppc = ppd**3 #want ppd per dimension
 dx = (ppc * pVol)**0.5
 
 #Compute max dt
@@ -50,8 +50,8 @@ cfl = 0.4
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.9 * maxDt
 
-useDFG = False
-verbose = False
+useDFG = True
+verbose = True
 useAPIC = False
 frictionCoefficient = 0.0
 flipPicRatio = 0.9 #want to blend in more PIC for stiffness -> lower
