@@ -61,7 +61,6 @@ class DFGMPMSolver:
             raise ValueError('flipPicRatio must be between 0 and 1')
         self.useDamage = False
         self.activeNodes = ti.field(dtype=int, shape=())
-        #self.gravity = ti.Vector.field(self.dim, dtype=float, shape=())
         
         #Collision Variables
         self.collisionCallbacks = [] #hold function callbacks for post processing velocity
@@ -898,7 +897,7 @@ class DFGMPMSolver:
                     self.grid_f1[gridIdx] += force #accumulate grid forces
                     self.grid_n1[gridIdx] += dweight * self.mp[p] #add to the normal for this field at this grid node, remember we need to normalize it later!
 
-                elif self.separable[gridIdx] == 1:
+                elif self.separable[gridIdx] == 1 and self.useDFG == True:
                     #treat node as having two fields
                     #afIdx = offset[0]*3 + offset[1] if self.dim == 2 else offset[0]*3 + offset[1]*3 + offset[2]
                     fieldIdx = self.particleAF[p][offset[0]*3 + offset[1]] #grab the field that this particle is in for this node #TODO: 3D
@@ -929,8 +928,10 @@ class DFGMPMSolver:
         for I in ti.grouped(self.grid_m1):
             if self.grid_m1[I] > 0:
                 #print("I:", I, " m1:", self.grid_m1[I])
+                #print("q1: ", self.grid_q1[I], "m1:", self.grid_m1[I])
                 self.grid_v1[I] = self.grid_q1[I] / self.grid_m1[I]
                 self.grid_vn1[I] = self.grid_q1[I] / self.grid_m1[I]
+                #print("v1: ", self.grid_v1[I])
 
                 #Setup our grid indeces <-> DOF mapping
                 idx = self.activeNodes[None].atomic_add(1)
@@ -946,7 +947,9 @@ class DFGMPMSolver:
     def addGridForces(self):
         for I in ti.grouped(self.grid_m1):
             if self.grid_m1[I] > 0:
+                #print("f1:", self.grid_f1[I], "m1: ", self.grid_m1[I])
                 self.grid_v1[I] += (self.grid_f1[I] * self.dt) / self.grid_m1[I]
+                #print("v1:", self.grid_v1[I])
             if self.separable[I] == 1:
                 self.grid_v2[I] += (self.grid_f2[I] * self.dt) / self.grid_m2[I]
 
@@ -958,10 +961,6 @@ class DFGMPMSolver:
                 self.grid_v1[I][1] += self.dt * self.gravMag
             if self.separable[I] == 1:
                 self.grid_v2[I][1] += self.dt * self.gravMag
-            # if self.grid_m1[I] > 0:
-            #     self.grid_v1[I] += self.dt * self.gravity[None]
-            # if self.separable[I] == 1:
-            #     self.grid_v2[I] += self.dt * self.gravity[None]
 
     @ti.kernel
     def applyImpulse(self):
@@ -1115,8 +1114,13 @@ class DFGMPMSolver:
             self.v[p], self.C[p] = new_v, new_C #set v_p n+1 to be the blended velocity
 
             #print("x[p]: ", self.x[p], "newvPIC:", new_v_PIC)
-            self.x[p] += self.dt * new_v_PIC # advection, use PIC velocity for advection regardless of PIC, FLIP, or APIC
-            self.F[p] = (ti.Matrix.identity(float, self.dim) + (self.dt * new_F)) @ self.F[p] #updateF (explicitMPM way)
+            new_v_PIC *= self.dt
+            self.x[p] += new_v_PIC # advection, use PIC velocity for advection regardless of PIC, FLIP, or APIC
+            #self.x[p] += self.dt * new_v_PIC # advection, use PIC velocity for advection regardless of PIC, FLIP, or APIC
+            
+            new_F *= self.dt
+            self.F[p] = (ti.Matrix.identity(float, self.dim) + new_F) @ self.F[p] #updateF (explicitMPM way)
+            #self.F[p] = (ti.Matrix.identity(float, self.dim) + (self.dt * new_F)) @ self.F[p] #updateF (explicitMPM way)
 
     #------------Collision Objects---------------
 
@@ -1468,7 +1472,6 @@ class DFGMPMSolver:
 
     @ti.kernel
     def reset(self, arr: ti.ext_arr(), partCount: ti.ext_arr(), initVel: ti.ext_arr(), pMasses: ti.ext_arr(), pVols: ti.ext_arr(), EList: ti.ext_arr(), nuList: ti.ext_arr(), damageList: ti.ext_arr()):
-        #self.gravity[None] = [0.0, float(self.gravMag)] if self.dim == 2 else [0.0, float(self.gravMag), 0.0]
         stretchedSigma = 0.0
         for i in range(self.numParticles):
             self.x[i] = [ti.cast(arr[i,0], ti.f64), ti.cast(arr[i,1], ti.f64)] if self.dim == 2 else [ti.cast(arr[i,0], ti.f64), ti.cast(arr[i,1], ti.f64), ti.cast(arr[i,2], ti.f64)] 

@@ -9,6 +9,7 @@ def sampleFromTetWild(filename, density):
     readTetWildFile(filename, X, idx)
 
     #Now compute the total volume
+    #Method from this link: https://stackoverflow.com/questions/9866452/calculate-volume-of-any-tetrahedron-given-4-points
     volume = 0.0
     for i in range(len(idx)): #iterate over tets
         a = X[idx[i][0]]
