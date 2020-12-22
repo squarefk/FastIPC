@@ -9,9 +9,9 @@ ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 #ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10.0
-outputPath = "../output/circleExplode2D/brittle.ply"
-outputPath2 = "../output/circleExplode2D/brittle_nodes.ply"
-fps = 240
+outputPath = "../output/circleFreefall2D/brittle.ply"
+outputPath2 = "../output/circleFreefall2D/brittle_nodes.ply"
+fps = 30
 endFrame = 3 * fps
 
 E = 1e4 #1e5
@@ -22,7 +22,6 @@ nuList = [nu]
 N1 = 200
 r1 = 0.07
 centerPoint = [0.5, 0.5]
-
 
 maxArea = 'qa0.0000025'
 vertices = sampleCircle2D(centerPoint, r1, N1, maxArea)
@@ -51,9 +50,10 @@ dx = (ppc * pVol)**0.5
 #Compute max dt
 cfl = 0.4
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
-dt = 0.9 * maxDt
+#dt = 0.9 * maxDt
+dt = 1e-3
 
-useDFG = True
+useDFG = False
 verbose = False
 useAPIC = False
 symplectic = False

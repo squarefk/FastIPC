@@ -4,6 +4,7 @@ import math
 from common.utils.timer import *
 from projects.mpm.basic.fixed_corotated import *
 from projects.mpm.basic.sparse_matrix import SparseMatrix, CGSolver
+#import scipy.sparse.linalg
 
 @ti.data_oriented
 class DFGMPMSolver:
@@ -64,6 +65,8 @@ class DFGMPMSolver:
         self.useDamage = False
         self.activeNodes = ti.field(dtype=int, shape=())
         self.symplectic = symplectic
+        self.quasistatic = False #not gonna change this most likely
+        self.gravity = ti.Vector.field(self.dim, dtype=float, shape=())
         
         #Collision Variables
         self.collisionCallbacks = [] #hold function callbacks for post processing velocity
@@ -119,6 +122,7 @@ class DFGMPMSolver:
         self.v = ti.Vector.field(self.dim, dtype=float) # velocity
         self.C = ti.Matrix.field(self.dim, self.dim, dtype=float) # affine velocity field
         self.F = ti.Matrix.field(self.dim, self.dim, dtype=float) # deformation gradient
+        self.F_backup = ti.Matrix.field(self.dim, self.dim, dtype=float) # deformation gradient
         self.material = ti.field(dtype=int) # material id
         self.mp = ti.field(dtype=float) # particle masses
         self.Vp = ti.field(dtype=float) # particle volumes
@@ -256,7 +260,7 @@ class DFGMPMSolver:
         #---numParticles x 1 (Particle Structures)
         #self.particle = ti.root.dynamic(ti.i, self.max_num_particles, 2**19) #2**20 causes problems in CUDA (maybe asking for too much space)
         self.particle = ti.root.dense(ti.i, self.numParticles)
-        self.particle.place(self.mu, self.la, self.x, self.v, self.C, self.F, self.material, self.mp, self.Vp, self.Jp, self.Dp, self.sp, self.particleDG, self.sigmaC, self.dTildeH, self.damageLaplacians, self.useAnisoMPMDamageList, self.Hs, self.sigmaF, self.sigmaMax, self.useRankineDamageList, self.useTimeToFailureDamageList, self.particleNumNeighbors)
+        self.particle.place(self.mu, self.la, self.x, self.v, self.C, self.F, self.F_backup, self.material, self.mp, self.Vp, self.Jp, self.Dp, self.sp, self.particleDG, self.sigmaC, self.dTildeH, self.damageLaplacians, self.useAnisoMPMDamageList, self.Hs, self.sigmaF, self.sigmaMax, self.useRankineDamageList, self.useTimeToFailureDamageList, self.particleNumNeighbors)
         #---numParticles x 3^dim (Stencil Structures)
         self.particle2grid = self.particle.dense(ti.j, 3**self.dim)
         self.particle2grid.place(self.particleAF, self.p_cached_w, self.p_cached_dw, self.p_cached_idx)
@@ -322,6 +326,27 @@ class DFGMPMSolver:
         if ti.static(self.dim == 3):
             idx = offset[0]*9+offset[1]*3+offset[2]
         return idx
+
+    @ti.func
+    def idx2offset(self, idx):
+        offset = ti.Vector.zero(int, self.dim)
+        if ti.static(self.dim == 2):
+            offset[0] = idx//3
+            offset[1] = idx%3
+        if ti.static(self.dim == 3):
+            offset[0] = idx//9
+            offset[1] = (idx%9)//3
+            offset[2] = (idx%9)%3
+        return offset
+
+    @ti.func
+    def linear_offset(self, offset):
+        return (offset[0]+2)*5+(offset[1]+2)
+        # return (offset[0]+2)*25+(offset[1]+2)*5+(offset[2]+2)
+
+    @ti.func
+    def linear_offset3D(self, offset):
+        return (offset[0]+2)*25+(offset[1]+2)*5+(offset[2]+2)
 
     ##########
 
@@ -1070,14 +1095,406 @@ class DFGMPMSolver:
 
         if ti.static(self.dim==2):
             for i in range(self.activeNodes[None]):
-                self.nodeCNTol[i] *= eps * 8 * self.dx * self.dt / self.grid_m1[self.dof2idx[i]]
+                self.nodeCNTol[i] *= eps * 8 * self.dx * self.dt / self.grid_m1[self.dof2idx[i]] #TODO: 2 field?
         if ti.static(self.dim==3):
             for i in range(self.activeNodes[None]):
-                self.nodeCNTol[i] *= eps * 24 * self.dx * self.dx * self.dt / self.grid_m1[self.dof2idx[i]] 
+                self.nodeCNTol[i] *= eps * 24 * self.dx * self.dx * self.dt / self.grid_m1[self.dof2idx[i]] #TODO: 2 field?
     
     @ti.kernel
+    def BackupStrain(self):
+        for i in range(self.numParticles):
+            self.F_backup[i] = self.F[i]
+
+    @ti.kernel
+    def RestoreStrain(self):
+        for i in range(self.numParticles):
+            self.F[i] = self.F_backup[i]
+    
+    #Set initial guess for Newton iteration
+    @ti.kernel
+    def BuildInitialBoundary(self):
+        ndof = self.activeNodes[None]
+        for i in range(ndof):
+            if self.boundary[i] == 1: 
+                #if node is in a boundary, guess 0
+                for d in ti.static(range(self.dim)):
+                    self.dv[i*self.dim+d] = 0
+            else:                      
+                #if not in boundary, guess velocity from gravity
+                for d in ti.static(range(self.dim)):
+                    self.dv[i*self.dim+d] = self.gravity[None][d]*self.dt
+
+    @ti.kernel
+    def UpdateDV(self, alpha:float):
+        for i in range(self.activeNodes[None] * self.dim):
+            self.DV[i] = self.dv[i] + self.data_x[i] * alpha
+
+    @ti.kernel
+    def UpdateState(self):
+        # Update deformation gradient F = (I + deltat * d(v'))F
+        # where v' = v + DV
+        for I in ti.grouped(self.pid):
+            p = self.pid[I]
+            base = ti.floor(self.x[p] * self.invDx - 0.5).cast(int)
+            for D in ti.static(range(self.dim)):
+                base[D] = ti.assume_in_range(base[D], I[D], 0, 1)
+
+            new_F = ti.Matrix.zero(float, self.dim, self.dim)
+            # loop over 3x3 grid node neighborhood
+            for offset in ti.static(ti.grouped(self.stencil_range())):
+                g_v = self.grid_v1[base + offset] #TODO: 2 field? only use the right grid node velocities for the right particles
+                g_dof = self.grid_idx[base + offset]
+                DV = ti.Vector.zero(float, self.dim)
+                for d in ti.static(range(self.dim)):
+                    DV[d] = self.DV[g_dof*self.dim+d]
+                g_v += DV
+                oidx = self.offset2idx(offset)
+                dweight = self.p_cached_dw[p, oidx]
+                new_F += g_v.outer_product(dweight)
+            self.F[p] = (ti.Matrix.identity(float, self.dim) + self.dt * new_F) @ self.F[p]
+
+    #Compute Total Energy
+    @ti.kernel
+    def TotalEnergy(self) -> float:
+        #elastic energy
+        ee = 0.0
+        for I in ti.grouped(self.pid):
+            p = self.pid[I]
+            F = self.F[p]
+            la, mu = self.la[p], self.mu[p]
+            U, sig, V = svd(F)
+            psi = elasticity_energy(sig, la, mu)
+            ee += self.Vp[p] * psi
+        
+        #kinetic energy
+        ke = 0.0
+        for I in ti.grouped(self.grid_m1): #TODO: 2 field??
+            if self.grid_m1[I] > 0:
+                i = self.grid_idx[I]
+                dv = ti.Vector.zero(float, self.dim)
+                for d in ti.static(range(self.dim)):
+                    dv[d] = self.DV[i*self.dim+d]
+                gid = self.dof2idx[i]
+                if not self.quasistatic:
+                    ke += dv.dot(dv) * self.grid_m1[gid]
+
+        #gravitational energy
+        ge = 0.0
+        for I in ti.grouped(self.grid_m1): #TODO: 2 field!!
+            if self.grid_m1[I] > 0:
+                i = self.grid_idx[I]
+                dv = ti.Vector.zero(float, self.dim)
+                for d in ti.static(range(self.dim)):
+                    dv[d] = self.DV[i*self.dim+d]
+                gid = self.dof2idx[i]
+                ge -= self.dt * dv.dot(self.gravity[None]) * self.grid_m1[gid]
+
+        return ee + ke / 2 + ge
+
+    #Compute Force based on candidate F; NOTE: this is really only used for implicit
+    @ti.kernel
+    def computeForces(self):
+        # force is computed more than once in Newton iteration 
+        # temporarily set all grid force to zero
+        for I in ti.grouped(self.grid_m1):
+            if self.grid_m1[I] > 0:  # No need for epsilon here
+                self.grid_f1[I] = ti.Vector.zero(float, self.dim) #TODO: 2field
+
+        for I in ti.grouped(self.pid):
+            p = self.pid[I]
+            base = ti.floor(self.x[p] * self.invDx - 0.5).cast(int)
+            for D in ti.static(range(self.dim)):
+                base[D] = ti.assume_in_range(base[D], I[D], 0, 1)
+
+            mu, la = self.mu[p], self.la[p]
+            P = elasticity_first_piola_kirchoff_stress(self.F[p], la, mu)
+            P = P @ self.F_backup[p].transpose()
+
+            vol = self.Vp[p]
+
+            for offset in ti.static(ti.grouped(self.stencil_range())):
+                oidx = self.offset2idx(offset)
+                dweight = self.p_cached_dw[p, oidx]
+                self.grid_f1[base + offset] += - vol * P @ dweight #TODO: 2field
+
+    @ti.kernel
+    def ComputeResidual(self, project:ti.template()):
+        ndof = self.activeNodes[None]
+        dim = self.dim
+        g = self.gravity[None]
+        for i in ti.ndrange(ndof):
+            gid = self.dof2idx[i]
+            m = self.grid_m1[gid] #TODO: 2 field
+            f = self.grid_f1[gid]
+
+            # self.rhs[i*d+0] = self.dv[i*d+0] * m - dt * f[0] - dt * m * g[0]
+            # self.rhs[i*d+1] = self.dv[i*d+1] * m - dt * f[1] - dt * m * g[1]
+            for d in ti.static(range(self.dim)):
+                if not self.quasistatic:
+                    self.rhs[i*dim+d] = self.DV[i*dim+d] * m - self.dt * f[d] - self.dt * m * self.gravity[None][d]
+                else:
+                    self.rhs[i*dim+d] = - self.dt * f[d] - self.dt * m * self.gravity[None][d]
+
+        if project == True:
+            # Boundary projection
+            ndof = self.activeNodes[None]
+            for i in range(ndof):
+                if self.boundary[i] == 1:
+                    for d in ti.static(range(self.dim)):
+                        self.rhs[i * self.dim + d] = 0
+
+    @ti.func
+    def computedFdX(self, dPdF, wi, wj):
+        dFdX = ti.Matrix.zero(float, self.dim, self.dim)
+        dFdX[0,0] = dPdF[0+0,0+0]*wi[0]*wj[0]+dPdF[2+0,0+0]*wi[1]*wj[0]+dPdF[0+0,2+0]*wi[0]*wj[1]+dPdF[2+0,2+0]*wi[1]*wj[1]
+        dFdX[0,1] = dPdF[0+0,0+1]*wi[0]*wj[0]+dPdF[2+0,0+1]*wi[1]*wj[0]+dPdF[0+0,2+1]*wi[0]*wj[1]+dPdF[2+0,2+1]*wi[1]*wj[1]
+        dFdX[1,0] = dPdF[0+1,0+0]*wi[0]*wj[0]+dPdF[2+1,0+0]*wi[1]*wj[0]+dPdF[0+1,2+0]*wi[0]*wj[1]+dPdF[2+1,2+0]*wi[1]*wj[1]
+        dFdX[1,1] = dPdF[0+1,0+1]*wi[0]*wj[0]+dPdF[2+1,0+1]*wi[1]*wj[0]+dPdF[0+1,2+1]*wi[0]*wj[1]+dPdF[2+1,2+1]*wi[1]*wj[1]
+
+        return dFdX
+
+    @ti.func
+    def computedFdX3D(self, dPdF, wi, wj):
+        dFdX = ti.Matrix.zero(float, self.dim, self.dim)
+
+        dFdX[0,0] = dPdF[0+0,0+0]*wi[0]*wj[0]+dPdF[3+0,0+0]*wi[1]*wj[0]+dPdF[6+0,0+0]*wi[2]*wj[0]+dPdF[0+0,3+0]*wi[0]*wj[1]+dPdF[3+0,3+0]*wi[1]*wj[1]+dPdF[6+0,3+0]*wi[2]*wj[1]+dPdF[0+0,6+0]*wi[0]*wj[2]+dPdF[3+0,6+0]*wi[1]*wj[2]+dPdF[6+0,6+0]*wi[2]*wj[2]
+        dFdX[1,0] = dPdF[0+1,0+0]*wi[0]*wj[0]+dPdF[3+1,0+0]*wi[1]*wj[0]+dPdF[6+1,0+0]*wi[2]*wj[0]+dPdF[0+1,3+0]*wi[0]*wj[1]+dPdF[3+1,3+0]*wi[1]*wj[1]+dPdF[6+1,3+0]*wi[2]*wj[1]+dPdF[0+1,6+0]*wi[0]*wj[2]+dPdF[3+1,6+0]*wi[1]*wj[2]+dPdF[6+1,6+0]*wi[2]*wj[2]
+        dFdX[2,0] = dPdF[0+2,0+0]*wi[0]*wj[0]+dPdF[3+2,0+0]*wi[1]*wj[0]+dPdF[6+2,0+0]*wi[2]*wj[0]+dPdF[0+2,3+0]*wi[0]*wj[1]+dPdF[3+2,3+0]*wi[1]*wj[1]+dPdF[6+2,3+0]*wi[2]*wj[1]+dPdF[0+2,6+0]*wi[0]*wj[2]+dPdF[3+2,6+0]*wi[1]*wj[2]+dPdF[6+2,6+0]*wi[2]*wj[2]
+        dFdX[0,1] = dPdF[0+0,0+1]*wi[0]*wj[0]+dPdF[3+0,0+1]*wi[1]*wj[0]+dPdF[6+0,0+1]*wi[2]*wj[0]+dPdF[0+0,3+1]*wi[0]*wj[1]+dPdF[3+0,3+1]*wi[1]*wj[1]+dPdF[6+0,3+1]*wi[2]*wj[1]+dPdF[0+0,6+1]*wi[0]*wj[2]+dPdF[3+0,6+1]*wi[1]*wj[2]+dPdF[6+0,6+1]*wi[2]*wj[2]
+        dFdX[1,1] = dPdF[0+1,0+1]*wi[0]*wj[0]+dPdF[3+1,0+1]*wi[1]*wj[0]+dPdF[6+1,0+1]*wi[2]*wj[0]+dPdF[0+1,3+1]*wi[0]*wj[1]+dPdF[3+1,3+1]*wi[1]*wj[1]+dPdF[6+1,3+1]*wi[2]*wj[1]+dPdF[0+1,6+1]*wi[0]*wj[2]+dPdF[3+1,6+1]*wi[1]*wj[2]+dPdF[6+1,6+1]*wi[2]*wj[2]
+        dFdX[2,1] = dPdF[0+2,0+1]*wi[0]*wj[0]+dPdF[3+2,0+1]*wi[1]*wj[0]+dPdF[6+2,0+1]*wi[2]*wj[0]+dPdF[0+2,3+1]*wi[0]*wj[1]+dPdF[3+2,3+1]*wi[1]*wj[1]+dPdF[6+2,3+1]*wi[2]*wj[1]+dPdF[0+2,6+1]*wi[0]*wj[2]+dPdF[3+2,6+1]*wi[1]*wj[2]+dPdF[6+2,6+1]*wi[2]*wj[2]         
+        dFdX[0,2] = dPdF[0+0,0+2]*wi[0]*wj[0]+dPdF[3+0,0+2]*wi[1]*wj[0]+dPdF[6+0,0+2]*wi[2]*wj[0]+dPdF[0+0,3+2]*wi[0]*wj[1]+dPdF[3+0,3+2]*wi[1]*wj[1]+dPdF[6+0,3+2]*wi[2]*wj[1]+dPdF[0+0,6+2]*wi[0]*wj[2]+dPdF[3+0,6+2]*wi[1]*wj[2]+dPdF[6+0,6+2]*wi[2]*wj[2]              
+        dFdX[1,2] = dPdF[0+1,0+2]*wi[0]*wj[0]+dPdF[3+1,0+2]*wi[1]*wj[0]+dPdF[6+1,0+2]*wi[2]*wj[0]+dPdF[0+1,3+2]*wi[0]*wj[1]+dPdF[3+1,3+2]*wi[1]*wj[1]+dPdF[6+1,3+2]*wi[2]*wj[1]+dPdF[0+1,6+2]*wi[0]*wj[2]+dPdF[3+1,6+2]*wi[1]*wj[2]+dPdF[6+1,6+2]*wi[2]*wj[2]
+        dFdX[2,2] = dPdF[0+2,0+2]*wi[0]*wj[0]+dPdF[3+2,0+2]*wi[1]*wj[0]+dPdF[6+2,0+2]*wi[2]*wj[0]+dPdF[0+2,3+2]*wi[0]*wj[1]+dPdF[3+2,3+2]*wi[1]*wj[1]+dPdF[6+2,3+2]*wi[2]*wj[1]+dPdF[0+2,6+2]*wi[0]*wj[2]+dPdF[3+2,6+2]*wi[1]*wj[2]+dPdF[6+2,6+2]*wi[2]*wj[2]
+
+        return dFdX
+
+    # Build Matrix: Inertial term: dim*N in total
+    @ti.kernel
+    def BuildMatrix(self, project:ti.template(), project_pd:ti.template()):
+        nNbr = 25
+        midNbr = 12
+        if self.dim == 3:
+            nNbr = 125
+            midNbr = 62
+
+        for i in ti.ndrange(self.activeNodes[None]):
+            for j in range(nNbr):
+                self.entryCol[i*nNbr+j] = -1
+                self.entryVal[i*nNbr+j] = ti.Matrix.zero(float, self.dim, self.dim)
+            if not self.quasistatic:
+                gid = self.dof2idx[i]
+                m = self.grid_m1[gid] #TODO: 2 field??
+                self.entryCol[i*nNbr+midNbr] = i
+                self.entryVal[i*nNbr+midNbr] = ti.Matrix.identity(float, self.dim) * m
+
+        # Build Matrix: Loop over all particles
+        for I in ti.grouped(self.pid):
+            p = self.pid[I]
+
+            vol = self.Vp[p]
+            F = self.F[p]
+            mu, la = self.mu[p], self.la[p]
+            dPdF = elasticity_first_piola_kirchoff_stress_derivative(F, la, mu, project_pd)
+            
+            base = ti.floor(self.x[p] * self.invDx - 0.5).cast(int)
+            for D in ti.static(range(self.dim)):
+                base[D] = ti.assume_in_range(base[D], I[D], 0, 1)
+
+            if ti.static(self.dim == 2):
+                for offset in ti.static(ti.grouped(self.stencil_range())):
+                    oidx = self.offset2idx(offset)
+                    self.p_cached_idx[p,oidx] = self.grid_idx[base + offset]
+
+                for i in range(3**self.dim):
+                    wi = self.F_backup[p].transpose() @ self.p_cached_dw[p,i]
+                    dofi = self.p_cached_idx[p,i]
+                    nodei = self.idx2offset(i)
+                    for j in range(3**self.dim):
+                        wj = self.F_backup[p].transpose() @ self.p_cached_dw[p,j]
+                        dofj = self.p_cached_idx[p,j]
+                        nodej = self.idx2offset(j)
+                    
+                        dFdX = self.computedFdX(dPdF, wi, wj)
+                        dFdX = dFdX * vol * self.dt * self.dt
+
+                        ioffset = dofi*nNbr + self.linear_offset(nodei-nodej)
+                        self.entryCol[ioffset] = dofj
+                        self.entryVal[ioffset] += dFdX
+            if ti.static(self.dim == 3):
+                for offset in ti.static(ti.grouped(self.stencil_range())):
+                    oidx = self.offset2idx(offset)
+                    self.p_cached_idx[p, oidx] = self.grid_idx[base + offset]
+
+                for i in range(3**self.dim):
+                    wi = self.F_backup[p].transpose() @ self.p_cached_dw[p,i]
+                    dofi = self.p_cached_idx[p,i]
+                    nodei = self.idx2offset(i)
+                    for j in range(3**self.dim):
+                        wj = self.F_backup[p].transpose() @ self.p_cached_dw[p,j]
+                        dofj = self.p_cached_idx[p,j]
+                        nodej = self.idx2offset(j)
+                    
+                        dFdX = self.computedFdX3D(dPdF, wi, wj)
+                        dFdX = dFdX * vol * self.dt * self.dt
+
+                        ioffset = dofi*nNbr + self.linear_offset3D(nodei-nodej)
+                        self.entryCol[ioffset] = dofj
+                        self.entryVal[ioffset] += dFdX               
+        
+        # if project == True:
+        #     self.projectMatrix()
+
+    @ti.kernel
+    def build_T(self):
+        ndof = self.activeNodes[None]
+        d = self.dim
+        for i in range(ndof):
+            for k in range(25):
+                c = i*25+k
+                j = self.entryCol[i*25+k]
+                M = self.entryVal[i*25+k]
+                if not j == -1:
+                    self.data_row[c*4] = i*2
+                    self.data_col[c*4] = j*2
+                    self.data_val[c*4] = M[0,0]
+
+                    self.data_row[c*4+1] = i*2
+                    self.data_col[c*4+1] = j*2+1
+                    self.data_val[c*4+1] = M[0,1]
+
+                    self.data_row[c*4+2] = i*2+1
+                    self.data_col[c*4+2] = j*2
+                    self.data_val[c*4+2] = M[1,0]
+
+                    self.data_row[c*4+3] = i*2+1
+                    self.data_col[c*4+3] = j*2+1
+                    self.data_val[c*4+3] = M[1,1]
+
+    def SolveLinearSystem(self):
+        ndof = self.activeNodes[None]
+        d = self.dim
+
+        if self.dim == 2:
+            self.matrix.prepareColandVal(ndof)
+            self.matrix.setFromColandVal(self.entryCol, self.entryVal, ndof)
+        else:
+            self.matrix.prepareColandVal(ndof,d=3)
+            self.matrix.setFromColandVal3(self.entryCol, self.entryVal, ndof)
+
+        self.cgsolver.compute(self.matrix,stride=d)
+        self.cgsolver.setBoundary(self.boundary)
+        self.cgsolver.solve(self.rhs)
+
+        for i in range(ndof*d):
+            self.data_x[i] = -self.cgsolver.x[i]
+
+    @ti.kernel
+    def computeScaledNorm(self)->float:
+        result = 0.0
+        for I in ti.grouped(self.grid_m1):
+            if self.grid_m1[I] > 0:
+                i = self.grid_idx[I]
+                # result += (self.rhs[2*i] ** 2 + self.rhs[2*i+1] ** 2)/(self.nodeCNTol[i] ** 2)
+                temp = 0.0
+                for d in ti.static(range(self.dim)):
+                    temp += self.rhs[i*self.dim + d] ** 2
+                result += temp / self.nodeCNTol[i] ** 2
+        return result
+
+    #Fill dv with the portion of data_x that we determined reduced the energy
+    @ti.kernel
+    def LineSearch(self, alpha:float):
+        for i in range(self.activeNodes[None] * self.dim):
+            self.dv[i] += self.data_x[i] * alpha
+
+    @ti.kernel
+    def implicitUpdate(self):
+        for i in range(self.activeNodes[None]):
+            dv = ti.Vector.zero(float, self.dim)
+            for d in ti.static(range(self.dim)):
+                dv[d] = self.dv[i*self.dim+d]
+            gid = self.dof2idx[i]
+            self.grid_v1[gid] += dv #TODO: 2 field
+
     def implicitNewton(self):
+        printProgress = False
+        
         self.evaluatePerNodeCNTolerance(1e-7)
+        
+        self.BackupStrain() #Backup F because we need to iteratively check how the new candidate velocities are affecting F (to compute energy)
+        
+        self.data_x.fill(0)
+        self.rhs.fill(0)
+        self.dv.fill(0)
+        self.DV.fill(0)
+        self.BuildInitialBoundary() #initial guess based on boundaries
+
+        #Newton Iteration
+        max_iter_newton = 150
+        for iter in range(max_iter_newton):
+            #print("[Newton] Iteration", iter)
+            self.RestoreStrain() #Reload original F
+            self.rhs.fill(0)
+            self.UpdateDV(0.0) #set DV_i = dv_i
+            self.UpdateState() #compute updated F based on DV
+            E0 = self.TotalEnergy() #compute total energy based on candidate DV
+            #print("[Newton] E0 = ", E0)
+            self.computeForces() #Compute grid forces based on the candidate Fs
+            self.ComputeResidual(True) #Compute g, True -> projectResidual
+
+            #Check if our guess was enough
+            if iter == 0:
+                ndof = self.activeNodes[None]
+                rnorm = np.linalg.norm(self.rhs.to_numpy()[0:ndof*self.dim])
+                if rnorm < 1e-8:
+                    if printProgress: print("[Newton] Newton finished in", iter, "iteration(s) with residual", rnorm)
+                    break
+
+            self.BuildMatrix(True, False) # Compute H TODO: understand this
+            self.data_col.fill(0)
+            self.data_row.fill(0)
+            self.build_T() #TODO: understand this
+
+            self.SolveLinearSystem()  # solve dx = H^(-1) g
+
+            # Exiting Newton
+            ndof = self.activeNodes[None]
+            rnorm = np.linalg.norm(self.rhs.to_numpy()[0:ndof*self.dim])
+            #print("norm", rnorm)
+            scaledNorm = self.computeScaledNorm()
+            #print("snorm", scaledNorm, self.activeNodes[None])
+            ddvnorm = np.linalg.norm(self.data_x.to_numpy()[0:ndof*self.dim], np.inf)
+            #print("ddvnorm", ddvnorm)
+            if ddvnorm < 1e-3:
+                if printProgress: print("[Newton] Newton finished in", iter, "iteration(s) with residual", ddvnorm)
+                break
+
+            #Line Search: what alpha gives the best reduction in energy?
+            alpha = 1.0
+            for _ in range(15):
+                self.RestoreStrain()    #reload original F again
+                self.UpdateDV(alpha)    #DV_i = dv_i + alpha * data_x_i
+                self.UpdateState()      #Compute updated F based on DV
+                E = self.TotalEnergy()  #compute energy based on F
+                # print("alpha=",alpha,"E=",E)
+                if E <= E0:             #If the energy we found is less than original, we're good!
+                    break
+                alpha /= 2              #split alpha in half each time
+            if alpha == 1/2**15:
+                print("[Line Search] ERROR: Check the direction!")
+                alpha = 0.0
+                break
+            #print("[Line Search] Finished with Alpha:", alpha, ", E:", E)
+            self.LineSearch(alpha)
+
+            self.RestoreStrain()
+
+        if iter == max_iter_newton - 1:
+            if printProgress: print("[Newton] Max iteration reached! Current iter:", max_iter_newton-1, "with residual:", rnorm)
+        
+        self.implicitUpdate()
+        self.RestoreStrain()
 
     #-----IMPLICIT-METHODS-END-----------------------------------------------------
 
@@ -1593,6 +2010,8 @@ class DFGMPMSolver:
 
     @ti.kernel
     def reset(self, arr: ti.ext_arr(), partCount: ti.ext_arr(), initVel: ti.ext_arr(), pMasses: ti.ext_arr(), pVols: ti.ext_arr(), EList: ti.ext_arr(), nuList: ti.ext_arr(), damageList: ti.ext_arr()):
+        self.gravity[None] = ti.Vector.zero(float, self.dim)
+        self.gravity[None][1] = self.gravMag
         stretchedSigma = 0.0
         for i in range(self.numParticles):
             self.x[i] = [ti.cast(arr[i,0], ti.f64), ti.cast(arr[i,1], ti.f64)] if self.dim == 2 else [ti.cast(arr[i,0], ti.f64), ti.cast(arr[i,1], ti.f64), ti.cast(arr[i,2], ti.f64)] 
