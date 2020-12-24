@@ -186,10 +186,10 @@ class MPMSolverImplicit:
 
 
         # self.gravity[None][1] = -20.0
-        if self.dim == 2:
-            self.setGravity((0, -2.0))
-        else:
-            self.setGravity((0, -2.0, 0))
+        # if self.dim == 2:
+        #     self.setGravity((0, -2.0))
+        # else:
+        #     self.setGravity((0, -2.0, 0))
 
 
 
