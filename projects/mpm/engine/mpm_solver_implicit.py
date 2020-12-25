@@ -406,7 +406,7 @@ class MPMSolverImplicit:
             nNbr = 125
             midNbr = 62
 
-        for i in ti.ndrange(self.num_active_grid[None]):
+        for i in range(self.num_active_grid[None]):
             for j in range(nNbr):
                 self.entryCol[i*nNbr+j] = -1
                 self.entryVal[i*nNbr+j] = ti.Matrix.zero(real, self.dim, self.dim)
@@ -514,7 +514,7 @@ class MPMSolverImplicit:
         ndof = self.num_active_grid[None]
         dim = self.dim
         g = self.gravity[None]
-        for i in ti.ndrange(ndof):
+        for i in range(ndof):
             gid = self.dof2idx[i]
             m = self.grid_m[gid]
             f = self.grid_f[gid]
