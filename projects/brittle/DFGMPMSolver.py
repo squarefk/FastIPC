@@ -270,34 +270,19 @@ class DFGMPMSolver:
 
         #Sparse Matrix Fields
         MAX_LINEAR = 5000000
-        self.data_row = ti.field(ti.i32, shape=MAX_LINEAR)
-        self.data_col = ti.field(ti.i32, shape=MAX_LINEAR)
-        self.data_val = ti.field(float, shape=MAX_LINEAR)
         self.data_x = ti.field(float, shape=MAX_LINEAR)
         self.entryCol = ti.field(ti.i32, shape=MAX_LINEAR)
         self.entryVal = ti.Matrix.field(self.dim, self.dim, float, shape=MAX_LINEAR)
-
-        self.nodeCNTol = ti.field(float, shape=MAX_LINEAR)
-
         self.dof2idx = ti.Vector.field(self.dim, int, shape=MAX_LINEAR)
-        self.num_entry = ti.field(int, shape=())
 
         #Newton Optimization Variables
-        self.total_E = ti.field(float, shape=())
         self.dv = ti.field(float, shape=MAX_LINEAR)
         self.ddv = ti.field(float, shape=MAX_LINEAR)
         self.DV = ti.field(float, shape=MAX_LINEAR)
         self.rhs = ti.field(float, shape=MAX_LINEAR)
-
         self.boundary = ti.field(int, shape=MAX_LINEAR)
-
         self.matrix = SparseMatrix()
         self.cgsolver = CGSolver()
-
-        self.delta = ti.field(float, shape=()) # Store a double precision delta
-
-        # Fields used in adjoint method
-        self.DhDdv = ti.field(float, shape=MAX_LINEAR)
 
     ##########
 
@@ -1067,36 +1052,6 @@ class DFGMPMSolver:
     
     #----IMPLICIT-METHODS-BEGIN-----------------------------------------------------
     @ti.kernel
-    def evaluatePerNodeCNTolerance(self, eps:float):
-        for i in range(self.activeNodes[None]):
-            self.nodeCNTol[i] = 0.0
-
-        for I in ti.grouped(self.pid):
-            p = self.pid[I]
-
-            F = self.F[p]
-            mu, la = self.mu[p], self.la[p]
-            dPdF = elasticity_first_piola_kirchoff_stress_derivative(F, la, mu, False)
-
-            base = ti.floor(self.x[p] * self.invDx - 0.5).cast(int)
-            for D in ti.static(range(self.dim)):
-                base[D] = ti.assume_in_range(base[D], I[D], 0, 1)
-
-            # Loop over 3x3 grid node neighborhood
-            for offset in ti.static(ti.grouped(self.stencil_range())):
-                oidx = self.offset2idx(offset)
-                weight = self.p_cached_w[p, oidx]
-                gid = self.grid_idx[base + offset]    
-                self.nodeCNTol[gid] += weight * self.mp[p] * dPdF.norm()
-
-        if ti.static(self.dim==2):
-            for i in range(self.activeNodes[None]):
-                self.nodeCNTol[i] *= eps * 8 * self.dx * self.dt / self.grid_m1[self.dof2idx[i]] #TODO: 2 field?
-        if ti.static(self.dim==3):
-            for i in range(self.activeNodes[None]):
-                self.nodeCNTol[i] *= eps * 24 * self.dx * self.dx * self.dt / self.grid_m1[self.dof2idx[i]] #TODO: 2 field?
-    
-    @ti.kernel
     def BackupStrain(self):
         for i in range(self.numParticles):
             self.F_backup[i] = self.F[i]
@@ -1237,7 +1192,7 @@ class DFGMPMSolver:
             for i in range(ndof):
                 if self.boundary[i] == 1:
                     for d in ti.static(range(self.dim)):
-                        self.rhs[i * self.dim + d] = 0 #TODO: add slip and separate boundary options??
+                        self.rhs[i * self.dim + d] = 0 #TODO: add slip and separate boundary options?? NOTE: later lol
 
     @ti.func
     def computedFdX(self, dPdF, wi, wj):
@@ -1271,7 +1226,7 @@ class DFGMPMSolver:
         nNbr = 25
         midNbr = 12
         if self.dim == 3:
-            nNbr = 125  #TODO: what are these numbers indicative of??
+            nNbr = 125  #TODO: what are these numbers indicative of?? 
             midNbr = 62
 
         for i in ti.ndrange(self.activeNodes[None]):
@@ -1341,32 +1296,6 @@ class DFGMPMSolver:
         # if project == True:
         #     self.projectMatrix()
 
-    @ti.kernel
-    def build_T(self):
-        ndof = self.activeNodes[None]
-        d = self.dim
-        for i in range(ndof):
-            for k in range(25): #TODO: why 25? does this also work for 3D??
-                c = i*25+k
-                j = self.entryCol[i*25+k]
-                M = self.entryVal[i*25+k]
-                if not j == -1:
-                    self.data_row[c*4] = i*2
-                    self.data_col[c*4] = j*2
-                    self.data_val[c*4] = M[0,0]
-
-                    self.data_row[c*4+1] = i*2
-                    self.data_col[c*4+1] = j*2+1
-                    self.data_val[c*4+1] = M[0,1]
-
-                    self.data_row[c*4+2] = i*2+1
-                    self.data_col[c*4+2] = j*2
-                    self.data_val[c*4+2] = M[1,0]
-
-                    self.data_row[c*4+3] = i*2+1
-                    self.data_col[c*4+3] = j*2+1
-                    self.data_val[c*4+3] = M[1,1]
-
     def SolveLinearSystem(self):
         ndof = self.activeNodes[None]
         d = self.dim
@@ -1380,23 +1309,10 @@ class DFGMPMSolver:
 
         self.cgsolver.compute(self.matrix,stride=d)
         self.cgsolver.setBoundary(self.boundary) #TODO: how do we change this to accomodate slip and sep?
-        self.cgsolver.solve(self.rhs)
+        self.cgsolver.solve(self.rhs, False) #second param is whether to print CG convergence updates
 
         for i in range(ndof*d):
             self.data_x[i] = -self.cgsolver.x[i]
-
-    @ti.kernel
-    def computeScaledNorm(self)->float:
-        result = 0.0
-        for I in ti.grouped(self.grid_m1):
-            if self.grid_m1[I] > 0:
-                i = self.grid_idx[I]
-                # result += (self.rhs[2*i] ** 2 + self.rhs[2*i+1] ** 2)/(self.nodeCNTol[i] ** 2)
-                temp = 0.0
-                for d in ti.static(range(self.dim)):
-                    temp += self.rhs[i*self.dim + d] ** 2
-                result += temp / self.nodeCNTol[i] ** 2
-        return result
 
     #Fill dv with the portion of data_x that we determined reduced the energy
     @ti.kernel
@@ -1415,9 +1331,7 @@ class DFGMPMSolver:
 
     def implicitNewton(self):
         printProgress = False
-        
-        self.evaluatePerNodeCNTolerance(1e-7) #TODO: understand this
-        
+                
         self.BackupStrain() #Backup F because we need to iteratively check how the new candidate velocities are affecting F (to compute energy)
         
         self.data_x.fill(0)
@@ -1427,7 +1341,7 @@ class DFGMPMSolver:
         self.BuildInitialBoundary() #initial guess based on boundaries
 
         #Newton Iteration
-        max_iter_newton = 150
+        max_iter_newton = 150 #NOTE: should be inf, 10k enough
         for iter in range(max_iter_newton):
             #print("[Newton] Iteration", iter)
             self.RestoreStrain() #Reload original F
@@ -1439,7 +1353,7 @@ class DFGMPMSolver:
             self.computeForces() #Compute grid forces based on the candidate Fs
             self.ComputeResidual(True) #Compute g, True -> projectResidual
 
-            #Check if our guess was enough
+            #Check if our guess was enough, NOTE: good for freefall
             if iter == 0:
                 ndof = self.activeNodes[None]
                 rnorm = np.linalg.norm(self.rhs.to_numpy()[0:ndof*self.dim])
@@ -1448,19 +1362,13 @@ class DFGMPMSolver:
                     break
 
             self.BuildMatrix(True, False) # Compute H TODO: understand this
-            self.data_col.fill(0)
-            self.data_row.fill(0)
-            self.build_T() #TODO: understand this
-
             self.SolveLinearSystem()  # solve dx = H^(-1) g
 
             # Exiting Newton
             ndof = self.activeNodes[None]
             rnorm = np.linalg.norm(self.rhs.to_numpy()[0:ndof*self.dim])
             #print("norm", rnorm)
-            scaledNorm = self.computeScaledNorm()
-            #print("snorm", scaledNorm, self.activeNodes[None])
-            ddvnorm = np.linalg.norm(self.data_x.to_numpy()[0:ndof*self.dim], np.inf)
+            ddvnorm = np.linalg.norm(self.data_x.to_numpy()[0:ndof*self.dim], np.inf) #NOTE: IPC convergence criterion
             #print("ddvnorm", ddvnorm)
             if ddvnorm < 1e-3: #TODO: how is this check different from the first iter check?
                 if printProgress: print("[Newton] Newton finished in", iter, "iteration(s) with residual", ddvnorm)
@@ -1468,7 +1376,7 @@ class DFGMPMSolver:
 
             #Line Search: what alpha gives the best reduction in energy?
             alpha = 1.0
-            for _ in range(15):
+            for _ in range(15): #NOTE: 
                 self.RestoreStrain()    #reload original F again
                 self.UpdateDV(alpha)    #DV_i = dv_i + alpha * data_x_i
                 self.UpdateState()      #Compute updated F based on DV
@@ -1970,8 +1878,10 @@ class DFGMPMSolver:
             self.momentumP2GandComputeForces()
         with Timer("Momentum To Velocity"):
             self.momentumToVelocity()
-        with Timer("Add Gravity"):
-            self.addGravity()
+
+        #NOTE: don't add gravity here because we build gravity into our implicit solver
+
+        #TODO: should impulse happen before or after implicit solve for velocity?
         if self.useImpulse:
             if self.elapsedTime >= self.impulseStartTime and self.elapsedTime < (self.impulseStartTime + self.impulseDuration):
                 with Timer("Apply Impulse"):

@@ -392,7 +392,7 @@ class CGSolver:
                 for d in range(dim):
                     r[I*dim+d] = 0
 
-    def solve(self, b):
+    def solve(self, b, verbose = True):
         '''
             Diagonal preconditioned Conjugate Gradient method
         '''
@@ -418,7 +418,7 @@ class CGSolver:
             # if cnt % 100 == 0:
             #     print(cnt, residual_preconditioned_norm)
             if residual_preconditioned_norm < 1e-9:
-                print("CG terminates at", cnt, "; residual =", residual_preconditioned_norm)
+                if verbose: print("CG terminates at", cnt, "; residual =", residual_preconditioned_norm)
                 return
             # print(zTrK)
             self.computAp(self.p)
@@ -437,4 +437,4 @@ class CGSolver:
             self.update_p()
 
             residual_preconditioned_norm = ti.sqrt(zTr)
-        print("ConjugateGradient max iterations reached, iter =", max_iterations, "; residual =", residual_preconditioned_norm)
+        if verbose: print("ConjugateGradient max iterations reached, iter =", max_iterations, "; residual =", residual_preconditioned_norm)
