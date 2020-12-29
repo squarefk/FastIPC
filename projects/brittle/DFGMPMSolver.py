@@ -279,8 +279,8 @@ class DFGMPMSolver:
 
         self.nodeCNTol = ti.field(float, shape=MAX_LINEAR)
 
-        self.dof2idx = ti.Vector.field(self.dim, ti.i32, shape=MAX_LINEAR)
-        self.num_entry = ti.field(ti.i32, shape=())
+        self.dof2idx = ti.Vector.field(self.dim, int, shape=MAX_LINEAR)
+        self.num_entry = ti.field(int, shape=())
 
         #Newton Optimization Variables
         self.total_E = ti.field(float, shape=())
@@ -289,13 +289,9 @@ class DFGMPMSolver:
         self.DV = ti.field(float, shape=MAX_LINEAR)
         self.rhs = ti.field(float, shape=MAX_LINEAR)
 
-        self.boundary = ti.field(ti.i32, shape=MAX_LINEAR)
-
-        #self.result = ti.field(float, shape=MAX_LINEAR) # for debug purpose only
+        self.boundary = ti.field(int, shape=MAX_LINEAR)
 
         self.matrix = SparseMatrix()
-        #self.matrix1 = SparseMatrix() # for test Gradient only
-        #self.matrix2 = SparseMatrix() # for test Gradient only
         self.cgsolver = CGSolver()
 
         self.delta = ti.field(float, shape=()) # Store a double precision delta
@@ -1080,7 +1076,7 @@ class DFGMPMSolver:
 
             F = self.F[p]
             mu, la = self.mu[p], self.la[p]
-            dPdF = elasticity_first_piola_kirchoff_stress_derivative(F, la, mu, False) #TODO
+            dPdF = elasticity_first_piola_kirchoff_stress_derivative(F, la, mu, False)
 
             base = ti.floor(self.x[p] * self.invDx - 0.5).cast(int)
             for D in ti.static(range(self.dim)):
@@ -1117,12 +1113,12 @@ class DFGMPMSolver:
         for i in range(ndof):
             if self.boundary[i] == 1: 
                 #if node is in a boundary, guess 0
-                for d in ti.static(range(self.dim)):
+                for d in ti.static(range(self.dim)): #TODO: how to change this to add slip and separate boundaries??
                     self.dv[i*self.dim+d] = 0
             else:                      
-                #if not in boundary, guess velocity from gravity
+                #if not in boundary, guess change in velocity from gravity
                 for d in ti.static(range(self.dim)):
-                    self.dv[i*self.dim+d] = self.gravity[None][d]*self.dt
+                    self.dv[i*self.dim+d] = self.gravity[None][d]*self.dt #TODO: is it okay that we do implicit after adding grav?
 
     @ti.kernel
     def UpdateDV(self, alpha:float):
@@ -1146,7 +1142,7 @@ class DFGMPMSolver:
                 g_dof = self.grid_idx[base + offset]
                 DV = ti.Vector.zero(float, self.dim)
                 for d in ti.static(range(self.dim)):
-                    DV[d] = self.DV[g_dof*self.dim+d]
+                    DV[d] = self.DV[g_dof*self.dim+d] #DV stacks like [x0, y0, z0, x1, y1, z1, etc...] TODO: 2 field, stack the second field elements at the end??
                 g_v += DV
                 oidx = self.offset2idx(offset)
                 dweight = self.p_cached_dw[p, oidx]
@@ -1173,7 +1169,7 @@ class DFGMPMSolver:
                 i = self.grid_idx[I]
                 dv = ti.Vector.zero(float, self.dim)
                 for d in ti.static(range(self.dim)):
-                    dv[d] = self.DV[i*self.dim+d]
+                    dv[d] = self.DV[i*self.dim+d] #TODO: for 2 field we need to index this differently
                 gid = self.dof2idx[i]
                 if not self.quasistatic:
                     ke += dv.dot(dv) * self.grid_m1[gid]
@@ -1185,9 +1181,9 @@ class DFGMPMSolver:
                 i = self.grid_idx[I]
                 dv = ti.Vector.zero(float, self.dim)
                 for d in ti.static(range(self.dim)):
-                    dv[d] = self.DV[i*self.dim+d]
+                    dv[d] = self.DV[i*self.dim+d] #TODO: for 2 field we need to index this differently
                 gid = self.dof2idx[i]
-                ge -= self.dt * dv.dot(self.gravity[None]) * self.grid_m1[gid]
+                ge -= self.dt * dv.dot(self.gravity[None]) * self.grid_m1[gid] #TODO: use the right mass
 
         return ee + ke / 2 + ge
 
@@ -1198,7 +1194,7 @@ class DFGMPMSolver:
         # temporarily set all grid force to zero
         for I in ti.grouped(self.grid_m1):
             if self.grid_m1[I] > 0:  # No need for epsilon here
-                self.grid_f1[I] = ti.Vector.zero(float, self.dim) #TODO: 2field
+                self.grid_f1[I] = ti.Vector.zero(float, self.dim) #TODO: 2 field
 
         for I in ti.grouped(self.pid):
             p = self.pid[I]
@@ -1215,7 +1211,7 @@ class DFGMPMSolver:
             for offset in ti.static(ti.grouped(self.stencil_range())):
                 oidx = self.offset2idx(offset)
                 dweight = self.p_cached_dw[p, oidx]
-                self.grid_f1[base + offset] += - vol * P @ dweight #TODO: 2field
+                self.grid_f1[base + offset] += - vol * P @ dweight #TODO: 2 field, transfer this force contribution to the right field
 
     @ti.kernel
     def ComputeResidual(self, project:ti.template()):
@@ -1231,7 +1227,7 @@ class DFGMPMSolver:
             # self.rhs[i*d+1] = self.dv[i*d+1] * m - dt * f[1] - dt * m * g[1]
             for d in ti.static(range(self.dim)):
                 if not self.quasistatic:
-                    self.rhs[i*dim+d] = self.DV[i*dim+d] * m - self.dt * f[d] - self.dt * m * self.gravity[None][d]
+                    self.rhs[i*dim+d] = self.DV[i*dim+d] * m - self.dt * f[d] - self.dt * m * self.gravity[None][d] #TODO: this is nabla E, so why include gravity here?
                 else:
                     self.rhs[i*dim+d] = - self.dt * f[d] - self.dt * m * self.gravity[None][d]
 
@@ -1241,7 +1237,7 @@ class DFGMPMSolver:
             for i in range(ndof):
                 if self.boundary[i] == 1:
                     for d in ti.static(range(self.dim)):
-                        self.rhs[i * self.dim + d] = 0
+                        self.rhs[i * self.dim + d] = 0 #TODO: add slip and separate boundary options??
 
     @ti.func
     def computedFdX(self, dPdF, wi, wj):
@@ -1275,7 +1271,7 @@ class DFGMPMSolver:
         nNbr = 25
         midNbr = 12
         if self.dim == 3:
-            nNbr = 125
+            nNbr = 125  #TODO: what are these numbers indicative of??
             midNbr = 62
 
         for i in ti.ndrange(self.activeNodes[None]):
@@ -1319,7 +1315,7 @@ class DFGMPMSolver:
                         dFdX = dFdX * vol * self.dt * self.dt
 
                         ioffset = dofi*nNbr + self.linear_offset(nodei-nodej)
-                        self.entryCol[ioffset] = dofj
+                        self.entryCol[ioffset] = dofj #TODO: what are entryCol and entry Val storing exactly??
                         self.entryVal[ioffset] += dFdX
             if ti.static(self.dim == 3):
                 for offset in ti.static(ti.grouped(self.stencil_range())):
@@ -1350,7 +1346,7 @@ class DFGMPMSolver:
         ndof = self.activeNodes[None]
         d = self.dim
         for i in range(ndof):
-            for k in range(25):
+            for k in range(25): #TODO: why 25? does this also work for 3D??
                 c = i*25+k
                 j = self.entryCol[i*25+k]
                 M = self.entryVal[i*25+k]
@@ -1383,7 +1379,7 @@ class DFGMPMSolver:
             self.matrix.setFromColandVal3(self.entryCol, self.entryVal, ndof)
 
         self.cgsolver.compute(self.matrix,stride=d)
-        self.cgsolver.setBoundary(self.boundary)
+        self.cgsolver.setBoundary(self.boundary) #TODO: how do we change this to accomodate slip and sep?
         self.cgsolver.solve(self.rhs)
 
         for i in range(ndof*d):
@@ -1420,7 +1416,7 @@ class DFGMPMSolver:
     def implicitNewton(self):
         printProgress = False
         
-        self.evaluatePerNodeCNTolerance(1e-7)
+        self.evaluatePerNodeCNTolerance(1e-7) #TODO: understand this
         
         self.BackupStrain() #Backup F because we need to iteratively check how the new candidate velocities are affecting F (to compute energy)
         
@@ -1466,7 +1462,7 @@ class DFGMPMSolver:
             #print("snorm", scaledNorm, self.activeNodes[None])
             ddvnorm = np.linalg.norm(self.data_x.to_numpy()[0:ndof*self.dim], np.inf)
             #print("ddvnorm", ddvnorm)
-            if ddvnorm < 1e-3:
+            if ddvnorm < 1e-3: #TODO: how is this check different from the first iter check?
                 if printProgress: print("[Newton] Newton finished in", iter, "iteration(s) with residual", ddvnorm)
                 break
 
