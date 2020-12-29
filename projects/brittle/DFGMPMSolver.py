@@ -63,9 +63,9 @@ class DFGMPMSolver:
         if flipPicRatio < 0.0 or flipPicRatio > 1.0:
             raise ValueError('flipPicRatio must be between 0 and 1')
         self.useDamage = False
-        self.activeNodes = ti.field(dtype=int, shape=())
+        self.activeNodes = ti.field(dtype=int, shape=()) #track current active nodes
+        self.separableNodes = ti.field(dtype=int, shape=()) #track current separable nodes
         self.symplectic = symplectic
-        self.quasistatic = False #not gonna change this most likely
         self.gravity = ti.Vector.field(self.dim, dtype=float, shape=())
         
         #Collision Variables
@@ -190,6 +190,7 @@ class DFGMPMSolver:
         self.grid_fct2 = ti.Vector.field(self.dim, dtype=float)
         #---DOF Tracking
         self.grid_idx = ti.field(dtype=int)
+        self.grid_sep_idx = ti.field(dtype=int)
         #---DFG Grid Structures
         self.gridDG = ti.Vector.field(self.dim, dtype=float)
         self.gridMaxNorm = ti.field(dtype=float)
@@ -229,6 +230,7 @@ class DFGMPMSolver:
         for fct2 in self.grid_fct2.entries: # grid node contact forces for two field nodes, field 2
             block_component(fct2)
         block_component(self.grid_idx) #hold a mapping from active grid DOF indeces -> the DOF index
+        block_component(self.grid_sep_idx) #hold a mapping from separable grid DOF indeces -> the sep DOF index
         for dg in self.gridDG.entries: #grid node damage gradients
             block_component(dg)
         block_component(self.gridMaxNorm)  #grid max norm holds the maximum DG norm found for this grid node, this will later help to determine the grid DG
@@ -274,6 +276,7 @@ class DFGMPMSolver:
         self.entryCol = ti.field(ti.i32, shape=MAX_LINEAR)
         self.entryVal = ti.Matrix.field(self.dim, self.dim, float, shape=MAX_LINEAR)
         self.dof2idx = ti.Vector.field(self.dim, int, shape=MAX_LINEAR)
+        self.sepDof2idx = ti.Vector.field(self.dim, int, shape=MAX_LINEAR)
 
         #Newton Optimization Variables
         self.dv = ti.field(float, shape=MAX_LINEAR)
@@ -405,22 +408,10 @@ class DFGMPMSolver:
         return int(x/self.rp)
 
     @ti.func
-    def isInGrid(self, x): #TODO: 3d
+    def isInGrid(self, x): #TODO:3D
         return 0 <= x[0] and x[0] < self.nGrid and 0 <= x[1] and x[1] < self.nGrid
 
     ##########
-
-    #Active Field Indexing
-    @ti.func
-    def activeFieldIndex(self, offset):
-        idx = 0
-        for d in ti.static(range(self.dim)):
-            if d == self.dim - 1:
-                #on final index, just add
-                idx += offset[d]
-            else:
-                idx += offset[d]*3
-        return idx
 
     #DFG Function Evaluations
     @ti.func
@@ -669,6 +660,8 @@ class DFGMPMSolver:
 
     @ti.kernel
     def computeSeparability(self):
+        self.separableNodes[None] = 0 #track how many separable nodes we have
+
         #Iterate grid nodes to compute separability condition and maxDamage (both for each field)
         for I in ti.grouped(self.grid_m1):
             #Compute seperability for field 1 and store as idx 0
@@ -689,6 +682,11 @@ class DFGMPMSolver:
                 maxMax = self.gridMaxDamage[I][0] if self.gridMaxDamage[I][0] > self.gridMaxDamage[I][1] else self.gridMaxDamage[I][1]
                 if maxMax >= self.minDp and minSep > self.dMin:
                     self.separable[I] = 1
+
+                    #Track these separable DOFs
+                    idx = self.separableNodes[None].atomic_add(1)
+                    self.grid_sep_idx[I] = idx
+                    self.sepDof2idx[idx] = I
                 else:
                     #Now add the masses together into the first field because we'll treat this as a single field
                     self.grid_m1[I] += self.grid_m2[I]
@@ -821,7 +819,7 @@ class DFGMPMSolver:
                 contraction = 0.0
                 for i in ti.static(range(self.dim)):
                     for j in ti.static(range(self.dim)):
-                        contraction += Asig[i, j] * sigA[i, j] #TODO: 3D
+                        contraction += Asig[i, j] * sigA[i, j] #TODO:3D
                 phi = (1.0 / self.sigmaC[p]**2.0) * contraction
 
                 dTilde = max(self.dTildeH[p], self.zeta * self.macaulay(phi - 1)) #make sure driving force always increasing
@@ -863,7 +861,7 @@ class DFGMPMSolver:
 
             #NOTE Grab the sigmaMax here so we can learn how to better threshold the stress for damage
             e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
-            self.sigmaMax[p] = e[0] if e[0] > e[1] else e[1] #TODO: 3d
+            self.sigmaMax[p] = e[0] if e[0] > e[1] else e[1] #TODO:3D
 
             #P2G for velocity, force update, and update velocity
             for offset in ti.static(ti.grouped(self.stencil_range())): # Loop over grid node stencil
@@ -1068,17 +1066,32 @@ class DFGMPMSolver:
         for i in range(ndof):
             if self.boundary[i] == 1: 
                 #if node is in a boundary, guess 0
-                for d in ti.static(range(self.dim)): #TODO: how to change this to add slip and separate boundaries??
+                for d in ti.static(range(self.dim)): #TODO:Slip and Moving Boundary
                     self.dv[i*self.dim+d] = 0
             else:                      
                 #if not in boundary, guess change in velocity from gravity
                 for d in ti.static(range(self.dim)):
-                    self.dv[i*self.dim+d] = self.gravity[None][d]*self.dt #TODO: is it okay that we do implicit after adding grav?
+                    self.dv[i*self.dim+d] = self.gravity[None][d]*self.dt
+        if self.useDFG:
+            sdof = self.separableNodes[None]
+            for i in range(sdof):
+                if self.boundary[ndof + i] == 1:
+                    #if node is in a boundary, guess 0
+                    for d in ti.static(range(self.dim)):
+                        self.dv[ndof*self.dim + i*self.dim + d] = 0
+                else:
+                    #if not in boundary, guess change in velocity from gravity
+                    for d in ti.static(range(self.dim)):
+                        self.dv[ndof*self.dim + i*self.dim + d] = self.gravity[None][d] * self.dt
 
     @ti.kernel
     def UpdateDV(self, alpha:float):
-        for i in range(self.activeNodes[None] * self.dim):
-            self.DV[i] = self.dv[i] + self.data_x[i] * alpha
+        if not self.useDFG:
+            for i in range(self.activeNodes[None] * self.dim):
+                self.DV[i] = self.dv[i] + self.data_x[i] * alpha
+        else:
+            for i in range((self.activeNodes[None] + self.separableNodes[None]) * self.dim):
+                self.DV[i] = self.dv[i] + self.data_x[i] * alpha
 
     @ti.kernel
     def UpdateState(self):
@@ -1093,15 +1106,36 @@ class DFGMPMSolver:
             new_F = ti.Matrix.zero(float, self.dim, self.dim)
             # loop over 3x3 grid node neighborhood
             for offset in ti.static(ti.grouped(self.stencil_range())):
-                g_v = self.grid_v1[base + offset] #TODO: 2 field? only use the right grid node velocities for the right particles
-                g_dof = self.grid_idx[base + offset]
-                DV = ti.Vector.zero(float, self.dim)
-                for d in ti.static(range(self.dim)):
-                    DV[d] = self.DV[g_dof*self.dim+d] #DV stacks like [x0, y0, z0, x1, y1, z1, etc...] TODO: 2 field, stack the second field elements at the end??
-                g_v += DV
+                g_v1 = self.grid_v1[base + offset]
+                g_v2 = self.grid_v2[base + offset]
+                g_dof1 = self.grid_idx[base + offset]
+                g_dof2 = self.grid_sep_idx[base + offset]
+                
+                #grab cached dweight for this p -> i pairing
                 oidx = self.offset2idx(offset)
                 dweight = self.p_cached_dw[p, oidx]
-                new_F += g_v.outer_product(dweight)
+
+                DV = ti.Vector.zero(float, self.dim)
+                if self.separable[base + offset] != 1:
+                    #single field node
+                    for d in ti.static(range(self.dim)):
+                        DV[d] = self.DV[g_dof1 * self.dim + d]
+                    g_v1 += DV
+                    new_F += g_v1.outer_product(dweight)
+                else:
+                    #2-field node
+                    fieldIdx = self.particleAF[p, oidx]
+                    if fieldIdx == 0:
+                        for d in ti.static(range(self.dim)):
+                            DV[d] = self.DV[g_dof1 * self.dim + d]
+                        g_v1 += DV
+                        new_F += g_v1.outer_product(dweight)
+                    else:
+                        ndof = self.activeNodes[None]
+                        for d in ti.static(range(self.dim)):
+                            DV[d] = self.DV[ndof*self.dim + g_dof2*self.dim + d]
+                        g_v2 += DV
+                        new_F += g_v2.outer_product(dweight)
             self.F[p] = (ti.Matrix.identity(float, self.dim) + self.dt * new_F) @ self.F[p]
 
     #Compute Total Energy
@@ -1119,37 +1153,56 @@ class DFGMPMSolver:
         
         #kinetic energy
         ke = 0.0
-        for I in ti.grouped(self.grid_m1): #TODO: 2 field??
+        for I in ti.grouped(self.grid_m1):
             if self.grid_m1[I] > 0:
                 i = self.grid_idx[I]
                 dv = ti.Vector.zero(float, self.dim)
                 for d in ti.static(range(self.dim)):
-                    dv[d] = self.DV[i*self.dim+d] #TODO: for 2 field we need to index this differently
+                    dv[d] = self.DV[i*self.dim+d]
                 gid = self.dof2idx[i]
-                if not self.quasistatic:
-                    ke += dv.dot(dv) * self.grid_m1[gid]
+                ke += dv.dot(dv) * self.grid_m1[gid]
+            if self.separable[I] == 1:
+                #also compute KE from second field if separable
+                i = self.grid_sep_idx[I]
+                ndof = self.activeNodes[None]
+                dv = ti.Vector.zero(float, self.dim)
+                for d in ti.static(range(self.dim)):
+                    dv[d] = self.DV[ndof*self.dim + i*self.dim + d]
+                gid = self.sepDof2idx[i]
+                ke += dv.dot(dv) * self.grid_m2[gid]
 
         #gravitational energy
         ge = 0.0
-        for I in ti.grouped(self.grid_m1): #TODO: 2 field!!
+        for I in ti.grouped(self.grid_m1):
             if self.grid_m1[I] > 0:
                 i = self.grid_idx[I]
                 dv = ti.Vector.zero(float, self.dim)
                 for d in ti.static(range(self.dim)):
-                    dv[d] = self.DV[i*self.dim+d] #TODO: for 2 field we need to index this differently
+                    dv[d] = self.DV[i*self.dim+d]
                 gid = self.dof2idx[i]
-                ge -= self.dt * dv.dot(self.gravity[None]) * self.grid_m1[gid] #TODO: use the right mass
+                ge -= self.dt * dv.dot(self.gravity[None]) * self.grid_m1[gid]
+            if self.separable[I] == 1:
+                #also compute GE from second field if separable
+                i = self.grid_sep_idx[I]
+                ndof = self.activeNodes[None]
+                dv = ti.Vector.zero(float, self.dim)
+                for d in ti.static(range(self.dim)):
+                    dv[d] = self.DV[ndof*self.dim + i*self.dim + d] #grabbing from second field portion of DV
+                gid = self.sepDof2idx[i]
+                ge -= self.dt * dv.dot(self.gravity[None]) * self.grid_m2[gid]
 
         return ee + ke / 2 + ge
 
-    #Compute Force based on candidate F; NOTE: this is really only used for implicit
+    #Compute Force based on candidate F; NOTE: this is only used for implicit
     @ti.kernel
     def computeForces(self):
         # force is computed more than once in Newton iteration 
         # temporarily set all grid force to zero
         for I in ti.grouped(self.grid_m1):
             if self.grid_m1[I] > 0:  # No need for epsilon here
-                self.grid_f1[I] = ti.Vector.zero(float, self.dim) #TODO: 2 field
+                self.grid_f1[I] = ti.Vector.zero(float, self.dim)
+            if self.separable[I] == 1:
+                self.grid_f2[I] = ti.Vector.zero(float, self.dim)
 
         for I in ti.grouped(self.pid):
             p = self.pid[I]
@@ -1159,32 +1212,43 @@ class DFGMPMSolver:
 
             mu, la = self.mu[p], self.la[p]
             P = elasticity_first_piola_kirchoff_stress(self.F[p], la, mu)
-            P = P @ self.F_backup[p].transpose()
-
-            vol = self.Vp[p]
+            kirchoff = P @ self.F_backup[p].transpose()
 
             for offset in ti.static(ti.grouped(self.stencil_range())):
                 oidx = self.offset2idx(offset)
                 dweight = self.p_cached_dw[p, oidx]
-                self.grid_f1[base + offset] += - vol * P @ dweight #TODO: 2 field, transfer this force contribution to the right field
+                force = -self.Vp[p] * kirchoff @ dweight
+
+                if self.separable[base + offset] != 1:
+                    self.grid_f1[base + offset] += force
+                else:
+                    fieldIdx = self.particleAF[p, oidx] #grab the field that this particle is in for this node
+                    if fieldIdx == 0:
+                        self.grid_f1[base + offset] += force
+                    elif fieldIdx == 1:
+                        self.grid_f2[base + offset] += force
+                    else:
+                        print("[Compute Implicit Force] ERROR: why did we get here???")
 
     @ti.kernel
     def ComputeResidual(self, project:ti.template()):
         ndof = self.activeNodes[None]
-        dim = self.dim
-        g = self.gravity[None]
         for i in ti.ndrange(ndof):
             gid = self.dof2idx[i]
-            m = self.grid_m1[gid] #TODO: 2 field
+            m = self.grid_m1[gid]
             f = self.grid_f1[gid]
-
-            # self.rhs[i*d+0] = self.dv[i*d+0] * m - dt * f[0] - dt * m * g[0]
-            # self.rhs[i*d+1] = self.dv[i*d+1] * m - dt * f[1] - dt * m * g[1]
             for d in ti.static(range(self.dim)):
-                if not self.quasistatic:
-                    self.rhs[i*dim+d] = self.DV[i*dim+d] * m - self.dt * f[d] - self.dt * m * self.gravity[None][d] #TODO: this is nabla E, so why include gravity here?
-                else:
-                    self.rhs[i*dim+d] = - self.dt * f[d] - self.dt * m * self.gravity[None][d]
+                self.rhs[i*self.dim+d] = self.DV[i*self.dim+d] * m - self.dt * f[d] - self.dt * m * self.gravity[None][d] #NOTE: here we incorporate gravity for implicit dynamics
+        
+        #if using DFG, iterate the separable nodes to set rhs for field 2
+        if self.useDFG:
+            sdof = self.separableNodes[None]
+            for i in range(sdof):
+                gid2 = self.sepDof2idx[i]
+                m2 = self.grid_m2[gid2]
+                f2 = self.grid_f2[gid2]
+                for d in ti.static(range(self.dim)):
+                    self.rhs[ndof*self.dim + i*self.dim + d] = self.DV[ndof*self.dim + i*self.dim + d] * m2 - self.dt * f2[d] - self.dt * m2 * self.gravity[None][d]
 
         if project == True:
             # Boundary projection
@@ -1192,7 +1256,14 @@ class DFGMPMSolver:
             for i in range(ndof):
                 if self.boundary[i] == 1:
                     for d in ti.static(range(self.dim)):
-                        self.rhs[i * self.dim + d] = 0 #TODO: add slip and separate boundary options?? NOTE: later lol
+                        self.rhs[i * self.dim + d] = 0 #TODO:Slip and Moving Boundaries
+            #if using DFG we also project field 2 entries
+            if self.useDFG:
+                sdof = self.separableNodes[None]
+                for i in range(sdof):
+                    if self.boundary[ndof + i] == 1:
+                        for d in ti.static(range(self.dim)):
+                            self.rhs[ndof*self.dim + i*self.dim + d] = 0 #TODO:Slip and Moving Boundaries
 
     @ti.func
     def computedFdX(self, dPdF, wi, wj):
@@ -1226,18 +1297,17 @@ class DFGMPMSolver:
         nNbr = 25
         midNbr = 12
         if self.dim == 3:
-            nNbr = 125  #TODO: what are these numbers indicative of?? 
+            nNbr = 125  #NOTE: max active elements in a row iirc
             midNbr = 62
 
         for i in ti.ndrange(self.activeNodes[None]):
             for j in range(nNbr):
                 self.entryCol[i*nNbr+j] = -1
                 self.entryVal[i*nNbr+j] = ti.Matrix.zero(float, self.dim, self.dim)
-            if not self.quasistatic:
-                gid = self.dof2idx[i]
-                m = self.grid_m1[gid] #TODO: 2 field??
-                self.entryCol[i*nNbr+midNbr] = i
-                self.entryVal[i*nNbr+midNbr] = ti.Matrix.identity(float, self.dim) * m
+            gid = self.dof2idx[i]
+            m = self.grid_m1[gid] #TODO: 2 field??
+            self.entryCol[i*nNbr+midNbr] = i
+            self.entryVal[i*nNbr+midNbr] = ti.Matrix.identity(float, self.dim) * m
 
         # Build Matrix: Loop over all particles
         for I in ti.grouped(self.pid):
@@ -1301,14 +1371,14 @@ class DFGMPMSolver:
         d = self.dim
 
         if self.dim == 2:
-            self.matrix.prepareColandVal(ndof)
+            self.matrix.prepareColandVal(ndof) #TODO: 2 field
             self.matrix.setFromColandVal(self.entryCol, self.entryVal, ndof)
         else:
             self.matrix.prepareColandVal(ndof,d=3)
             self.matrix.setFromColandVal3(self.entryCol, self.entryVal, ndof)
 
         self.cgsolver.compute(self.matrix,stride=d)
-        self.cgsolver.setBoundary(self.boundary) #TODO: how do we change this to accomodate slip and sep?
+        self.cgsolver.setBoundary(self.boundary) #TODO:Slip and Moving Boundaries
         self.cgsolver.solve(self.rhs, False) #second param is whether to print CG convergence updates
 
         for i in range(ndof*d):
@@ -1317,7 +1387,7 @@ class DFGMPMSolver:
     #Fill dv with the portion of data_x that we determined reduced the energy
     @ti.kernel
     def LineSearch(self, alpha:float):
-        for i in range(self.activeNodes[None] * self.dim):
+        for i in range(self.activeNodes[None] * self.dim): #TODO: 2 field
             self.dv[i] += self.data_x[i] * alpha
 
     @ti.kernel
@@ -1349,28 +1419,28 @@ class DFGMPMSolver:
             self.UpdateDV(0.0) #set DV_i = dv_i
             self.UpdateState() #compute updated F based on DV
             E0 = self.TotalEnergy() #compute total energy based on candidate DV
-            #print("[Newton] E0 = ", E0)
+            #print("[Newton] E0 = ", E0) #NOTE: got same E0 using useDFG = True and False!
             self.computeForces() #Compute grid forces based on the candidate Fs
             self.ComputeResidual(True) #Compute g, True -> projectResidual
 
             #Check if our guess was enough, NOTE: good for freefall
             if iter == 0:
                 ndof = self.activeNodes[None]
-                rnorm = np.linalg.norm(self.rhs.to_numpy()[0:ndof*self.dim])
+                rnorm = np.linalg.norm(self.rhs.to_numpy()[0:ndof*self.dim]) #TODO: 2 field
                 if rnorm < 1e-8:
                     if printProgress: print("[Newton] Newton finished in", iter, "iteration(s) with residual", rnorm)
                     break
 
-            self.BuildMatrix(True, False) # Compute H TODO: understand this
+            self.BuildMatrix(True, False) # Compute H
             self.SolveLinearSystem()  # solve dx = H^(-1) g
 
             # Exiting Newton
             ndof = self.activeNodes[None]
-            rnorm = np.linalg.norm(self.rhs.to_numpy()[0:ndof*self.dim])
+            rnorm = np.linalg.norm(self.rhs.to_numpy()[0:ndof*self.dim]) #TODO: 2 field
             #print("norm", rnorm)
             ddvnorm = np.linalg.norm(self.data_x.to_numpy()[0:ndof*self.dim], np.inf) #NOTE: IPC convergence criterion
             #print("ddvnorm", ddvnorm)
-            if ddvnorm < 1e-3: #TODO: how is this check different from the first iter check?
+            if ddvnorm < 1e-3:
                 if printProgress: print("[Newton] Newton finished in", iter, "iteration(s) with residual", ddvnorm)
                 break
 
@@ -1441,7 +1511,6 @@ class DFGMPMSolver:
                     new_F += g_v_np1.outer_product(dweight)
                 else:
                     #node has two fields so choose the correct velocity contribution from the node
-                    oidx = self.offset2idx(offset)
                     fieldIdx = self.particleAF[p, oidx] #grab the field that this particle is in for this node
                     if fieldIdx == 0:
                         new_v_PIC += weight * g_v_np1
@@ -1513,8 +1582,13 @@ class DFGMPMSolver:
                         offset = I * self.dx - updatedCenter
                         n = ti.Vector(normal)
                         if offset.dot(n) < 0:
-                            gid = self.grid_idx[I]
-                            self.boundary[gid] = 1 #mark this node as having a boundary condition
+
+                            #Set boundaries for implicit
+                            if not self.symplectic:
+                                gid = self.grid_idx[I]
+                                self.boundary[gid] = 1 #mark this node as having a boundary condition
+                                #continue
+
                             if self.collisionTypes[id] == self.surfaceSticky:
                                 self.grid_v1[I] = self.collisionVelocities[id] #set velocity to be the collision object's velocity
                             else:
@@ -1543,8 +1617,16 @@ class DFGMPMSolver:
                         offset = I * self.dx - updatedCenter
                         n = ti.Vector(normal)
                         if offset.dot(n) < 0:
-                            gid = self.grid_idx[I]
-                            self.boundary[gid] = 1 #mark this node as having a boundary condition
+
+                            #Set boundaries for implicit
+                            if not self.symplectic:
+                                gid = self.grid_idx[I]
+                                sgid = self.grid_sep_idx[I]
+                                ndof = self.activeNodes[None]
+                                self.boundary[gid] = 1 #mark this node as a boundary (field 1)
+                                self.boundary[ndof + sgid] = 1 #mark this node as a boundary (field 2)
+                                #continue
+
                             if self.collisionTypes[id] == self.surfaceSticky:
                                 self.grid_v1[I] = self.collisionVelocities[id] #set velocity to be the collision object's velocity
                                 self.grid_v2[I] = self.collisionVelocities[id] #set velocity to be the collision object's velocity
@@ -1598,8 +1680,13 @@ class DFGMPMSolver:
                         updatedCenter = self.collisionObjectCenters[id]
                         offset = I * self.dx - updatedCenter
                         if offset.norm_sqr() < radius * radius:
-                            gid = self.grid_idx[I]
-                            self.boundary[gid] = 1 #mark this node as having a boundary condition
+
+                            #Set boundaries for implicit
+                            if not self.symplectic:
+                                gid = self.grid_idx[I]
+                                self.boundary[gid] = 1 #mark this node as having a boundary condition
+                                #continue
+
                             if self.collisionTypes[id] == self.surfaceSticky:
                                 self.grid_v1[I] = self.collisionVelocities[id] #set velocity to be the collision object's velocity
                             else:
@@ -1624,8 +1711,16 @@ class DFGMPMSolver:
                         updatedCenter = self.collisionObjectCenters[id]
                         offset = I * self.dx - updatedCenter
                         if offset.norm_sqr() < radius * radius:
-                            gid = self.grid_idx[I]
-                            self.boundary[gid] = 1 #mark this node as having a boundary condition
+
+                            #Set boundaries for implicit
+                            if not self.symplectic:
+                                gid = self.grid_idx[I]
+                                sgid = self.grid_sep_idx[I]
+                                ndof = self.activeNodes[None]
+                                self.boundary[gid] = 1 #mark this node as a boundary (field 1)
+                                self.boundary[ndof + sgid] = 1 #mark this node as a boundary (field 2)
+                                #continue
+
                             if self.collisionTypes[id] == self.surfaceSticky:
                                 self.grid_v1[I] = self.collisionVelocities[id] #set velocity to be the collision object's velocity
                                 self.grid_v2[I] = self.collisionVelocities[id] #set velocity to be the collision object's velocity
@@ -1903,11 +1998,11 @@ class DFGMPMSolver:
             self.implicitNewton()
 
         #Frictional Contact, this will be worked into the newton solve directly (eventually)
-        # if self.useDFG:
-        #     with Timer("Frictional Contact"):
-        #         self.computeContactForces()
-        #     with Timer("Add Contact Forces"):
-        #         self.addContactForces()
+        if self.useDFG:
+            with Timer("Frictional Contact"):
+                self.computeContactForces()
+            with Timer("Add Contact Forces"):
+                self.addContactForces()
 
         with Timer("G2P"):
             self.G2P()
@@ -1932,12 +2027,12 @@ class DFGMPMSolver:
             if self.useAnisoMPMDamage: 
                 self.damageLaplacians[i] = 0.0
                 self.dTildeH[i] = 0.0
-            # if (self.x[i][0] > 0.45) and self.x[i][1] > 0.546 and self.x[i][1] < 0.554: #put damaged particles as a band in the center
-            #     self.Dp[i] = 1
-            #     self.material[i] = 1
-            # if (self.x[i][0] < 0.55) and self.x[i][1] > 0.446 and self.x[i][1] < 0.454: #put damaged particles as a band in the center
-            #     self.Dp[i] = 1
-            #     self.material[i] = 1
+            if (self.x[i][0] > 0.45) and self.x[i][1] > 0.546 and self.x[i][1] < 0.554: #put damaged particles as a band in the center
+                self.Dp[i] = 1
+                self.material[i] = 1
+            if (self.x[i][0] < 0.55) and self.x[i][1] > 0.446 and self.x[i][1] < 0.454: #put damaged particles as a band in the center
+                self.Dp[i] = 1
+                self.material[i] = 1
         
         #Set different settings for different objects (initVel, mass, volume, and surfaceThreshold for example)
         for serial in range(1):
@@ -1962,8 +2057,8 @@ class DFGMPMSolver:
                             stretchJ = stretch**self.dim
                             U, sig, V = ti.svd(stretchF)
                             stretchKirchoff = self.kirchoff_FCR(stretchF, U@V.transpose(), stretchJ, self.mu[idx], self.la[idx])
-                            e, v1, v2 = self.eigenDecomposition2D(stretchKirchoff / stretchJ) #TODO: 3D
-                            stretchedSigma = e[0] if e[0] > e[1] else e[1] #TODO: 3D
+                            e, v1, v2 = self.eigenDecomposition2D(stretchKirchoff / stretchJ) #TODO:3D
+                            stretchedSigma = e[0] if e[0] > e[1] else e[1] #TODO:3D
                             self.sigmaC[idx] = stretchedSigma
                         else:
                             self.sigmaC[idx] = self.sigmaCRef
@@ -1976,8 +2071,8 @@ class DFGMPMSolver:
                             stretchJ = stretch**self.dim
                             U, sig, V = ti.svd(stretchF)
                             stretchKirchoff = self.kirchoff_FCR(stretchF, U@V.transpose(), stretchJ, self.mu[idx], self.la[idx])
-                            e, v1, v2 = self.eigenDecomposition2D(stretchKirchoff / stretchJ) #TODO: 3D
-                            stretchedSigma = e[0] if e[0] > e[1] else e[1] #TODO: 3D
+                            e, v1, v2 = self.eigenDecomposition2D(stretchKirchoff / stretchJ) #TODO:3D
+                            stretchedSigma = e[0] if e[0] > e[1] else e[1] #TODO:3D
                             self.sigmaF[idx] = stretchedSigma 
                         else:
                             self.sigmaF[idx] = self.sigmaFRef #if we don't have a percentStretch we instead use sigmaFRef (which we should have)
