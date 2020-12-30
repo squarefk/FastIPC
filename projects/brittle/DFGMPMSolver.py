@@ -1086,12 +1086,10 @@ class DFGMPMSolver:
 
     @ti.kernel
     def UpdateDV(self, alpha:float):
-        if not self.useDFG:
-            for i in range(self.activeNodes[None] * self.dim):
-                self.DV[i] = self.dv[i] + self.data_x[i] * alpha
-        else:
-            for i in range((self.activeNodes[None] + self.separableNodes[None]) * self.dim):
-                self.DV[i] = self.dv[i] + self.data_x[i] * alpha
+        ndof = self.activeNodes[None]
+        sdof = self.separableNodes[None] if self.useDFG else 0
+        for i in range((ndof + sdof) * self.dim):
+            self.DV[i] = self.dv[i] + self.data_x[i] * alpha
 
     @ti.kernel
     def UpdateState(self):
@@ -1340,7 +1338,7 @@ class DFGMPMSolver:
                         dFdX = dFdX * vol * self.dt * self.dt
 
                         ioffset = dofi*nNbr + self.linear_offset(nodei-nodej)
-                        self.entryCol[ioffset] = dofj #TODO: what are entryCol and entry Val storing exactly??
+                        self.entryCol[ioffset] = dofj
                         self.entryVal[ioffset] += dFdX
             if ti.static(self.dim == 3):
                 for offset in ti.static(ti.grouped(self.stencil_range())):
@@ -1368,36 +1366,45 @@ class DFGMPMSolver:
 
     def SolveLinearSystem(self):
         ndof = self.activeNodes[None]
-        d = self.dim
-
+        sdof = self.separableNodes[None] if self.useDFG else 0
         if self.dim == 2:
             self.matrix.prepareColandVal(ndof) #TODO: 2 field
             self.matrix.setFromColandVal(self.entryCol, self.entryVal, ndof)
         else:
-            self.matrix.prepareColandVal(ndof,d=3)
+            self.matrix.prepareColandVal(ndof, d = 3)
             self.matrix.setFromColandVal3(self.entryCol, self.entryVal, ndof)
 
-        self.cgsolver.compute(self.matrix,stride=d)
+        self.cgsolver.compute(self.matrix, stride = self.dim)
         self.cgsolver.setBoundary(self.boundary) #TODO:Slip and Moving Boundaries
         self.cgsolver.solve(self.rhs, False) #second param is whether to print CG convergence updates
 
-        for i in range(ndof*d):
+        for i in range(ndof * self.dim):
             self.data_x[i] = -self.cgsolver.x[i]
 
     #Fill dv with the portion of data_x that we determined reduced the energy
     @ti.kernel
     def LineSearch(self, alpha:float):
-        for i in range(self.activeNodes[None] * self.dim): #TODO: 2 field
+        ndof = self.activeNodes[None]
+        sdof = self.separableNodes[None] if self.useDFG else 0
+        for i in range((ndof + sdof) * self.dim):
             self.dv[i] += self.data_x[i] * alpha
 
     @ti.kernel
     def implicitUpdate(self):
-        for i in range(self.activeNodes[None]):
+        ndof = self.activeNodes[None]
+        for i in range(ndof):
             dv = ti.Vector.zero(float, self.dim)
             for d in ti.static(range(self.dim)):
                 dv[d] = self.dv[i*self.dim+d]
             gid = self.dof2idx[i]
-            self.grid_v1[gid] += dv #TODO: 2 field
+            self.grid_v1[gid] += dv
+        if self.useDFG:
+            for i in range(self.separableNodes[None]):
+                dv2 = ti.Vector.zero(float, self.dim)
+                for d in ti.static(range(self.dim)):
+                    dv2[d] = self.dv[ndof*self.dim + i*self.dim + d]
+                gid2 = self.sepDof2idx[i]
+                self.grid_v2[gid2] += dv2
 
     def implicitNewton(self):
         printProgress = False
@@ -1426,19 +1433,21 @@ class DFGMPMSolver:
             #Check if our guess was enough, NOTE: good for freefall
             if iter == 0:
                 ndof = self.activeNodes[None]
-                rnorm = np.linalg.norm(self.rhs.to_numpy()[0:ndof*self.dim]) #TODO: 2 field
+                sdof = self.separableNodes[None] if self.useDFG else 0
+                rnorm = np.linalg.norm(self.rhs.to_numpy()[0:(ndof + sdof)*self.dim])
                 if rnorm < 1e-8:
                     if printProgress: print("[Newton] Newton finished in", iter, "iteration(s) with residual", rnorm)
                     break
 
-            self.BuildMatrix(True, False) # Compute H
-            self.SolveLinearSystem()  # solve dx = H^(-1) g
+            self.BuildMatrix(True, False) # Compute H TODO: 2 field
+            self.SolveLinearSystem()  # solve dx = H^(-1) g TODO: 2 field
 
             # Exiting Newton
             ndof = self.activeNodes[None]
-            rnorm = np.linalg.norm(self.rhs.to_numpy()[0:ndof*self.dim]) #TODO: 2 field
+            sdof = self.separableNodes[None] if self.useDFG else 0
+            rnorm = np.linalg.norm(self.rhs.to_numpy()[0:(ndof + sdof)*self.dim])
             #print("norm", rnorm)
-            ddvnorm = np.linalg.norm(self.data_x.to_numpy()[0:ndof*self.dim], np.inf) #NOTE: IPC convergence criterion
+            ddvnorm = np.linalg.norm(self.data_x.to_numpy()[0:(ndof + sdof)*self.dim], np.inf) #NOTE: IPC convergence criterion
             #print("ddvnorm", ddvnorm)
             if ddvnorm < 1e-3:
                 if printProgress: print("[Newton] Newton finished in", iter, "iteration(s) with residual", ddvnorm)
@@ -1976,7 +1985,7 @@ class DFGMPMSolver:
 
         #NOTE: don't add gravity here because we build gravity into our implicit solver
 
-        #TODO: should impulse happen before or after implicit solve for velocity?
+        #TODO:Impulse should impulse happen before or after implicit solve for velocity?
         if self.useImpulse:
             if self.elapsedTime >= self.impulseStartTime and self.elapsedTime < (self.impulseStartTime + self.impulseDuration):
                 with Timer("Apply Impulse"):
