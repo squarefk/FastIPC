@@ -450,7 +450,8 @@ class DFGMPMSolver:
         #Clear neighbor look up structures
         for p in range(self.numParticles):
             self.particleNumNeighbors[p] = 0
-            #self.particleAF[p] = [-1, -1, -1, -1, -1, -1, -1, -1, -1] if self.dim == 2 else [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1] #idk why I did it this way LOL
+            for i in range(3**self.dim):
+                self.particleAF[p, i] = -1
     
     @ti.kernel
     def backGridSort(self):
@@ -1289,7 +1290,7 @@ class DFGMPMSolver:
 
         return dFdX
 
-    # Build Matrix: Inertial term: dim*N in total
+    # Build Matrix: construct the Hessian of Energy (w.r.t. dv)
     @ti.kernel
     def BuildMatrix(self, project:ti.template(), project_pd:ti.template()):
         nNbr = 25
@@ -1298,16 +1299,32 @@ class DFGMPMSolver:
             nNbr = 125  #NOTE: max active elements in a row iirc
             midNbr = 62
 
-        for i in ti.ndrange(self.activeNodes[None]):
+        ndof = self.activeNodes[None]
+        sdof = self.separableNodes[None] if self.useDFG else 0
+        
+        #Set inertial term of hessian (diagonal of masses)
+        for i in ti.ndrange(ndof):
+            #initialize entries
             for j in range(nNbr):
-                self.entryCol[i*nNbr+j] = -1
-                self.entryVal[i*nNbr+j] = ti.Matrix.zero(float, self.dim, self.dim)
+                self.entryCol[i*nNbr + j] = -1
+                self.entryVal[i*nNbr + j] = ti.Matrix.zero(float, self.dim, self.dim)
+            #set diagonal
             gid = self.dof2idx[i]
-            m = self.grid_m1[gid] #TODO: 2 field??
-            self.entryCol[i*nNbr+midNbr] = i
-            self.entryVal[i*nNbr+midNbr] = ti.Matrix.identity(float, self.dim) * m
+            m = self.grid_m1[gid]
+            self.entryCol[i*nNbr + midNbr] = i
+            self.entryVal[i*nNbr + midNbr] = ti.Matrix.identity(float, self.dim) * m
+        for i in ti.ndrange(sdof):
+            #initialize entries
+            for j in range(nNbr):
+                self.entryCol[(ndof + i)*nNbr + j] = -1
+                self.entryVal[(ndof + i)*nNbr + j] = ti.Matrix.zero(float, self.dim, self.dim)
+            #set diagonal
+            gid2 = self.sepDof2idx[i]
+            m2 = self.grid_m2[gid2]
+            self.entryCol[(ndof + i)*nNbr + midNbr] = ndof + i #should be total dof index here!
+            self.entryVal[(ndof + i)*nNbr + midNbr] = ti.Matrix.identity(float, self.dim) * m2
 
-        # Build Matrix: Loop over all particles
+        # Now add the second term of Hessian
         for I in ti.grouped(self.pid):
             p = self.pid[I]
 
@@ -1321,10 +1338,21 @@ class DFGMPMSolver:
                 base[D] = ti.assume_in_range(base[D], I[D], 0, 1)
 
             if ti.static(self.dim == 2):
+                #Cache the proper indeces to map this particle to each of its 3^dim stencil nodes
                 for offset in ti.static(ti.grouped(self.stencil_range())):
                     oidx = self.offset2idx(offset)
-                    self.p_cached_idx[p,oidx] = self.grid_idx[base + offset]
-
+                    if not self.useDFG:
+                        self.p_cached_idx[p,oidx] = self.grid_idx[base + offset]
+                    else:
+                        fieldIdx = self.particleAF[p, oidx]
+                        if fieldIdx == 0:
+                            self.p_cached_idx[p, oidx] = self.grid_idx[base + offset]
+                        elif fieldIdx == 1:
+                            self.p_cached_idx[p, oidx] = ndof + self.grid_sep_idx[base + offset] #ndof + the 0-indexed seperable node idx
+                        else:
+                            ValueError("ERROR: fieldIdx not set yet :(")
+                
+                #Compute and store col and val based on these indeces for p
                 for i in range(3**self.dim):
                     wi = self.F_backup[p].transpose() @ self.p_cached_dw[p,i]
                     dofi = self.p_cached_idx[p,i]
@@ -1340,11 +1368,23 @@ class DFGMPMSolver:
                         ioffset = dofi*nNbr + self.linear_offset(nodei-nodej)
                         self.entryCol[ioffset] = dofj
                         self.entryVal[ioffset] += dFdX
+            
             if ti.static(self.dim == 3):
+                #Cache the proper indeces to map this particle to each of its 3^dim stencil nodes
                 for offset in ti.static(ti.grouped(self.stencil_range())):
                     oidx = self.offset2idx(offset)
-                    self.p_cached_idx[p, oidx] = self.grid_idx[base + offset]
-
+                    if not self.useDFG:
+                        self.p_cached_idx[p,oidx] = self.grid_idx[base + offset]
+                    else:
+                        fieldIdx = self.particleAF[p, oidx]
+                        if fieldIdx == 0:
+                            self.p_cached_idx[p, oidx] = self.grid_idx[base + offset]
+                        elif fieldIdx == 1:
+                            self.p_cached_idx[p, oidx] = ndof + self.grid_sep_idx[base + offset] #ndof + the 0-indexed seperable node idx
+                        else:
+                            ValueError("ERROR: fieldIdx not set yet :(")
+                
+                #Compute and store col and val based on these indeces for p
                 for i in range(3**self.dim):
                     wi = self.F_backup[p].transpose() @ self.p_cached_dw[p,i]
                     dofi = self.p_cached_idx[p,i]
@@ -1360,25 +1400,23 @@ class DFGMPMSolver:
                         ioffset = dofi*nNbr + self.linear_offset3D(nodei-nodej)
                         self.entryCol[ioffset] = dofj
                         self.entryVal[ioffset] += dFdX               
-        
-        # if project == True:
-        #     self.projectMatrix()
 
+    #Set up and solve the linear system using PCG and Sparse Matrix
     def SolveLinearSystem(self):
         ndof = self.activeNodes[None]
         sdof = self.separableNodes[None] if self.useDFG else 0
         if self.dim == 2:
-            self.matrix.prepareColandVal(ndof) #TODO: 2 field
-            self.matrix.setFromColandVal(self.entryCol, self.entryVal, ndof)
+            self.matrix.prepareColandVal(ndof + sdof)
+            self.matrix.setFromColandVal(self.entryCol, self.entryVal, ndof + sdof)
         else:
-            self.matrix.prepareColandVal(ndof, d = 3)
-            self.matrix.setFromColandVal3(self.entryCol, self.entryVal, ndof)
+            self.matrix.prepareColandVal(ndof + sdof, d = 3)
+            self.matrix.setFromColandVal3(self.entryCol, self.entryVal, ndof + sdof)
 
         self.cgsolver.compute(self.matrix, stride = self.dim)
         self.cgsolver.setBoundary(self.boundary) #TODO:Slip and Moving Boundaries
-        self.cgsolver.solve(self.rhs, False) #second param is whether to print CG convergence updates
+        self.cgsolver.solve(self.rhs, True) #second param is whether to print CG convergence updates
 
-        for i in range(ndof * self.dim):
+        for i in range((ndof + sdof) * self.dim):
             self.data_x[i] = -self.cgsolver.x[i]
 
     #Fill dv with the portion of data_x that we determined reduced the energy
@@ -1407,7 +1445,7 @@ class DFGMPMSolver:
                 self.grid_v2[gid2] += dv2
 
     def implicitNewton(self):
-        printProgress = False
+        printProgress = True
                 
         self.BackupStrain() #Backup F because we need to iteratively check how the new candidate velocities are affecting F (to compute energy)
         
@@ -1439,8 +1477,8 @@ class DFGMPMSolver:
                     if printProgress: print("[Newton] Newton finished in", iter, "iteration(s) with residual", rnorm)
                     break
 
-            self.BuildMatrix(True, False) # Compute H TODO: 2 field
-            self.SolveLinearSystem()  # solve dx = H^(-1) g TODO: 2 field
+            self.BuildMatrix(True, False) # Compute H
+            self.SolveLinearSystem()  # solve dx = H^(-1) g
 
             # Exiting Newton
             ndof = self.activeNodes[None]
@@ -1985,7 +2023,7 @@ class DFGMPMSolver:
 
         #NOTE: don't add gravity here because we build gravity into our implicit solver
 
-        #TODO:Impulse should impulse happen before or after implicit solve for velocity?
+        #TODO:Impulse should impulse happen before or after implicit solve for velocity? NOTE: must be incorporated into the RHS of implicit solve! (like gravity)
         if self.useImpulse:
             if self.elapsedTime >= self.impulseStartTime and self.elapsedTime < (self.impulseStartTime + self.impulseDuration):
                 with Timer("Apply Impulse"):
@@ -2261,9 +2299,11 @@ class DFGMPMSolver:
         print("[Simulation] Grid Dx: ", self.dx)
         print("[Simulation] Time Step: ", self.dt)
         if self.symplectic: 
-            print("[Simulation] Explicit")
+            if self.useDFG: print("[Simulation] Explicit DFGMPM")
+            if not self.useDFG: print("[Simulation] Explicit Single Field MPM")
         else:
-            print("[Simulation] Implicit")
+            if self.useDFG: print("[Simulation] Implicit DFGMPM")
+            if not self.useDFG: print("[Simulation] Implicit Single Field MPM")
         self.reset(self.vertices, self.particleCounts, self.initialVelocity, self.pMasses, self.pVolumes, self.EList, self.nuList, self.damageList) #init
         for frame in range(self.endFrame):
             with Timer("Compute Frame"):
