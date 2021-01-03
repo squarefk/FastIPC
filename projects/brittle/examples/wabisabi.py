@@ -25,6 +25,9 @@ filename = "../Data/TetMesh/bowl2_5k.mesh"
 vertices, vol = sampleFromTetWild(filename, rho)
 surfaceThreshold = 4.4
 
+# print('Type of vol:', type(vol))
+# print("Vol: ", vol)
+
 vertexCount = len(vertices)
 particleCounts = [vertexCount]
 
@@ -53,7 +56,7 @@ dt = 0.9 * maxDt
 useDFG = False
 verbose = False
 useAPIC = False
-symplectic = False
+symplectic = True
 frictionCoefficient = 0.0
 flipPicRatio = 0.9 #want to blend in more PIC for stiffness -> lower
 
@@ -62,6 +65,10 @@ if not symplectic: dt = 1e-3
 if(len(sys.argv) == 6):
     outputPath = sys.argv[4]
     outputPath2 = sys.argv[5]
+
+# print("Type of Dt:", type(dt))
+# print("Type of dx:", type(dx))
+# print("Type of cfl:", type(cfl))
 
 solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic)
 

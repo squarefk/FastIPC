@@ -22,7 +22,7 @@ def sampleFromTetWild(filename, density):
         volume += currVol
 
     print("[Particle Sampling] Total TetMesh Volume: ", volume)
-    return np.array(X), volume
+    return np.array(X), float(volume)
 
 #Read from TetWild tet mesh to get points and indeces
 def readTetWildFile(filename, samples, indeces):

@@ -5,13 +5,13 @@ from common.utils.particleSampling import *
 from common.utils.cfl import *
 from projects.brittle.DFGMPMSolver import *
 
-ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
-#ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
+#ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10.0
-outputPath = "../output/circleExplode2D/brittle.ply"
-outputPath2 = "../output/circleExplode2D/brittle_nodes.ply"
-fps = 240
+outputPath = "../output/singlePointFreefall2D/brittle.ply"
+outputPath2 = "../output/singlePointFreefall2D/brittle_nodes.ply"
+fps = 30
 endFrame = 3 * fps
 
 E = 1e4 #1e5
@@ -19,20 +19,15 @@ nu = 0.15
 EList = [E]
 nuList = [nu]
 
-N1 = 200
-r1 = 0.07
-centerPoint = [0.5, 0.5]
-
-
-maxArea = 'qa0.0000025'
-vertices = sampleCircle2D(centerPoint, r1, N1, maxArea)
-surfaceThreshold = 4.4
+points = [[0.48, 0.5], [0.49, 0.5], [0.50, 0.5], [0.51, 0.5]]
+vertices = np.array(points)
+surfaceThreshold = 0
 
 vertexCount = len(vertices)
 particleCounts = [vertexCount]
 
 rho = 1 #6.9e-3
-vol = r1 * r1 * math.pi
+vol = 0.02
 pVol = vol / vertexCount
 mp = pVol * rho
 particleMasses = [mp]
@@ -46,12 +41,14 @@ initialVelocity = [initVel]
 
 #dx = 0.01 #TODO
 ppc = 4
-dx = (ppc * pVol)**0.5
+dx = 0.1
 
 #Compute max dt
 cfl = 0.4
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
-dt = 0.9 * maxDt
+#dt = 0.9 * maxDt
+dt = 1e-3 #1e-4 is stable for explicit
+
 
 useDFG = True
 verbose = False
@@ -105,23 +102,22 @@ wallFriction = 0.1
 groundCenter = (0, 0.05)
 groundNormal = (0, 1)
 surface = solver.surfaceSeparate
-
-if not symplectic:
-    surface = solver.surfaceSticky
-    wallFriction = 0.0
-
 solver.addHalfSpace(groundCenter, groundNormal, surface, wallFriction)
 
-groundCenter = (0, 0.95)
+#sticky wall to hold onto right most particle
+groundCenter = (0, 0.505)
 groundNormal = (0, -1)
-solver.addHalfSpace(groundCenter, groundNormal, surface, wallFriction)
+surface = solver.surfaceSticky
+solver.addHalfSpace(groundCenter, groundNormal, surface, 0)
 
 groundCenter = (0.05, 0)
 groundNormal = (1, 0)
+surface = solver.surfaceSlip
 solver.addHalfSpace(groundCenter, groundNormal, surface, wallFriction)
 
 groundCenter = (0.95, 0)
 groundNormal = (-1, 0)
+surface = solver.surfaceSlip
 solver.addHalfSpace(groundCenter, groundNormal, surface, wallFriction)
 
 solver.simulate()

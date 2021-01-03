@@ -51,6 +51,8 @@ symplectic = False
 frictionCoefficient = 0.4
 flipPicRatio = 0.90
 
+if not symplectic: dt = 1e-3
+
 solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic)
 
 #Collision Objects

@@ -189,6 +189,73 @@ class SparseMatrix:
             self.innerNonZeros[3*i+1] = num_entry1
             self.innerNonZeros[3*i+2] = num_entry2
 
+    ####-----DFG VERSIONS-----####
+
+    @ti.kernel
+    def setFromColandValDFG(self, entryCol:ti.template(), entryVal:ti.template(), num:ti.i32):
+        for i in range(num):
+            num_entry = 0
+            start_idx = self.outerIndex[2*i]
+            num_entry1 = 0
+            start_idx1 = self.outerIndex[2*i+1]
+            for k in range(50):
+                c = i * 50 + k
+                j = entryCol[c]
+                M = entryVal[c]
+                if not j == -1:
+                    self.col_index[start_idx + num_entry] = 2*j
+                    self.coef_value[start_idx + num_entry] = M[0,0]
+                    self.col_index[start_idx + num_entry + 1] = 2*j+1
+                    self.coef_value[start_idx + num_entry + 1] = M[0,1]
+                    num_entry += 2
+                    self.col_index[start_idx1 + num_entry1] = 2*j
+                    self.coef_value[start_idx1 + num_entry1] = M[1,0]
+                    self.col_index[start_idx1 + num_entry1 + 1] = 2*j+1
+                    self.coef_value[start_idx1 + num_entry1 + 1] = M[1,1]
+                    num_entry1 += 2
+            self.innerNonZeros[2*i] = num_entry
+            self.innerNonZeros[2*i+1] = num_entry1
+
+    @ti.kernel
+    def setFromColandVal3DFG(self, entryCol:ti.template(), entryVal:ti.template(), num:ti.i32):
+        for i in range(num):
+            num_entry = 0
+            start_idx = self.outerIndex[3*i]
+            num_entry1 = 0
+            start_idx1 = self.outerIndex[3*i+1]
+            num_entry2 = 0
+            start_idx2 = self.outerIndex[3*i+2]
+            for k in range(250):
+                c = i * 250 + k
+                j = entryCol[c]
+                M = entryVal[c]
+                if not j == -1:
+                    self.col_index[start_idx + num_entry] = 3*j
+                    self.coef_value[start_idx + num_entry] = M[0,0]
+                    self.col_index[start_idx + num_entry + 1] = 3*j+1
+                    self.coef_value[start_idx + num_entry + 1] = M[0,1]
+                    self.col_index[start_idx + num_entry + 2] = 3*j+2
+                    self.coef_value[start_idx + num_entry + 2] = M[0,2]
+                    num_entry += 3
+                    self.col_index[start_idx1 + num_entry1] = 3*j
+                    self.coef_value[start_idx1 + num_entry1] = M[1,0]
+                    self.col_index[start_idx1 + num_entry1 + 1] = 3*j+1
+                    self.coef_value[start_idx1 + num_entry1 + 1] = M[1,1]
+                    self.col_index[start_idx1 + num_entry1 + 2] = 3*j+2
+                    self.coef_value[start_idx1 + num_entry1 + 2] = M[1,2]
+                    num_entry1 += 3
+                    self.col_index[start_idx2 + num_entry2] = 3*j
+                    self.coef_value[start_idx2 + num_entry2] = M[2,0]
+                    self.col_index[start_idx2 + num_entry2 + 1] = 3*j+1
+                    self.coef_value[start_idx2 + num_entry2 + 1] = M[2,1]
+                    self.col_index[start_idx2 + num_entry2 + 2] = 3*j+2
+                    self.coef_value[start_idx2 + num_entry2 + 2] = M[2,2]
+                    num_entry2 += 3
+            self.innerNonZeros[3*i] = num_entry
+            self.innerNonZeros[3*i+1] = num_entry1
+            self.innerNonZeros[3*i+2] = num_entry2
+
+
     ############ sparsity ############
     def initSpace(self):
         pass

@@ -184,10 +184,12 @@ class DFGMPMSolver:
         self.grid_m2 = ti.field(dtype=float)
         self.grid_n1 = ti.Vector.field(self.dim, dtype=float)
         self.grid_n2 = ti.Vector.field(self.dim, dtype=float)
-        self.grid_f1 = ti.Vector.field(self.dim, dtype=float)
+        self.grid_f1 = ti.Vector.field(self.dim, dtype=float) #Internal elasticity forces
         self.grid_f2 = ti.Vector.field(self.dim, dtype=float)
-        self.grid_fct1 = ti.Vector.field(self.dim, dtype=float)
+        self.grid_fct1 = ti.Vector.field(self.dim, dtype=float) #Contact forces
         self.grid_fct2 = ti.Vector.field(self.dim, dtype=float)
+        self.grid_fi1 = ti.Vector.field(self.dim, dtype=float) #Impulse forces (need to store them if we do implicit so we can incorporate them into rhs)
+        self.grid_fi2 = ti.Vector.field(self.dim, dtype=float)
         #---DOF Tracking
         self.grid_idx = ti.field(dtype=int)
         self.grid_sep_idx = ti.field(dtype=int)
@@ -229,6 +231,10 @@ class DFGMPMSolver:
             block_component(fct1)
         for fct2 in self.grid_fct2.entries: # grid node contact forces for two field nodes, field 2
             block_component(fct2)
+        for fi1 in self.grid_fi1.entries: # grid node impulse forces, field 1
+            block_component(fi1)
+        for fi2 in self.grid_fi2.entries: # grid node impulse forces, field 2
+            block_component(fi2)
         block_component(self.grid_idx) #hold a mapping from active grid DOF indeces -> the DOF index
         block_component(self.grid_sep_idx) #hold a mapping from separable grid DOF indeces -> the sep DOF index
         for dg in self.gridDG.entries: #grid node damage gradients
@@ -658,6 +664,8 @@ class DFGMPMSolver:
                     self.gridSeparability[gridIdx][3] += weight * self.mp[p] #denom, field 2
                     self.particleAF[p, oidx] = 1 #set this particle's AF to 1 for this grid node
                     ti.atomic_max(self.gridMaxDamage[gridIdx][1], maxD) #compute the max damage seen in this field at this grid node
+                
+                #if p == 0: print("particle0, particleAF[p, oidx]:", self.particleAF[p, oidx])
 
     @ti.kernel
     def computeSeparability(self):
@@ -972,10 +980,17 @@ class DFGMPMSolver:
         for I in ti.grouped(self.grid_m1):
             dist = self.impulseCenter - (self.dx * I)
             dv = dist / (0.01 + dist.norm()) * self.impulseStrength * self.dt
-            if self.grid_m1[I] > 0:
-                self.grid_v1[I] += dv
-            if self.separable[I] == 1:
-                self.grid_v2[I] += dv
+            if self.symplectic:
+                if self.grid_m1[I] > 0:
+                    self.grid_v1[I] += dv
+                if self.separable[I] == 1:
+                    self.grid_v2[I] += dv
+            else:
+                if self.grid_m1[I] > 0:
+                    self.grid_fi1[I] += dv
+                if self.separable[I] == 1:
+                    self.grid_fi2[I] += dv
+
 
     @ti.kernel
     def computeContactForces(self):
@@ -1236,8 +1251,9 @@ class DFGMPMSolver:
             gid = self.dof2idx[i]
             m = self.grid_m1[gid]
             f = self.grid_f1[gid]
+            impulse = self.grid_fi1[gid]
             for d in ti.static(range(self.dim)):
-                self.rhs[i*self.dim+d] = self.DV[i*self.dim+d] * m - self.dt * f[d] - self.dt * m * self.gravity[None][d] #NOTE: here we incorporate gravity for implicit dynamics
+                self.rhs[i*self.dim+d] = self.DV[i*self.dim+d] * m - self.dt * f[d] - self.dt * m * self.gravity[None][d] + impulse[d] #NOTE: here we incorporate all external forces (gravity and impulses)
         
         #if using DFG, iterate the separable nodes to set rhs for field 2
         if self.useDFG:
@@ -1246,8 +1262,9 @@ class DFGMPMSolver:
                 gid2 = self.sepDof2idx[i]
                 m2 = self.grid_m2[gid2]
                 f2 = self.grid_f2[gid2]
+                impulse2 = self.grid_fi2[gid2]
                 for d in ti.static(range(self.dim)):
-                    self.rhs[ndof*self.dim + i*self.dim + d] = self.DV[ndof*self.dim + i*self.dim + d] * m2 - self.dt * f2[d] - self.dt * m2 * self.gravity[None][d]
+                    self.rhs[ndof*self.dim + i*self.dim + d] = self.DV[ndof*self.dim + i*self.dim + d] * m2 - self.dt * f2[d] - self.dt * m2 * self.gravity[None][d] + impulse2[d]
 
         if project == True:
             # Boundary projection
@@ -1267,10 +1284,10 @@ class DFGMPMSolver:
     @ti.func
     def computedFdX(self, dPdF, wi, wj):
         dFdX = ti.Matrix.zero(float, self.dim, self.dim)
-        dFdX[0,0] = dPdF[0+0,0+0]*wi[0]*wj[0]+dPdF[2+0,0+0]*wi[1]*wj[0]+dPdF[0+0,2+0]*wi[0]*wj[1]+dPdF[2+0,2+0]*wi[1]*wj[1]
-        dFdX[0,1] = dPdF[0+0,0+1]*wi[0]*wj[0]+dPdF[2+0,0+1]*wi[1]*wj[0]+dPdF[0+0,2+1]*wi[0]*wj[1]+dPdF[2+0,2+1]*wi[1]*wj[1]
-        dFdX[1,0] = dPdF[0+1,0+0]*wi[0]*wj[0]+dPdF[2+1,0+0]*wi[1]*wj[0]+dPdF[0+1,2+0]*wi[0]*wj[1]+dPdF[2+1,2+0]*wi[1]*wj[1]
-        dFdX[1,1] = dPdF[0+1,0+1]*wi[0]*wj[0]+dPdF[2+1,0+1]*wi[1]*wj[0]+dPdF[0+1,2+1]*wi[0]*wj[1]+dPdF[2+1,2+1]*wi[1]*wj[1]
+        dFdX[0,0] = dPdF[0+0,0+0]*wi[0]*wj[0] + dPdF[2+0,0+0]*wi[1]*wj[0] + dPdF[0+0,2+0]*wi[0]*wj[1] + dPdF[2+0,2+0]*wi[1]*wj[1]
+        dFdX[0,1] = dPdF[0+0,0+1]*wi[0]*wj[0] + dPdF[2+0,0+1]*wi[1]*wj[0] + dPdF[0+0,2+1]*wi[0]*wj[1] + dPdF[2+0,2+1]*wi[1]*wj[1]
+        dFdX[1,0] = dPdF[0+1,0+0]*wi[0]*wj[0] + dPdF[2+1,0+0]*wi[1]*wj[0] + dPdF[0+1,2+0]*wi[0]*wj[1] + dPdF[2+1,2+0]*wi[1]*wj[1]
+        dFdX[1,1] = dPdF[0+1,0+1]*wi[0]*wj[0] + dPdF[2+1,0+1]*wi[1]*wj[0] + dPdF[0+1,2+1]*wi[0]*wj[1] + dPdF[2+1,2+1]*wi[1]*wj[1]
 
         return dFdX
 
@@ -1296,8 +1313,13 @@ class DFGMPMSolver:
         nNbr = 25
         midNbr = 12
         if self.dim == 3:
-            nNbr = 125  #NOTE: max active elements in a row iirc
+            nNbr = 125
             midNbr = 62
+        
+        #Need more space if using DFG
+        if self.useDFG:
+            nNbr *= 2 #NOTE: we'll use this extra space as a scratch space for second field contributions
+            #NOTE: leave mid number the same because we want the diagonal to be there in the first field still
 
         ndof = self.activeNodes[None]
         sdof = self.separableNodes[None] if self.useDFG else 0
@@ -1341,7 +1363,7 @@ class DFGMPMSolver:
                 #Cache the proper indeces to map this particle to each of its 3^dim stencil nodes
                 for offset in ti.static(ti.grouped(self.stencil_range())):
                     oidx = self.offset2idx(offset)
-                    if not self.useDFG:
+                    if not self.useDFG or self.separable[base + offset] != 1:
                         self.p_cached_idx[p,oidx] = self.grid_idx[base + offset]
                     else:
                         fieldIdx = self.particleAF[p, oidx]
@@ -1365,7 +1387,10 @@ class DFGMPMSolver:
                         dFdX = self.computedFdX(dPdF, wi, wj)
                         dFdX = dFdX * vol * self.dt * self.dt
 
-                        ioffset = dofi*nNbr + self.linear_offset(nodei-nodej)
+                        doffs = self.linear_offset(nodei - nodej)
+                        if dofj >= ndof: doffs += 25 #if column index is an sdof, give the offset + 25 to be in second half of the row (our scratch space we set up)
+                        ioffset = dofi*nNbr + doffs
+                        
                         self.entryCol[ioffset] = dofj
                         self.entryVal[ioffset] += dFdX
             
@@ -1373,7 +1398,7 @@ class DFGMPMSolver:
                 #Cache the proper indeces to map this particle to each of its 3^dim stencil nodes
                 for offset in ti.static(ti.grouped(self.stencil_range())):
                     oidx = self.offset2idx(offset)
-                    if not self.useDFG:
+                    if not self.useDFG or self.separable[base + offset] != 1:
                         self.p_cached_idx[p,oidx] = self.grid_idx[base + offset]
                     else:
                         fieldIdx = self.particleAF[p, oidx]
@@ -1397,7 +1422,10 @@ class DFGMPMSolver:
                         dFdX = self.computedFdX3D(dPdF, wi, wj)
                         dFdX = dFdX * vol * self.dt * self.dt
 
-                        ioffset = dofi*nNbr + self.linear_offset3D(nodei-nodej)
+                        doffs = self.linear_offset3D(nodei - nodej)
+                        if dofj >= ndof: doffs += 125 #if column index is an sdof, give the offset + 25 to be in second half of the row (our scratch space we set up)
+                        ioffset = dofi*nNbr + doffs
+
                         self.entryCol[ioffset] = dofj
                         self.entryVal[ioffset] += dFdX               
 
@@ -1407,10 +1435,12 @@ class DFGMPMSolver:
         sdof = self.separableNodes[None] if self.useDFG else 0
         if self.dim == 2:
             self.matrix.prepareColandVal(ndof + sdof)
-            self.matrix.setFromColandVal(self.entryCol, self.entryVal, ndof + sdof)
+            self.matrix.setFromColandValDFG(self.entryCol, self.entryVal, ndof + sdof)
         else:
             self.matrix.prepareColandVal(ndof + sdof, d = 3)
-            self.matrix.setFromColandVal3(self.entryCol, self.entryVal, ndof + sdof)
+            self.matrix.setFromColandVal3DFG(self.entryCol, self.entryVal, ndof + sdof)
+
+        #print(self.matrix.toFullMatrix())
 
         self.cgsolver.compute(self.matrix, stride = self.dim)
         self.cgsolver.setBoundary(self.boundary) #TODO:Slip and Moving Boundaries
@@ -1571,9 +1601,9 @@ class DFGMPMSolver:
                         new_F += g_v2_np1.outer_product(dweight)
 
             #Finish computing FLIP velocity: v_p^n+1 = v_p^n + dt (v_i^n+1 - v_i^n) * wip
-            #new_v_FLIP = self.v[p] + (self.dt * new_v_FLIP)
-            new_v_FLIP *= self.dt
-            new_v_FLIP += self.v[p]
+            new_v_FLIP = self.v[p] + (self.dt * new_v_FLIP)
+            # new_v_FLIP *= self.dt
+            # new_v_FLIP += self.v[p]
 
             #Compute the blend
             new_v = (self.flipPicRatio * new_v_FLIP) + ((1.0 - self.flipPicRatio) * new_v_PIC)
@@ -1603,6 +1633,9 @@ class DFGMPMSolver:
     #add half space collision object
     def addHalfSpace(self, center, normal, surface, friction, transform = noTransform):
         
+        if not self.symplectic and not surface == self.surfaceSticky:
+            raise ValueError("ERROR: Non-sticky boundaries not implemented yet for implicit")
+
         self.collisionObjectCenters[self.collisionObjectCount] = ti.Vector(list(center)) #save the center so we can update this later
         self.collisionVelocities[self.collisionObjectCount] = ti.Vector([0.0, 0.0]) if self.dim == 2 else ti.Vector([0.0, 0.0, 0.0]) #add a dummy velocity for now
         self.collisionTypes[self.collisionObjectCount] = surface
@@ -1709,6 +1742,9 @@ class DFGMPMSolver:
     #add spherical collision object
     def addSphereCollider(self, center, radius, surface, transform = noTransform):
         
+        if not self.symplectic and not surface == self.surfaceSticky:
+            raise ValueError("ERROR: Non-sticky boundaries not implemented yet for implicit")
+
         self.collisionObjectCenters[self.collisionObjectCount] = ti.Vector(list(center)) #save the center so we can update this later
         self.collisionVelocities[self.collisionObjectCount] = ti.Vector([0.0, 0.0]) if self.dim == 2 else ti.Vector([0.0, 0.0, 0.0]) #add a dummy velocity for now
         self.collisionTypes[self.collisionObjectCount] = surface
@@ -2074,12 +2110,15 @@ class DFGMPMSolver:
             if self.useAnisoMPMDamage: 
                 self.damageLaplacians[i] = 0.0
                 self.dTildeH[i] = 0.0
-            if (self.x[i][0] > 0.45) and self.x[i][1] > 0.546 and self.x[i][1] < 0.554: #put damaged particles as a band in the center
-                self.Dp[i] = 1
-                self.material[i] = 1
-            if (self.x[i][0] < 0.55) and self.x[i][1] > 0.446 and self.x[i][1] < 0.454: #put damaged particles as a band in the center
-                self.Dp[i] = 1
-                self.material[i] = 1
+            # if (self.x[i][0] > 0.45) and self.x[i][1] > 0.546 and self.x[i][1] < 0.554: #put damaged particles as a band in the center
+            #     self.Dp[i] = 1
+            #     self.material[i] = 1
+            # if (self.x[i][0] < 0.55) and self.x[i][1] > 0.446 and self.x[i][1] < 0.454: #put damaged particles as a band in the center
+            #     self.Dp[i] = 1
+            #     self.material[i] = 1
+            # if (self.x[i][0] > 0.48 and self.x[i][0] < 0.51):
+            #     self.Dp[i] = 1
+            #     self.material[i] = 1
         
         #Set different settings for different objects (initVel, mass, volume, and surfaceThreshold for example)
         for serial in range(1):
