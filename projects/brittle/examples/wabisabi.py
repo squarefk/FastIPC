@@ -5,9 +5,9 @@ from common.utils.particleSampling import *
 from common.utils.cfl import *
 from projects.brittle.DFGMPMSolver import *
 
-#ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 #ti.init(default_fp=ti.f64, arch=ti.cpu)  #CPU, parallel
-ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
+#ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10.0
 outputPath = "../output/wabisabi/brittle.ply"
@@ -56,7 +56,7 @@ dt = 0.9 * maxDt
 useDFG = False
 verbose = False
 useAPIC = False
-symplectic = True
+symplectic = False
 frictionCoefficient = 0.0
 flipPicRatio = 0.9 #want to blend in more PIC for stiffness -> lower
 
@@ -77,21 +77,23 @@ wallFriction = 0.1
 groundCenter = (0, 0.05, 0)
 groundNormal = (0, 1, 0)
 surface = solver.surfaceSeparate
+
+if not symplectic:
+    surface = solver.surfaceSticky
+    wallFriction = 0.0
+
 solver.addHalfSpace(groundCenter, groundNormal, surface, wallFriction)
 
 groundCenter = (0, 0.95, 0)
 groundNormal = (0, -1, 0)
-surface = solver.surfaceSeparate
 solver.addHalfSpace(groundCenter, groundNormal, surface, wallFriction)
 
 groundCenter = (0.05, 0, 0)
 groundNormal = (1, 0, 0)
-surface = solver.surfaceSeparate
 solver.addHalfSpace(groundCenter, groundNormal, surface, wallFriction)
 
 groundCenter = (0.95, 0, 0)
 groundNormal = (-1, 0, 0)
-surface = solver.surfaceSeparate
 solver.addHalfSpace(groundCenter, groundNormal, surface, wallFriction)
 
 solver.simulate()

@@ -1173,8 +1173,7 @@ class DFGMPMSolver:
                 dv = ti.Vector.zero(float, self.dim)
                 for d in ti.static(range(self.dim)):
                     dv[d] = self.DV[i*self.dim+d]
-                gid = self.dof2idx[i]
-                ke += dv.dot(dv) * self.grid_m1[gid]
+                ke += dv.dot(dv) * self.grid_m1[I]
             if self.separable[I] == 1:
                 #also compute KE from second field if separable
                 i = self.grid_sep_idx[I]
@@ -1182,8 +1181,7 @@ class DFGMPMSolver:
                 dv = ti.Vector.zero(float, self.dim)
                 for d in ti.static(range(self.dim)):
                     dv[d] = self.DV[ndof*self.dim + i*self.dim + d]
-                gid = self.sepDof2idx[i]
-                ke += dv.dot(dv) * self.grid_m2[gid]
+                ke += dv.dot(dv) * self.grid_m2[I]
 
         #gravitational energy
         ge = 0.0
@@ -1193,8 +1191,7 @@ class DFGMPMSolver:
                 dv = ti.Vector.zero(float, self.dim)
                 for d in ti.static(range(self.dim)):
                     dv[d] = self.DV[i*self.dim+d]
-                gid = self.dof2idx[i]
-                ge -= self.dt * dv.dot(self.gravity[None]) * self.grid_m1[gid]
+                ge -= self.dt * dv.dot(self.gravity[None]) * self.grid_m1[I]
             if self.separable[I] == 1:
                 #also compute GE from second field if separable
                 i = self.grid_sep_idx[I]
@@ -1202,10 +1199,28 @@ class DFGMPMSolver:
                 dv = ti.Vector.zero(float, self.dim)
                 for d in ti.static(range(self.dim)):
                     dv[d] = self.DV[ndof*self.dim + i*self.dim + d] #grabbing from second field portion of DV
-                gid = self.sepDof2idx[i]
-                ge -= self.dt * dv.dot(self.gravity[None]) * self.grid_m2[gid]
+                ge -= self.dt * dv.dot(self.gravity[None]) * self.grid_m2[I]
 
-        return ee + ke / 2 + ge
+        #impulse energy
+        ie = 0.0
+        if self.useImpulse:
+            for I in ti.grouped(self.grid_m1):
+                if self.grid_m1[I] > 0:
+                    i = self.grid_idx[I]
+                    dv = ti.Vector.zero(float, self.dim)
+                    for d in ti.static(range(self.dim)):
+                        dv[d] = self.DV[i*self.dim+d]
+                    ie -= dv.dot(self.grid_fi1[I]) * self.grid_m1[I] #dt is included in grid_fi1
+                if self.separable[I] == 1:
+                    #also compute IE from second field if separable
+                    i = self.grid_sep_idx[I]
+                    ndof = self.activeNodes[None]
+                    dv = ti.Vector.zero(float, self.dim)
+                    for d in ti.static(range(self.dim)):
+                        dv[d] = self.DV[ndof*self.dim + i*self.dim + d] #grabbing from second field portion of DV
+                    ie -= dv.dot(self.grid_fi2[I]) * self.grid_m2[I] #dt is included in grid_fi2
+
+        return ee + ke / 2 + ge + ie
 
     #Compute Force based on candidate F; NOTE: this is only used for implicit
     @ti.kernel
@@ -1251,9 +1266,9 @@ class DFGMPMSolver:
             gid = self.dof2idx[i]
             m = self.grid_m1[gid]
             f = self.grid_f1[gid]
-            impulse = self.grid_fi1[gid]
+            impulse = self.grid_fi1[gid] #this is a * dt = velocity
             for d in ti.static(range(self.dim)):
-                self.rhs[i*self.dim+d] = self.DV[i*self.dim+d] * m - self.dt * f[d] - self.dt * m * self.gravity[None][d] + impulse[d] #NOTE: here we incorporate all external forces (gravity and impulses)
+                self.rhs[i*self.dim+d] = (self.DV[i*self.dim+d] * m) - (self.dt * f[d]) - (self.dt * m * self.gravity[None][d]) - (impulse[d] * m) #NOTE: here we incorporate all external forces (gravity and impulses)
         
         #if using DFG, iterate the separable nodes to set rhs for field 2
         if self.useDFG:
@@ -1262,9 +1277,9 @@ class DFGMPMSolver:
                 gid2 = self.sepDof2idx[i]
                 m2 = self.grid_m2[gid2]
                 f2 = self.grid_f2[gid2]
-                impulse2 = self.grid_fi2[gid2]
+                impulse2 = self.grid_fi2[gid2] #this is a * dt = velocity
                 for d in ti.static(range(self.dim)):
-                    self.rhs[ndof*self.dim + i*self.dim + d] = self.DV[ndof*self.dim + i*self.dim + d] * m2 - self.dt * f2[d] - self.dt * m2 * self.gravity[None][d] + impulse2[d]
+                    self.rhs[ndof*self.dim + i*self.dim + d] = (self.DV[ndof*self.dim + i*self.dim + d] * m2) - (self.dt * f2[d]) - (self.dt * m2 * self.gravity[None][d]) - (impulse2[d] * m2)
 
         if project == True:
             # Boundary projection
@@ -2329,9 +2344,9 @@ class DFGMPMSolver:
                 writer2.export_frame(frame * self.numSubsteps + s, self.outputPath2)
         
         if(s == -1):
-            print('[Simulation]: Finished writing frame ', frame, '...')
+            print('#####[Simulation]: Finished writing frame ', frame, '...')
         else:
-            print('[Simulation]: Finished writing substep ', s, 'of frame ', frame, '...')
+            print('#####[Simulation]: Finished writing substep ', s, 'of frame ', frame, '...')
 
     def simulate(self):
         print("[Simulation] Particle Count: ", self.numParticles)

@@ -52,6 +52,7 @@ dx = (ppc * pVol)**0.5
 cfl = 0.4
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.9 * maxDt
+dt = 1e-4
 
 useDFG = True
 verbose = False
