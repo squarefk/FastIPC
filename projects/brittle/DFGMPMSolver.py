@@ -32,6 +32,8 @@ class DFGMPMSolver:
         self.fps = fps
         self.frameDt = 1.0 / fps
         self.dt = dt
+        self.maxDt = self.frameDt if self.frameDt < dt else dt #used to cap implicit time stepping
+        self.minDt = 1e-6
         self.elapsedTime = 0.0 #keep a concept of elapsed time
         self.numSubsteps = int(self.frameDt // dt)
         self.dim = len(vertices[0])
@@ -1562,6 +1564,17 @@ class DFGMPMSolver:
         self.implicitUpdate()
         self.RestoreStrain()
 
+    #Iterate particles to compute maximum velocity
+    @ti.kernel
+    def getMaxVelocity(self)-> float:
+        maxV = self.v[0]
+        for I in ti.grouped(self.pid):
+            p = self.pid[I]
+            #Compute max v in each dimension
+            for d in ti.static(range(self.dim)):
+                ti.atomic_max(maxV[d], self.v[p][d])
+        return ti.sqrt(maxV.norm_sqr())
+
     #-----IMPLICIT-METHODS-END-----------------------------------------------------
 
     @ti.kernel
@@ -2349,28 +2362,61 @@ class DFGMPMSolver:
             print('#####[Simulation]: Finished writing substep ', s, 'of frame ', frame, '...')
 
     def simulate(self):
+        
+        #Printing Dialogue
         print("[Simulation] Particle Count: ", self.numParticles)
         print("[Simulation] Grid Dx: ", self.dx)
-        print("[Simulation] Time Step: ", self.dt)
         if self.symplectic: 
+            print("[Simulation] Explicit Time Step: ", self.dt)
             if self.useDFG: print("[Simulation] Explicit DFGMPM")
             if not self.useDFG: print("[Simulation] Explicit Single Field MPM")
         else:
+            print("[Simulation] Implicit MaxDt: ", self.maxDt)
             if self.useDFG: print("[Simulation] Implicit DFGMPM")
             if not self.useDFG: print("[Simulation] Implicit Single Field MPM")
         self.reset(self.vertices, self.particleCounts, self.initialVelocity, self.pMasses, self.pVolumes, self.EList, self.nuList, self.damageList) #init
+        
+        #Time Stepping
         for frame in range(self.endFrame):
             with Timer("Compute Frame"):
+                frameFinished = False
+                frameTime = 0.0
+                currSubstep = 0
                 if(self.verbose == False): 
                     with Timer("Visualization"):
                         self.writeData(frame, -1) #NOTE: activate to write frames only
-                for s in range(self.numSubsteps):
+                while not frameFinished:
                     if(self.verbose): 
                         with Timer("Visualization"):
-                            self.writeData(frame, s) #NOTE: activate to write every substep
+                            self.writeData(frame, currSubstep) #NOTE: activate to write every substep
                     with Timer("Compute Substep"):
+                        if not self.symplectic and self.cfl > 0.0:
+                            #If implicit, compute dt based on max velocity
+                            maxV = self.getMaxVelocity()
+                            computedDt = self.dt
+                            if maxV > 0.0: 
+                                computedDt = self.cfl * self.dx / (2.0 * maxV) #HOT style dynamic dt
+                            self.dt = ti.max(self.minDt, ti.min(self.maxDt, computedDt))
+                            print("[Implicit] Max Velocity: ", maxV, "Current Dt: ", self.dt)
+                        elif self.symplectic:
+                            self.dt = self.maxDt #reset dt (even after making it smaller to finish the substep)
+
+                        #Make sure we don't go beyond frameDt
+                        if self.frameDt - frameTime < self.dt * 1.001:
+                            frameFinished = True
+                            self.dt = self.frameDt - frameTime
+                        elif self.frameDt - frameTime < 2*self.dt:
+                            self.dt = (self.frameDt - frameTime) / 2.0
+
+                        #Simulation substeps
                         if self.symplectic: 
                             self.substepExplicit()
                         else:
                             self.substepImplicit()
+
+                        currSubstep += 1
+                        frameTime += self.dt
+
+                        print("[Simulation] Finished computing substep", currSubstep, "of frame", frame, "with dt", self.dt)
+                        
         Timer_Print()

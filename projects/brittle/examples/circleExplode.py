@@ -49,15 +49,15 @@ ppc = 4
 dx = (ppc * pVol)**0.5
 
 #Compute max dt
-cfl = 0.4
+cfl = 0.5
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.9 * maxDt
-dt = 1e-4
 
 useDFG = True
 verbose = False
 useAPIC = False
 symplectic = False
+if not symplectic: dt = 1e-3
 frictionCoefficient = 0.0
 flipPicRatio = 0.9 #want to blend in more PIC for stiffness -> lower
 
