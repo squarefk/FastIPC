@@ -4,30 +4,28 @@ import numpy as np
 
 real = ti.float64
 
-MAX_LINEAR = 1000000  # maximum size of linear system supported
-
 
 @ti.data_oriented
 class SparseMatrix:
     '''
         At present we assume every column must be less then self.cols items.
     '''
-    def __init__(self, shape_=None):
+    def __init__(self,
+                 shape_=None,
+                 max_row_num=1000000,
+                 defualt_none_zero_width=1000):
+        self.max_row_num = max_row_num
+        self.defualt_none_zero_width = defualt_none_zero_width
         self.rows = ti.field(ti.i32, shape=())  # num of rows
         self.cols = ti.field(ti.i32, shape=())  # num of columns
-        # if shape_ == None:
-        #     shape_ = (MAX_LINEAR, MAX_LINEAR)
-        # else:
-        #     assert isinstance(shape_, tuple)
-        #     self.rows = shape_[0]
-        #     self.cols = shape_[1]
-        self.coef_value = ti.field(real, shape=MAX_LINEAR * 1000)
-        self.col_index = ti.field(ti.i32, shape=MAX_LINEAR * 1000)
-        self.outerIndex = ti.field(ti.i32, shape=MAX_LINEAR)
-        self.innerNonZeros = ti.field(ti.i32, shape=MAX_LINEAR)
-        # self.nonZeros = ti.field(ti.i32, shape=())
+        self.coef_value = ti.field(real,
+                                   shape=max_row_num * defualt_none_zero_width)
+        self.col_index = ti.field(ti.i32,
+                                  shape=max_row_num * defualt_none_zero_width)
+        self.outerIndex = ti.field(ti.i32, shape=max_row_num)
+        self.innerNonZeros = ti.field(ti.i32, shape=max_row_num)
         # For computation storage only
-        self.Ap = ti.field(real, shape=MAX_LINEAR)
+        self.Ap = ti.field(real, shape=max_row_num)
 
     ############ initialization ############
     def setAllZero(self):
@@ -42,7 +40,7 @@ class SparseMatrix:
         self.outerIndex.fill(0)
         self.innerNonZeros.fill(0)
         for i in range(self.rows[None]):
-            self.outerIndex[i] = i * 100
+            self.outerIndex[i] = i * self.defualt_none_zero_width
         for i in range(self.rows[None]):
             idx = self.outerIndex[i]
             self.coef_value[idx] = 1.0
@@ -118,12 +116,7 @@ class SparseMatrix:
         self.outerIndex.fill(0)
         self.innerNonZeros.fill(0)
         for i in range(self.rows[None]):
-            self.outerIndex[i] = i * 1000
-        # for i in range(self.rows[None]):
-        #     idx = self.outerIndex[i]
-        #     self.coef_value[idx] = 1.0
-        #     self.col_index[idx] = i
-        #     self.innerNonZeros[i] = 1
+            self.outerIndex[i] = i * self.defualt_none_zero_width
 
     @ti.kernel
     def setFromColandVal(self, entryCol: ti.template(),
@@ -331,7 +324,8 @@ class SparseMatrix:
             self.col_index[start_idx + num_idx] = col
             self.coef_value[start_idx + num_idx] = value
             self.innerNonZeros[row] += 1
-            # assert start_idx + self.innerNonZeros[row] < self.outerIndex[row+1]
+            assert start_idx + self.innerNonZeros[row] < self.outerIndex[row +
+                                                                         1]
 
     def __setitem__(self, index, value):
         assert isinstance(index, tuple)
@@ -358,25 +352,22 @@ class SparseMatrix:
 
 @ti.data_oriented
 class CGSolver:
-    def __init__(self, num=MAX_LINEAR):
+    def __init__(self, max_row_num=1000000):
         self.N = ti.field(ti.i32, shape=())
         self.stride = 1
-        self.r = ti.field(real, shape=num)  # residual
-        self.q = ti.field(real, shape=num)  # z
-        self.x = ti.field(real, shape=num)  # solution
-        self.p = ti.field(real, shape=num)
-        # TODO final sol: consider using col compressed matrix this is the most efficient way. But just a bit complex in coding
-        # self.A = ti.field(real, shape=(Nx*Ny, 5))
-        # self.RHS = ti.field(real, shape=(Nx, Ny))
-        self.Ap = ti.field(real, shape=num)
+        self.r = ti.field(real, shape=max_row_num)  # residual
+        self.q = ti.field(real, shape=max_row_num)  # z
+        self.x = ti.field(real, shape=max_row_num)  # solution
+        self.p = ti.field(real, shape=max_row_num)
+        self.Ap = ti.field(real, shape=max_row_num)
         self.alpha = ti.field(real, shape=())
         self.beta = ti.field(real, shape=())
 
-        self.boundary = ti.field(real, shape=num)
+        self.boundary = ti.field(real, shape=max_row_num)
 
     def compute(self, A, stride=2):
         '''
-            A: Sparse Matrix
+            Set A (a Sparse Matrix) as the system left-hand-side
         '''
         assert isinstance(A, SparseMatrix)
         assert A.rows[None] == A.cols[None]
@@ -404,10 +395,6 @@ class CGSolver:
             self.Ap = self.A*p
         '''
         for i in range(self.N[None]):
-            # start_idx = 0
-            # if i > 0:
-            #     start_idx = self.A.row_range[i-1]+1
-            # end_idx = self.A.row_range[i]+1
             start_idx = self.A.outerIndex[i]
             num_idx = self.A.innerNonZeros[i]
 
@@ -422,7 +409,6 @@ class CGSolver:
     @ti.kernel
     def update_p(self):
         for I in range(self.N[None]):
-            # for I in ti.grouped(self.p_base):
             self.p[I] = self.q[I] + self.beta[None] * self.p[I]
 
     @ti.kernel
@@ -450,41 +436,36 @@ class CGSolver:
         dim = self.stride
         for I in range(self.N[None] // dim):
             if self.boundary[I] == 1:
-                # r[2*I] = 0
-                # r[2*I+1] = 0
                 for d in range(dim):
                     r[I * dim + d] = 0
 
-    def solve(self, b, verbose=True):
+    def solve(self,
+              b,
+              verbose=True,
+              max_iterations=5000,
+              terminate_residual=1e-9):
         '''
             Diagonal preconditioned Conjugate Gradient method
         '''
-        self.r.fill(0)
+        # self.r.fill(0)
         self.p.fill(0)
         self.q.fill(0)
         self.x.fill(0)  # zero initial guess !!!!!!!!!!!!!!!!!!
-        # self.Ap.fill(0)
         self.alpha[None] = 0.0
         self.beta[None] = 0.0
         self.copyVector(self.r, b)
-        # self.computAp(self.x)
-        # print("aaaaaaaaaa", self.N[None], np.max(b.to_numpy()))
         self.project(self.r)
         self.precondition()
         self.update_p()
 
         zTr = self.dotProduct(self.r, self.q)
         residual_preconditioned_norm = ti.sqrt(zTr)
-        max_iterations = 5000
         for cnt in range(max_iterations):
-            # if cnt % 100 == 0:
-            #     print(cnt, residual_preconditioned_norm)
-            if residual_preconditioned_norm < 1e-3:
+            if residual_preconditioned_norm < terminate_residual:
                 if verbose:
                     print("CG terminates at", cnt, "; residual =",
                           residual_preconditioned_norm)
                 return
-            # print(zTrK)
             self.computAp(self.p)
             self.project(self.Ap)
             self.alpha[None] = zTr / self.dotProduct(self.Ap, self.p)
