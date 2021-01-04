@@ -36,8 +36,8 @@ def parse_fold(filename):
     edge_types = {}
     with open(filename) as f:
         data = json.load(f)
-    mesh_elements = np.array(data["faces_vertices"], dtype=np.int32)
     edges = {}
+    mesh_elements = data["faces_vertices"]
     for [i, j, k] in mesh_elements:
         edges[(i,j)] = [k]
         edges[(j,k)] = [i]
@@ -51,7 +51,7 @@ def parse_fold(filename):
         edges[edge].append(edges[edge[::-1]].pop())
 
     for edge, t in zip(data["edges_vertices"], data["edges_assignment"]):
-        edge_types[tuple(edge)] = -1 if t == "B" else 0 if t == "F" else 1 if t == "M" else 2
+        edge_types[tuple(edge)] = 0 if t == "B" or t == "F" else 1 if t == "M" else -1
         edge_types[tuple(edge[::-1])] = edge_types[tuple(edge)]
     
     mesh_edges = []
@@ -63,7 +63,7 @@ def parse_fold(filename):
     settings["mesh_particles"] = np.array(data["vertices_coords"], dtype=np.float64)
     settings["mesh_elements"] = np.array(data["faces_vertices"], dtype=np.int32)
     settings["mesh_edges"] = np.array(mesh_edges, dtype=np.int32)
-    
+    settings["mesh_edges"] = settings["mesh_edges"][settings["mesh_edges"][:, 3] >= 0]
 
 def init(dim):
     settings['dim'] = dim
@@ -74,7 +74,7 @@ def init(dim):
     settings['mesh_edges'] = np.zeros((0, 5), dtype=np.int32) 
         # [v0, v1, v2, v3, t] where (v0 v1) is the edge, v2 v3 are two vertices beside the edge. 
         # v0 v1 v2 are in the counter-clockwise order.
-        # t is crease type: 0 - inner edges; 1 - M; 2 - V
+        # t is crease type: 0 - inner/boundary edges; 1 - M; -1 - V
 
 
 def add_object(filename, translation=None, rotation=None, scale=None):
@@ -171,42 +171,146 @@ def read():
     settings['scale'] = .5
 
     ##################################################### 3D #####################################################
-    
-
-    ##################################################### 2D #####################################################
-    if testcase == 1:
-        # stretch box
-        init(2)
+    if testcase == 1001:
+        init(3)
         settings['gravity'] = 0
-        add_object('input/square.obj')
+        parse_fold("input/crane.fold")
         def dirichlet(t):
             x = settings['mesh_particles']
-            left_boundary = x[:, 0] < 0.00001
-            right_boundary = x[:, 0] > 0.99999
-            target_x = settings['mesh_particles'].copy()
-            v = 1
-            t1 = 0.5
-            t2 = 1.0 + 2
-            t3 = 1.5 + 2
-            if t < t1:
-                fixed = np.logical_or(left_boundary, right_boundary)
-            elif t < t2:
-                target_x[left_boundary, 0] -= v * (t-t1)
-                target_x[right_boundary, 0] += v * (t-t1)
-                fixed = np.logical_or(left_boundary, right_boundary)
-            elif t < t3:
-                target_x[left_boundary, 0] -= v * (t2-t1)
-                target_x[right_boundary, 0] += v * (t2-t1)
-                fixed = np.logical_or(left_boundary, right_boundary)
+            elem = settings['mesh_elements'][0]
+            fixed = np.array([False] * x.shape[0])
+            fixed[elem[0]] = True
+            fixed[elem[1]] = True
+            fixed[elem[2]] = True
+            return fixed, x.copy()
+
+        def rest_angle(t):
+            types = settings['mesh_edges'][:, 4]
+            if t < 2:
+                rest_angle = 179. / 2. * t * types
             else:
-                # target_x[left_boundary, 0] -= v * (t2-t1)
-                # fixed = left_boundary
-                fixed = np.array([False] * target_x.shape[0])
-            return fixed, target_x
+                rest_angle = 179 * types
+            return rest_angle
+
         settings['dirichlet'] = dirichlet
+        settings['rest_angle'] = rest_angle
         adjust_camera()
-        settings['mesh_scale'] *= 0.1
-        settings['mesh_offset'] += [0.35, 0.5]
-        settings['boundary'] = find_boundary(settings['mesh_elements'])
+        # settings['mesh_scale'] *= 0.1
+        # settings['mesh_offset'] += [0.35, 0.5]
         return settings
 
+    elif testcase == 1002:
+        init(3)
+        settings['gravity'] = 0
+        parse_fold("input/simple_fold_59.fold")
+        def dirichlet(t):
+            x = settings['mesh_particles']
+            elem = settings['mesh_elements'][0]
+            fixed = np.array([False] * x.shape[0])
+            # fixed[elem[0]] = True
+            # fixed[elem[1]] = True
+            # fixed[elem[2]] = True
+            return fixed, x.copy()
+
+        def rest_angle(t):
+            types = settings['mesh_edges'][:, 4]
+            if t < 4:
+                rest_angle = np.pi * 0.999 / 4. * t * types
+            else:
+                rest_angle = np.pi * 0.999 * types
+            return rest_angle
+            # return np.zeros_like(types)
+
+        settings['dirichlet'] = dirichlet
+        settings['rest_angle'] = rest_angle
+        adjust_camera()
+        # settings['mesh_scale'] *= 0.1
+        # settings['mesh_offset'] += [0.35, 0.5, 0.5]
+        return settings
+
+    elif testcase == 1003:
+        init(3)
+        settings['gravity'] = 0
+        parse_fold("input/flappingBird.fold")
+        settings["mesh_particles"] *= 0.1
+        def dirichlet(t):
+            x = settings['mesh_particles']
+            elem = settings['mesh_elements'][0]
+            fixed = np.array([False] * x.shape[0])
+            # fixed[elem[0]] = True
+            # fixed[elem[1]] = True
+            # fixed[elem[2]] = True
+            return fixed, x.copy()
+
+        def rest_angle(t):
+            types = settings['mesh_edges'][:, 4]
+            if t < 2:
+                rest_angle = 179. / 2. * t * types
+            else:
+                rest_angle = 179 * types
+            return rest_angle
+
+        settings['dirichlet'] = dirichlet
+        settings['rest_angle'] = rest_angle
+        adjust_camera()
+        # settings['mesh_scale'] *= 0.1
+        # settings['mesh_offset'] += [0.35, 0.5]
+        return settings
+    
+    elif testcase == 1004:
+        init(3)
+        settings['gravity'] = 0
+        parse_fold("input/simple_fold.fold")
+        def dirichlet(t):
+            x = settings['mesh_particles']
+            elem = settings['mesh_elements'][0]
+            fixed = np.array([False] * x.shape[0])
+            # fixed[elem[0]] = True
+            # fixed[elem[1]] = True
+            # fixed[elem[2]] = True
+            return fixed, x.copy()
+
+        def rest_angle(t):
+            types = settings['mesh_edges'][:, 4]
+            # if t < 4:
+            #     rest_angle = 179. / 4. * t * types
+            # else:
+            #     rest_angle = 179 * types
+            # return rest_angle
+            return np.zeros_like(types)
+
+        settings['dirichlet'] = dirichlet
+        settings['rest_angle'] = rest_angle
+        adjust_camera()
+        # settings['mesh_scale'] *= 0.1
+        # settings['mesh_offset'] += [0.35, 0.5, 0.5]
+        return settings
+    
+    elif testcase == 1005:
+        init(3)
+        settings['gravity'] = 0
+        parse_fold("input/wing_cp.fold")
+        def dirichlet(t):
+            x = settings['mesh_particles']
+            elem = settings['mesh_elements'][0]
+            fixed = np.array([False] * x.shape[0])
+            # fixed[elem[0]] = True
+            # fixed[elem[1]] = True
+            # fixed[elem[2]] = True
+            return fixed, x.copy()
+
+        def rest_angle(t):
+            types = settings['mesh_edges'][:, 4]
+            if t < 4:
+                rest_angle = 179. / 4. * t * types
+            else:
+                rest_angle = 179 * types
+            return rest_angle
+            return np.zeros_like(types)
+
+        settings['dirichlet'] = dirichlet
+        settings['rest_angle'] = rest_angle
+        adjust_camera()
+        # settings['mesh_scale'] *= 0.1
+        # settings['mesh_offset'] += [0.35, 0.5, 0.5]
+        return settings
