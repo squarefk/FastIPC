@@ -111,12 +111,15 @@ class SparseMatrix:
         self.innerNonZeros.from_numpy(np.array([1, 3, 1, 3, 3]))
 
     def prepareColandVal(self, num, d=2):
-        self.rows[None] = d * num
-        self.cols[None] = d * num
-        self.outerIndex.fill(0)
-        self.innerNonZeros.fill(0)
+        self.initShape(d*num, d*num, self.defualt_none_zero_width)
+
+    @ti.kernel
+    def initShape(self, row:ti.i32, col:ti.i32, rowsize:ti.i32):
+        self.rows[None] = row
+        self.cols[None] = col
         for i in range(self.rows[None]):
-            self.outerIndex[i] = i * self.defualt_none_zero_width
+            self.outerIndex[i] = i * rowsize
+            self.innerNonZeros[i] = 0
 
     @ti.kernel
     def setFromColandVal(self, entryCol: ti.template(),
@@ -359,6 +362,7 @@ class CGSolver:
         self.q = ti.field(real, shape=max_row_num)  # z
         self.x = ti.field(real, shape=max_row_num)  # solution
         self.p = ti.field(real, shape=max_row_num)
+        self.A_diag = ti.field(real, shape=max_row_num)
         self.Ap = ti.field(real, shape=max_row_num)
         self.alpha = ti.field(real, shape=())
         self.beta = ti.field(real, shape=())
@@ -375,6 +379,7 @@ class CGSolver:
         self.N[None] = A.rows[None]
         self.stride = stride
         self.boundary.fill(0)
+        self.setDiagonal()
 
     ############ functions ############
     @ti.kernel
@@ -422,9 +427,18 @@ class CGSolver:
             self.x[I] += self.alpha[None] * self.p[I]
 
     @ti.kernel
+    def setDiagonal(self):
+        for I in range(self.N[None]):
+            val = self.A[I,I]
+            if ti.abs(val) > 1e-10:
+                self.A_diag[I] = val
+            else:
+                self.A_diag[I] = 1.0
+
+    @ti.kernel
     def precondition(self):  # q = M^-1 r
         for I in range(self.N[None]):
-            self.q[I] = self.r[I] / self.A[I, I]  # identity
+            self.q[I] = self.r[I] / self.A_diag[I]
 
     @ti.kernel
     def setBoundary(self, b: ti.template()):
