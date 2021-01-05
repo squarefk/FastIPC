@@ -1526,6 +1526,8 @@ class DFGMPMSolver:
         self.DV.fill(0)
         self.BuildInitialBoundary() #initial guess based on boundaries #TODO:Boundary - ensure our guess makes all c_i > 0
 
+        self.computeViYi() #Transfer volume and barrier stiffness together
+
         #Newton Iteration
         max_iter_newton = 150 #NOTE: should be inf, 10k enough
         for iter in range(max_iter_newton):
