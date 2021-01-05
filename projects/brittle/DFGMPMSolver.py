@@ -444,6 +444,25 @@ class DFGMPMSolver:
 
     ##########
 
+    #Barrier Energy Computations
+
+    @ti.func
+    def computeB(self, Yi, ci, chat):
+        c = ci / chat
+        return -Yi * (c - 1)**2 * ti.log(c) if ci < chat else 0.0
+
+    @ti.func
+    def computeBPrime(self, Yi, ci, chat):
+        c = ci / chat
+        return -Yi * ((2.0 * (c - 1.0) * ti.log(c) / chat) + ((c - 1.0)**2 / ci)) if ci < chat else 0.0
+
+    @ti.func
+    def computeBDoublePrime(self, Yi, ci, chat):
+        c = ci / chat
+        return -Yi * (((2.0 * ti.log(c) + 3.0) / chat**2) - (2.0 / (ci * chat)) - (1 / ci**2)) if ci < chat else 0.0
+    
+    ##########
+
     #AnisoMPM Function Evaluations
 
     @ti.func
@@ -1020,49 +1039,54 @@ class DFGMPMSolver:
                 n_cm1 = (n_1 - n_2).normalized()
                 n_cm2 = -n_cm1
 
-                #orthonormal basis for tengent force
-                s_cm1 = ti.Vector([-1 * n_cm1[1], n_cm1[0]]) #orthogonal to n_cm
-                s_cm2 = s_cm1
+                #Save these c.o.m. normals in the original storage
+                self.grid_n1[I] = n_cm1
+                self.grid_n2[I] = n_cm2
 
-                #initialize to hold contact force for each field 
-                f_c1 = ti.Vector([0.0, 0.0])
-                f_c2 = ti.Vector([0.0, 0.0])
+                if self.symplectic: #only compute these contact forces for explicit sim
+                    #orthonormal basis for tengent force
+                    s_cm1 = ti.Vector([-1 * n_cm1[1], n_cm1[0]]) #orthogonal to n_cm
+                    s_cm2 = s_cm1
 
-                #Compute these for each field regardless of separable or not
-                fNormal1 =  (m_1 / self.dt) * (v_cm - v_1).dot(n_cm1)
-                fNormal2 =  (m_2 / self.dt) * (v_cm - v_2).dot(n_cm2)
+                    #initialize to hold contact force for each field 
+                    f_c1 = ti.Vector([0.0, 0.0])
+                    f_c2 = ti.Vector([0.0, 0.0])
 
-                fTan1 = (m_1 / self.dt) * (v_cm - v_1).dot(s_cm1)
-                fTan2 = (m_2 / self.dt) * (v_cm - v_2).dot(s_cm2)
+                    #Compute these for each field regardless of separable or not
+                    fNormal1 =  (m_1 / self.dt) * (v_cm - v_1).dot(n_cm1)
+                    fNormal2 =  (m_2 / self.dt) * (v_cm - v_2).dot(n_cm2)
 
-                fTanComp1 = fTan1 * s_cm1
-                fTanComp2 = fTan2 * s_cm2
+                    fTan1 = (m_1 / self.dt) * (v_cm - v_1).dot(s_cm1)
+                    fTan2 = (m_2 / self.dt) * (v_cm - v_2).dot(s_cm2)
 
-                fTanMag1 = fTanComp1.norm()
-                fTanMag2 = fTanComp2.norm()
+                    fTanComp1 = fTan1 * s_cm1
+                    fTanComp2 = fTan2 * s_cm2
 
-                fTanSign1 = 1.0 if fTanMag1 > 0 else 0.0 #L2 norm is always >= 0
-                fTanSign2 = 1.0 if fTanMag2 > 0 else 0.0
+                    fTanMag1 = fTanComp1.norm()
+                    fTanMag2 = fTanComp2.norm()
 
-                tanDirection1 = ti.Vector([0.0, 0.0]) if fTanSign1 == 0.0 else fTanComp1.normalized() #prevent nan directions
-                tanDirection2 = ti.Vector([0.0, 0.0]) if fTanSign2 == 0.0 else fTanComp2.normalized()        
+                    fTanSign1 = 1.0 if fTanMag1 > 0 else 0.0 #L2 norm is always >= 0
+                    fTanSign2 = 1.0 if fTanMag2 > 0 else 0.0
 
-                if (v_cm - v_1).dot(n_cm1) + (v_cm - v_2).dot(n_cm2) < 0:
-                    tanMin1 = self.fricCoeff * abs(fNormal1) if self.fricCoeff * abs(fNormal1) < abs(fTanMag1) else abs(fTanMag1)
-                    f_c1 += (fNormal1 * n_cm1) + (tanMin1 * fTanSign1 * tanDirection1)
-                    tanMin1 = self.fricCoeff * abs(fNormal2) if self.fricCoeff * abs(fNormal2) < abs(fTanMag2) else abs(fTanMag2)
-                    f_c2 += (fNormal2 * n_cm2) + (tanMin1 * fTanSign2 * tanDirection2)
+                    tanDirection1 = ti.Vector([0.0, 0.0]) if fTanSign1 == 0.0 else fTanComp1.normalized() #prevent nan directions
+                    tanDirection2 = ti.Vector([0.0, 0.0]) if fTanSign2 == 0.0 else fTanComp2.normalized()        
 
-                #Now save these forces for later
-                self.grid_fct1[I] = f_c1
-                self.grid_fct2[I] = f_c2
+                    if (v_cm - v_1).dot(n_cm1) + (v_cm - v_2).dot(n_cm2) < 0:
+                        tanMin1 = self.fricCoeff * abs(fNormal1) if self.fricCoeff * abs(fNormal1) < abs(fTanMag1) else abs(fTanMag1)
+                        f_c1 += (fNormal1 * n_cm1) + (tanMin1 * fTanSign1 * tanDirection1)
+                        tanMin1 = self.fricCoeff * abs(fNormal2) if self.fricCoeff * abs(fNormal2) < abs(fTanMag2) else abs(fTanMag2)
+                        f_c2 += (fNormal2 * n_cm2) + (tanMin1 * fTanSign2 * tanDirection2)
+
+                    #Now save these forces for later
+                    self.grid_fct1[I] = f_c1
+                    self.grid_fct2[I] = f_c2
 
     @ti.kernel
-    def addContactForces(self):
+    def addContactForces(self):        
         #Add Friction Forces
         for I in ti.grouped(self.grid_m1):    
             if self.separable[I] == 1:
-                if(self.useFrictionalContact):
+                if(self.useFrictionalContact and self.symplectic):
                     self.grid_v1[I] += (self.grid_fct1[I] / self.grid_m1[I]) * self.dt # use field 1 force to update field 1 particles (for green nodes, ie separable contact)
                     self.grid_v2[I] += (self.grid_fct2[I] / self.grid_m2[I]) * self.dt # use field 2 force to update field 2 particles
     
@@ -1500,7 +1524,7 @@ class DFGMPMSolver:
         self.rhs.fill(0)
         self.dv.fill(0)
         self.DV.fill(0)
-        self.BuildInitialBoundary() #initial guess based on boundaries
+        self.BuildInitialBoundary() #initial guess based on boundaries #TODO:Boundary - ensure our guess makes all c_i > 0
 
         #Newton Iteration
         max_iter_newton = 150 #NOTE: should be inf, 10k enough
@@ -1510,10 +1534,10 @@ class DFGMPMSolver:
             self.rhs.fill(0)
             self.UpdateDV(0.0) #set DV_i = dv_i
             self.UpdateState() #compute updated F based on DV
-            E0 = self.TotalEnergy() #compute total energy based on candidate DV
+            E0 = self.TotalEnergy() #compute total energy based on candidate DV #TODO:Boundary - add B(dv)
             #print("[Newton] E0 = ", E0) #NOTE: got same E0 using useDFG = True and False!
             self.computeForces() #Compute grid forces based on the candidate Fs
-            self.ComputeResidual(True) #Compute g, True -> projectResidual
+            self.ComputeResidual(True) #Compute g, True -> projectResidual #TODO:Boundary - add nabla B(dv)
 
             #Check if our guess was enough, NOTE: good for freefall
             if iter == 0:
@@ -1524,7 +1548,7 @@ class DFGMPMSolver:
                     if printProgress: print("[Newton] Newton finished in", iter, "iteration(s) with residual", rnorm)
                     break
 
-            self.BuildMatrix(True, False) # Compute H
+            self.BuildMatrix(True, False) # Compute H #TODO:Boundary - add nabla^2 B(dv)
             self.SolveLinearSystem()  # solve dx = H^(-1) g
 
             # Exiting Newton
@@ -1540,12 +1564,17 @@ class DFGMPMSolver:
 
             #Line Search: what alpha gives the best reduction in energy?
             alpha = 1.0
+            #TODO:Boundary - compute alpha_CCD that ensures all c_i > 0
             for _ in range(15): #NOTE: 
                 self.RestoreStrain()    #reload original F again
                 self.UpdateDV(alpha)    #DV_i = dv_i + alpha * data_x_i
                 self.UpdateState()      #Compute updated F based on DV
                 E = self.TotalEnergy()  #compute energy based on F
                 # print("alpha=",alpha,"E=",E)
+                #TODO: may result in tunneling
+                # if constraints Violated:
+                #     alpha /= 2.0
+                #     continue
                 if E <= E0:             #If the energy we found is less than original, we're good!
                     break
                 alpha /= 2              #split alpha in half each time
@@ -2105,15 +2134,20 @@ class DFGMPMSolver:
                 self.updateCollisionObjects(i)
                 self.collisionCallbacks[i](i)
 
+        #Here for implicit we compute n_cm1 and n_cm2 for each separable node
+        if self.useDFG:
+            with Timer("Frictional Contact"):
+                self.computeContactForces()
+
         with Timer("Newton Solve"):
             self.implicitNewton()
 
         #Frictional Contact, this will be worked into the newton solve directly (eventually)
-        if self.useDFG:
-            with Timer("Frictional Contact"):
-                self.computeContactForces()
-            with Timer("Add Contact Forces"):
-                self.addContactForces()
+        # if self.useDFG:
+        #     with Timer("Frictional Contact"):
+        #         self.computeContactForces()
+        #     with Timer("Add Contact Forces"):
+        #         self.addContactForces()
 
         with Timer("G2P"):
             self.G2P()
@@ -2333,10 +2367,10 @@ class DFGMPMSolver:
                 writer2.add_vertex_channel("d2", "float", np_gridDamage[:,1])
             writer2.add_vertex_channel("DGx", "double", np_DG[:,0]) #add particle DG x
             writer2.add_vertex_channel("DGy", "double", np_DG[:,1]) #add particle DG y
-            writer2.add_vertex_channel("N_field1_x", "double", gridNormals[:,0]) #add grid_n for field 1 x
-            writer2.add_vertex_channel("N_field1_y", "double", gridNormals[:,1]) #add grid_n for field 1 y
-            writer2.add_vertex_channel("N_field2_x", "double", gridNormals[:,2]) #add grid_n for field 2 x
-            writer2.add_vertex_channel("N_field2_y", "double", gridNormals[:,3]) #add grid_n for field 2 y
+            writer2.add_vertex_channel("Ncm_field1_x", "double", gridNormals[:,0]) #add grid_n for field 1 x
+            writer2.add_vertex_channel("Ncm_field1_y", "double", gridNormals[:,1]) #add grid_n for field 1 y
+            writer2.add_vertex_channel("Ncm_field2_x", "double", gridNormals[:,2]) #add grid_n for field 2 x
+            writer2.add_vertex_channel("Ncm_field2_y", "double", gridNormals[:,3]) #add grid_n for field 2 y
             writer2.add_vertex_channel("f_field1_x", "double", gridForces[:,0]) #add grid_fct for field 1 x
             writer2.add_vertex_channel("f_field1_y", "double", gridForces[:,1]) #add grid_fct for field 1 y
             writer2.add_vertex_channel("f_field2_x", "double", gridForces[:,2]) #add grid_fct for field 2 x
@@ -2417,6 +2451,6 @@ class DFGMPMSolver:
                         currSubstep += 1
                         frameTime += self.dt
 
-                        print("[Simulation] Finished computing substep", currSubstep, "of frame", frame, "with dt", self.dt)
+                        print("[Simulation] Finished computing substep", currSubstep, "of frame", frame+1, "with dt", self.dt)
                         
         Timer_Print()

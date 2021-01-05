@@ -56,13 +56,16 @@ useDFG = True
 frictionCoefficient = 0.1
 verbose = False
 useAPIC = True
+symplectic = False
 flipPicRatio = 0.0
 
 initialVelocity = [[0.0,0.0], [0.0,0.0]]
 particleMasses = [pVol * rho, pVol2 * rho]
 particleVolumes = [pVol, pVol2]
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
+if not symplectic: dt = 1e-2
+
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic)
 
 #Collision Objects
 groundCenter = (0, 0.05)
@@ -70,20 +73,11 @@ groundNormal = (0, 1)
 groundCollisionType = solver.surfaceSticky
 solver.addHalfSpace(groundCenter, groundNormal, groundCollisionType, 0.0)
 
-# leftWallCenter = (0.05, 0)
-# leftWallNormal = (1, 0)
-# leftWallCollisionType = solver.surfaceSlip
-# solver.addHalfSpace(leftWallCenter, leftWallNormal, leftWallCollisionType)
-
 rightWallCenter = (0.95, 0)
 rightWallNormal = (-1, 0)
 rightWallCollisionType = solver.surfaceSlip
+if not symplectic: rightWallCollisionType = solver.surfaceSticky
 solver.addHalfSpace(rightWallCenter, rightWallNormal, rightWallCollisionType, 0.0)
-
-# ceilingCenter = (0, 0.95)
-# ceilingNormal = (0, -1)
-# ceilingCollisionType = solver.surfaceSlip
-# solver.addHalfSpace(ceilingCenter, ceilingNormal, ceilingCollisionType)
 
 #start sim!
 solver.simulate()
