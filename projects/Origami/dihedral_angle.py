@@ -1,12 +1,20 @@
 import taichi as ti
+import numpy as np
 
 @ti.func
-def dihedral_angle(v0, v1, v2, v3):
+def dihedral_angle(v0, v1, v2, v3, crease_type):
     n1 = (v1 - v0).cross(v2 - v0)
     n2 = (v2 - v3).cross(v1 - v3)
     DA = ti.acos(ti.max(-1., ti.min(1., n1.dot(n2) / ti.sqrt(n1.norm_sqr() * n2.norm_sqr()))))
-    if n2.cross(n1).dot(v1 - v2) < 0:
+    n1 /= n1.norm()
+    n2 /= n2.norm()
+    e = (v1 - v2) / (v1 - v2).norm()
+    if n2.cross(n1).dot(e) < 0:
         DA = -DA
+    if crease_type == 1 and DA < 0 and ti.abs(DA) > 0.5 * np.pi:
+        DA += 2 * np.pi
+    elif crease_type == -1 and DA > 0 and ti.abs(DA) > 0.5 * np.pi:
+        DA -= 2 * np.pi
     return DA
 
 @ti.func
@@ -39,6 +47,7 @@ def dihedral_angle_gradient(v2, v0, v1, v3):
 def compute_mHat(xp, xe0, xe1):
     e = xe1 - xe0
     mHat = xe0 + (xp - xe0).dot(e) / e.norm_sqr() * e - xp
+    # print(mHat)
     mHat /= mHat.norm()
     return mHat
 
@@ -46,10 +55,12 @@ def compute_mHat(xp, xe0, xe1):
 def dihedral_angle_hessian(v2, v0, v1, v3):
     e = (v1 - v0, v2 - v0, v3 - v0, v2 - v1, v3 - v1)
     norm_e = (e[0].norm(), e[1].norm(), e[2].norm(), e[3].norm(), e[4].norm())
+    # print(norm_e)
     n1 = e[0].cross(e[1])
     n2 = e[2].cross(e[0])
     n1norm = n1.norm()
     n2norm = n2.norm()
+    # print(n1norm, n2norm)
     mHat1 = compute_mHat(v1, v0, v2)
     mHat2 = compute_mHat(v1, v0, v3)
     mHat3 = compute_mHat(v0, v1, v2)

@@ -23,8 +23,11 @@ mesh_edges = settings['mesh_edges']
 dim = 3
 codim = 2
 gravity = settings['gravity']
-bending_weight = 0.01
 thickness = 0.0003
+E = 3e9
+nu = 0.3
+base_bending_weight = 100 #E * thickness ** 3 / (24 * (1 - nu * nu))
+quasi_static = True
 
 ##############################################################################
 directory = 'output/' + '_'.join(sys.argv[:2]) + '/'
@@ -37,14 +40,14 @@ print('output directory:', directory)
 
 ##############################################################################
 real = ti.f64
-ti.init(arch=ti.cpu, default_fp=real, cpu_max_num_threads=1)
+ti.init(arch=ti.cpu, default_fp=real)#, cpu_max_num_threads=1)
 
 scalar = lambda: ti.field(real)
 vec = lambda: ti.Vector.field(dim, real)
 mat = lambda: ti.Matrix.field(dim, dim, real)
 mat2 = lambda: ti.Matrix.field(codim, codim, real)
 
-dt = 0.02
+dt = 0.04
 sub_steps = 1
 n_particles = len(mesh_particles)
 n_elements = len(mesh_elements)
@@ -60,15 +63,16 @@ edges = ti.field(ti.i32)
 rest_angle = ti.field(real)
 rest_e = ti.field(real)
 rest_h = ti.field(real)
+weight = ti.field(real)
 ti.root.dense(ti.i, n_particles).place(x, x0, xPrev, xTilde, xn, v, m)
 ti.root.dense(ti.i, n_particles).place(zero)
 ti.root.dense(ti.i, n_elements).place(la, mu, vol0)
 ti.root.dense(ti.i, n_elements).place(B)
 ti.root.dense(ti.ij, (n_elements, dim)).place(vertices)
 ti.root.dense(ti.ij, (n_edges, dim + 2)).place(edges)
-ti.root.dense(ti.i, n_edges).place(rest_angle, rest_e, rest_h)
+ti.root.dense(ti.i, n_edges).place(rest_angle, rest_e, rest_h, weight)
 
-MAX_LINEAR = 50000000 if dim == 3 else 5000000
+MAX_LINEAR = n_particles * 3 + 144 * n_edges + 81 * n_elements + 10
 data_rhs = ti.field(real, shape=n_particles * dim)
 data_rhs_fd = ti.field(real, shape=n_particles * dim)
 data_row = ti.field(ti.i32, shape=MAX_LINEAR)
@@ -87,13 +91,14 @@ def compute_density(i):
 
 @ti.func
 def compute_lame_parameters(i):
-    E = 0.
+    # E = 0.
     # if testcase == 1002:
     #     E = 1e9
     # else:
     #     E = 1e9
-    E = 3e9
-    nu = 0.3
+    # E = 3e9
+    # E = 1e5
+    # nu = 0.3
     return E * nu / ((1 + nu) * (1 - 2 * nu)), E / (2 * (1 + nu))
 
 
@@ -126,7 +131,7 @@ def compute_vol_and_m():
         ab = x[vertices[i, 1]] - x[vertices[i, 0]]
         ac = x[vertices[i, 2]] - x[vertices[i, 0]]
         vol0[i] = thickness * (ab.cross(ac)).norm() / 2
-        mass = thickness * vol0[i] * compute_density(i) / (codim + 1)
+        mass = vol0[i] * compute_density(i) / (codim + 1)
         if mass < 0.0:
             print("FATAL ERROR : mesh inverted")
         for d in ti.static(range(dim + 1)):
@@ -146,6 +151,12 @@ def compute_vol_and_m():
         n1 = (x1 - x0).cross(x2 - x0)
         n2 = (x2 - x3).cross(x1 - x3)
         rest_h[i] = (n1.norm() + n2.norm()) / (rest_e[i] * 6)
+        if edges[i, 4] == 1:
+            weight[i] = 100 * base_bending_weight
+        elif edges[i, 4] == -1:
+            weight[i] = 10 * base_bending_weight
+        else:
+            weight[i] = base_bending_weight
 
 
 @ti.kernel
@@ -161,8 +172,8 @@ def move_nodes(current_time):
     for i in range(n_particles):
         if dirichlet_fixed[i]:
             for d in range(dim):
-                x(d)[i] = dirichlet_value[i, d]
                 xTilde(d)[i] = dirichlet_value[i, d]
+                x(d)[i] = dirichlet_value[i, d]
     rest_angle.from_numpy(settings['rest_angle'](current_time))
 
 
@@ -187,9 +198,9 @@ def compute_energy() -> real:
         x1 = x[edges[e, 0]]
         x2 = x[edges[e, 1]]
         x3 = x[edges[e, 3]]
-        theta = dihedral_angle(x0, x1, x2, x3)
+        theta = dihedral_angle(x0, x1, x2, x3, edges[e, 4])
         ben = (theta - rest_angle[e]) * (theta - rest_angle[e]) * rest_e[e] / rest_h[e]
-        total_energy += bending_weight * dt * dt * ben
+        total_energy += weight[e] * dt * dt * ben
     
     return total_energy
 
@@ -236,9 +247,9 @@ def compute_gradient():
         x1 = x[edges[e, 0]]
         x2 = x[edges[e, 1]]
         x3 = x[edges[e, 3]]
-        theta = dihedral_angle(x0, x1, x2, x3)
+        theta = dihedral_angle(x0, x1, x2, x3, edges[e, 4])
         grad = dihedral_angle_gradient(x0, x1, x2, x3)
-        grad *= bending_weight * dt * dt * 2 * (theta - rest_angle[e]) * rest_e[e] / rest_h[e]
+        grad *= weight[e] * dt * dt * 2 * (theta - rest_angle[e]) * rest_e[e] / rest_h[e]
         for d in ti.static(range(3)):
             data_rhs[3 * edges[e, 2] + d] -= grad[0 * 3 + d]
             data_rhs[3 * edges[e, 0] + d] -= grad[1 * 3 + d]
@@ -248,17 +259,18 @@ def compute_gradient():
 
 
 def check_gradient():
-    x.from_numpy(x.to_numpy() * 10)
+    # x.from_numpy(x.to_numpy() * 10)
     xTilde.from_numpy(x.to_numpy())
-    la.from_numpy(np.ones((n_elements, )))
-    mu.from_numpy(np.ones((n_elements, )))
+    # la.from_numpy(np.ones((n_elements, )))
+    # mu.from_numpy(np.ones((n_elements, )))
     m.from_numpy(np.zeros((n_particles, )))
     global bending_weight
-    bending_weight = 0.
+    bending_weight = 1.
     global dt
-    dt = 100
+    dt = 1
+    # dt = 100
     # rest_angle.from_numpy(np.pi * 0.3 * np.ones((n_edges,)))
-    rest_angle.from_numpy(np.zeros((n_edges,)))
+    # rest_angle.from_numpy(np.zeros((n_edges,)))
     n = n_particles * dim
 
     eps = 1e-6
@@ -385,8 +397,7 @@ def compute_hessian(pd: ti.int32):
         hessian *= (dt * dt * vol0[e])
     
         if pd == 1:
-            print("pd")
-            project_pd(hessian)
+            hessian = project_pd(hessian)
         
         indMap = ti.Vector([vertices[e, 0] * 3, vertices[e, 0] * 3 + 1, vertices[e, 0] * 3 + 2,
                             vertices[e, 1] * 3, vertices[e, 1] * 3 + 1, vertices[e, 1] * 3 + 2,
@@ -404,14 +415,14 @@ def compute_hessian(pd: ti.int32):
         x1 = x[edges[e, 0]]
         x2 = x[edges[e, 1]]
         x3 = x[edges[e, 3]]
-        theta = dihedral_angle(x0, x1, x2, x3)
+        theta = dihedral_angle(x0, x1, x2, x3, edges[e, 4])
         grad = dihedral_angle_gradient(x0, x1, x2, x3)
         H = dihedral_angle_hessian(x0, x1, x2, x3)
-        H *= dt * dt * bending_weight * 2.0 * (theta - rest_angle[e]) * rest_e[e] / rest_h[e]
-        H += (dt * dt * bending_weight * 2.0 * rest_e[e] / rest_h[e]) * grad @ grad.transpose()
+        H *= dt * dt * weight[e] * 2.0 * (theta - rest_angle[e]) * rest_e[e] / rest_h[e]
+        H += (dt * dt * weight[e] * 2.0 * rest_e[e] / rest_h[e]) * grad @ grad.transpose()
         
         if pd: 
-            project_pd(H)
+            H = project_pd(H)
         indMap = ti.Vector([edges[e, 2] * 3, edges[e, 2] * 3 + 1, edges[e, 2] * 3 + 2,
                             edges[e, 0] * 3, edges[e, 0] * 3 + 1, edges[e, 0] * 3 + 2,
                             edges[e, 1] * 3, edges[e, 1] * 3 + 1, edges[e, 1] * 3 + 2,
@@ -424,46 +435,77 @@ def compute_hessian(pd: ti.int32):
 
 
 def check_dihedral_hessian():
+
+    v_ = [np.zeros((3,)) for i in range(4)]
+    # v_[0] = np.array([0.75262147, 0.04616725, 0.35718292]) * 100
+    # v_[1] = np.array([ 0.30350396,  0.02673942, -0.21536361]) * 100
+    # v_[2] = np.array([ 0.2982288 ,  0.02565782, -0.2109859 ]) * 100
+    # v_[3] = np.array([ 0.27553913,  0.0213575 , -0.19673111]) * 100
+    v_[0] = np.array([0.,0.,0.]) * 100
+    v_[1] = np.array([1.,0.,0.]) * 100
+    v_[2] = np.array([0.,1.,0.]) * 100
+    v_[3] = np.array([0.,0.,0.]) * 100
+    # # v_[0] = mesh_particles[e1]
+    # # v_[1] = mesh_particles[e2]
+    # # v_[2] = mesh_particles[e3]
+    # # v_[3] = mesh_particles[e4]
+    hess, fhess = np.zeros((12, 12)), np.zeros((12, 12))
+    numpy_hessian(v_[0], v_[1], v_[2], v_[3], hess)
+    eps = 1e-6
+    for i in range(12):
+        for j in range(12):
+            v_[j // 3][j % 3] -= eps
+            grad0, grad1 = np.zeros((12)), np.zeros((12))
+            numpy_gradient(v_[0], v_[1], v_[2], v_[3], grad0)
+            v_[j // 3][j % 3] += 2 * eps
+            numpy_gradient(v_[0], v_[1], v_[2], v_[3], grad1)
+            v_[j // 3][j % 3] -= eps
+            fhess[i, j] = (grad1[i] - grad0[i]) / (2 * eps)
+    print(hess)
+    print(np.abs(hess - fhess).max())
+    input()
     
-    for [e1, e2, e3, e4, t] in mesh_edges:
-        if e4 < 0: continue
-        v_ = [np.zeros((3,)) for i in range(4)]
-        v_[0] = mesh_particles[e1]
-        v_[1] = mesh_particles[e2]
-        v_[2] = mesh_particles[e3]
-        v_[3] = mesh_particles[e4]
-        hess, fhess = np.zeros((12, 12)), np.zeros((12, 12))
-        numpy_hessian(v_[0], v_[1], v_[2], v_[3], hess)
-        eps = 1e-4
-        for i in range(12):
-            for j in range(12):
-                v_[j // 3][j % 3] -= eps
-                grad0, grad1 = np.zeros((12)), np.zeros((12))
-                numpy_gradient(v_[0], v_[1], v_[2], v_[3], grad0)
-                v_[j // 3][j % 3] += 2 * eps
-                numpy_gradient(v_[0], v_[1], v_[2], v_[3], grad1)
-                v_[j // 3][j % 3] -= eps
-                fhess[i, j] = (grad1[i] - grad0[i]) / (2 * eps)
-        print(np.abs(hess - fhess).max())
-        input() 
+    # for [e1, e2, e3, e4, t] in mesh_edges:
+    #     if e4 < 0: continue
+    #     v_ = [np.zeros((3,)) for i in range(4)]
+    #     v_[0] = mesh_particles[e2]
+    #     v_[1] = mesh_particles[e3]
+    #     v_[2] = mesh_particles[e1]
+    #     v_[3] = mesh_particles[e4]
+    #     hess, fhess = np.zeros((12, 12)), np.zeros((12, 12))
+    #     numpy_hessian(v_[0], v_[1], v_[2], v_[3], hess)
+    #     eps = 1e-6
+    #     for i in range(12):
+    #         for j in range(12):
+    #             v_[j // 3][j % 3] -= eps
+    #             grad0, grad1 = np.zeros((12)), np.zeros((12))
+    #             numpy_gradient(v_[0], v_[1], v_[2], v_[3], grad0)
+    #             v_[j // 3][j % 3] += 2 * eps
+    #             numpy_gradient(v_[0], v_[1], v_[2], v_[3], grad1)
+    #             v_[j // 3][j % 3] -= eps
+    #             fhess[i, j] = (grad1[i] - grad0[i]) / (2 * eps)
+                
+        # if(np.abs(hess - fhess).max() > 1):
+        #     print(v_)
+        #     input()
 
 
 def check_hessian():
     # input()
-    x.from_numpy(x.to_numpy() * 2)
+    # x.from_numpy(x.to_numpy() * 2)
     xTilde.from_numpy(x.to_numpy())
     la.from_numpy(np.ones((n_elements, )))
     mu.from_numpy(np.zeros((n_elements, )))
     m.from_numpy(np.zeros((n_particles, )))
     global bending_weight
-    bending_weight = 0
+    # bending_weight = 0
     global dt
     dt = 1
-    vol0.from_numpy(np.ones((n_elements, )))
-    rest_angle.from_numpy(np.zeros((n_edges,)))
+    # vol0.from_numpy(np.ones((n_elements, )))
+    # rest_angle.from_numpy(np.zeros((n_edges,)))
     n = n_particles * dim
 
-    eps = 1e-6
+    eps = 1e-4
     x_bk = x.to_numpy()
     # for i in range(100):
     #     delta_x = eps * (np.random.rand(n_particles, 3) * 2 - 1)
@@ -524,12 +566,12 @@ def compute_hessian_and_gradient(pd=1):
 
 def solve_system(current_time):
     dirichlet_fixed, dirichlet_value = settings['dirichlet'](current_time)
-    D, V = np.stack((dirichlet_fixed,) * dim, axis=-1).reshape((n_particles * dim)), np.zeros((n_particles * dim))
+    D = np.stack((dirichlet_fixed,) * dim, axis=-1).reshape((n_particles * dim))
     if cnt[None] >= MAX_LINEAR:
         print("FATAL ERROR: Array Too Small!")
     print("Total entries: ", cnt[None])
     with Timer("DBC 0"):
-        dfx.from_numpy(D.astype(np.int32))
+        # dfx.from_numpy(D.astype(np.int32))
         @ti.kernel
         def DBC_set_zeros():
             for i in range(cnt[None]):
@@ -648,6 +690,11 @@ if __name__ == "__main__":
         vertices.from_numpy(mesh_elements.astype(np.int32))
         edges.from_numpy(mesh_edges.astype(np.int32))
         compute_vol_and_m()
+        dirichlet_fixed, _ = settings['dirichlet'](0)
+        D = np.stack((dirichlet_fixed,) * dim, axis=-1).reshape((n_particles * dim))
+        dfx.from_numpy(D.astype(np.int32))
+        if quasi_static:
+            m.from_numpy(np.zeros((n_particles,)))
         # x.from_numpy(mesh_particles.astype(np.float64) * 2)
         save_x0()
         zero.fill(0)
@@ -659,7 +706,7 @@ if __name__ == "__main__":
             x.from_numpy(x_)
             v.from_numpy(v_)
         newton_iter_total = 0
-        current_time = 0
+        current_time = f_start * dt
         for f in range(f_start, 10000):
             with Timer("Time Step"):
                 print("==================== Frame: ", f, " ====================")
@@ -684,7 +731,9 @@ if __name__ == "__main__":
                             compute_hessian_and_gradient()
                         with Timer("Solve System"):
                             solve_system(current_time)
-                        if newton_iter > 1 and output_residual() < 0.01 * dt:
+                        if newton_iter > 1 and output_residual() < 1e-3 * dt:
+                            break
+                        if output_residual() < 1e-6 * dt:
                             break
                         with Timer("Line Search"):
                             E0 = compute_energy()
@@ -698,6 +747,8 @@ if __name__ == "__main__":
                                 E = compute_energy()
                             print("[Step size after line search: ", alpha, "]")
                     compute_v()
+                    if quasi_static:
+                        v.from_numpy(np.zeros((n_particles, 3)))
                     current_time += dt
                     newton_iter_total += newton_iter
                 print("Avg Newton iter: ", newton_iter_total / (f + 1))

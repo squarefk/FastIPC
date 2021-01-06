@@ -63,7 +63,7 @@ def parse_fold(filename):
     settings["mesh_particles"] = np.array(data["vertices_coords"], dtype=np.float64)
     settings["mesh_elements"] = np.array(data["faces_vertices"], dtype=np.int32)
     settings["mesh_edges"] = np.array(mesh_edges, dtype=np.int32)
-    settings["mesh_edges"] = settings["mesh_edges"][settings["mesh_edges"][:, 3] >= 0]
+    # settings["mesh_edges"] = settings["mesh_edges"][settings["mesh_edges"][:, 3] >= 0]
 
 def init(dim):
     settings['dim'] = dim
@@ -202,7 +202,7 @@ def read():
     elif testcase == 1002:
         init(3)
         settings['gravity'] = 0
-        parse_fold("input/simple_fold_59.fold")
+        parse_fold("input/simple_fold.fold")
         def dirichlet(t):
             x = settings['mesh_particles']
             elem = settings['mesh_elements'][0]
@@ -232,22 +232,22 @@ def read():
         init(3)
         settings['gravity'] = 0
         parse_fold("input/flappingBird.fold")
-        settings["mesh_particles"] *= 0.1
+        # settings["mesh_particles"] *= 0.1
         def dirichlet(t):
             x = settings['mesh_particles']
             elem = settings['mesh_elements'][0]
             fixed = np.array([False] * x.shape[0])
-            # fixed[elem[0]] = True
-            # fixed[elem[1]] = True
-            # fixed[elem[2]] = True
+            fixed[elem[0]] = True
+            fixed[elem[1]] = True
+            fixed[elem[2]] = True
             return fixed, x.copy()
 
         def rest_angle(t):
             types = settings['mesh_edges'][:, 4]
-            if t < 2:
-                rest_angle = 179. / 2. * t * types
+            if t < 4:
+                rest_angle = np.pi / 4. * t * types
             else:
-                rest_angle = 179 * types
+                rest_angle = np.pi * types
             return rest_angle
 
         settings['dirichlet'] = dirichlet
@@ -294,19 +294,19 @@ def read():
             x = settings['mesh_particles']
             elem = settings['mesh_elements'][0]
             fixed = np.array([False] * x.shape[0])
-            # fixed[elem[0]] = True
-            # fixed[elem[1]] = True
-            # fixed[elem[2]] = True
+            fixed[elem[0]] = True
+            fixed[elem[1]] = True
+            fixed[elem[2]] = True
             return fixed, x.copy()
 
         def rest_angle(t):
             types = settings['mesh_edges'][:, 4]
             if t < 4:
-                rest_angle = 179. / 4. * t * types
+                rest_angle = np.pi / 4 * t * types
             else:
-                rest_angle = 179 * types
+                rest_angle = np.pi * types
             return rest_angle
-            return np.zeros_like(types)
+            # return np.zeros_like(types)
 
         settings['dirichlet'] = dirichlet
         settings['rest_angle'] = rest_angle
