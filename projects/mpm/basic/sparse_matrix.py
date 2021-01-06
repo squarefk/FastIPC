@@ -191,14 +191,14 @@ class SparseMatrix:
 
     @ti.kernel
     def setFromColandValDFG(self, entryCol: ti.template(),
-                            entryVal: ti.template(), num: ti.i32):
+                            entryVal: ti.template(), num: ti.i32, nNbr: ti.i32):
         for i in range(num):
             num_entry = 0
             start_idx = self.outerIndex[2 * i]
             num_entry1 = 0
             start_idx1 = self.outerIndex[2 * i + 1]
-            for k in range(50):
-                c = i * 50 + k
+            for k in range(nNbr):
+                c = i * nNbr + k
                 j = entryCol[c]
                 M = entryVal[c]
                 if not j == -1:
@@ -217,7 +217,7 @@ class SparseMatrix:
 
     @ti.kernel
     def setFromColandVal3DFG(self, entryCol: ti.template(),
-                             entryVal: ti.template(), num: ti.i32):
+                             entryVal: ti.template(), num: ti.i32, nNbr: ti.i32):
         for i in range(num):
             num_entry = 0
             start_idx = self.outerIndex[3 * i]
@@ -225,8 +225,8 @@ class SparseMatrix:
             start_idx1 = self.outerIndex[3 * i + 1]
             num_entry2 = 0
             start_idx2 = self.outerIndex[3 * i + 2]
-            for k in range(250):
-                c = i * 250 + k
+            for k in range(nNbr):
+                c = i * nNbr + k
                 j = entryCol[c]
                 M = entryVal[c]
                 if not j == -1:

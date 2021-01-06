@@ -115,6 +115,10 @@ class DFGMPMSolver:
         self.minDp = 1.0
         self.fricCoeff = frictionCoefficient
 
+        #Barrier Function Parameters
+        self.chat = 0.001
+        self.constraintsViolated = ti.field(dtype=int, shape=())
+
         #Particle Structures
         #---Lame Parameters
         self.mu = ti.field(dtype=float)
@@ -203,6 +207,10 @@ class DFGMPMSolver:
         self.separable = ti.field(dtype=int)
         #---Neighbor Search Structures
         self.gridNumParticles = ti.field(dtype=int)      #track number of particles in each cell using cell index
+        #---Barrier Function Structures
+        self.gridViYi1 = ti.field(dtype=float)
+        self.gridViYi2 = ti.field(dtype=float)
+        self.gridCi = ti.field(dtype=float)
         
         #---Place Grid Structures
         for d in self.grid_d.entries: #grid damage structure, need both fields as well as numerator accumulator and denom accumulator
@@ -248,6 +256,9 @@ class DFGMPMSolver:
             block_component(maxD)
         block_component(self.separable) # whether grid node is separable or not
         block_component(self.gridNumParticles) #keep track of how many particles are at each cell of backGrid
+        block_component(self.gridViYi1)
+        block_component(self.gridViYi2)
+        block_component(self.gridCi)
 
         #Neighbor Search Structures
         #---Parameters---NOTE: if these values are too low, we get data races!!! Try to keep these as high as possible (RIP to ur RAM)
@@ -446,20 +457,21 @@ class DFGMPMSolver:
 
     #Barrier Energy Computations
 
+    #NOTE: Yi is not included in these because we transferred it to the grid directly with Vi
     @ti.func
-    def computeB(self, Yi, ci, chat):
+    def computeB(self, ci, chat):
         c = ci / chat
-        return -Yi * (c - 1)**2 * ti.log(c) if ci < chat else 0.0
+        return -(c - 1)**2 * ti.log(c) if ci < chat else 0.0
 
     @ti.func
-    def computeBPrime(self, Yi, ci, chat):
+    def computeBPrime(self, ci, chat):
         c = ci / chat
-        return -Yi * ((2.0 * (c - 1.0) * ti.log(c) / chat) + ((c - 1.0)**2 / ci)) if ci < chat else 0.0
+        return -((2.0 * (c - 1.0) * ti.log(c) / chat) + ((c - 1.0)**2 / ci)) if ci < chat else 0.0
 
     @ti.func
-    def computeBDoublePrime(self, Yi, ci, chat):
+    def computeBDoublePrime(self, ci, chat):
         c = ci / chat
-        return -Yi * (((2.0 * ti.log(c) + 3.0) / chat**2) - (2.0 / (ci * chat)) - (1 / ci**2)) if ci < chat else 0.0
+        return -(((2.0 * ti.log(c) + 3.0) / chat**2) - (2.0 / (ci * chat)) - (1 / ci**2)) if ci < chat else 0.0
     
     ##########
 
@@ -869,10 +881,9 @@ class DFGMPMSolver:
             p = self.pid[I]
             particleCount += 1
             base = ti.floor(self.x[p] * self.invDx - 0.5).cast(int)
-            #print('massP2G base before:', base)
             for D in ti.static(range(self.dim)):
                 base[D] = ti.assume_in_range(base[D], I[D], 0, 1)
-            #print('massP2G base after:', base)
+
             #for particle p, compute base index
             fx = self.x[p] * self.invDx - base.cast(float)
             
@@ -886,14 +897,20 @@ class DFGMPMSolver:
             for d in ti.static(range(self.dim)):
                 J *= sig[d, d]
             
+            mu = self.mu[p]
+            la = self.la[p]
             #Compute Kirchoff Stress
-            kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, self.mu[p], self.la[p])
+            kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, mu, la)
 
             #NOTE Grab the sigmaMax here so we can learn how to better threshold the stress for damage
             e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
             self.sigmaMax[p] = e[0] if e[0] > e[1] else e[1] #TODO:3D
 
-            #P2G for velocity, force update, and update velocity
+            #Compute E for ViYi barrier stiffness and volumetric term
+            E = (mu*(3*la + 2*mu)) / (la + mu) #recompute E for this particle
+            vol = self.Vp[p]
+
+            #P2G for velocity, normals, force, and ViYi for implicit!
             for offset in ti.static(ti.grouped(self.stencil_range())): # Loop over grid node stencil
                 gridIdx = base + offset
                 dpos = (offset.cast(float) - fx) * self.dx
@@ -917,7 +934,7 @@ class DFGMPMSolver:
                     dweight[1] = w[offset[0]][0]*dw[offset[1]][1]*w[offset[2]][2] * self.invDx
                     dweight[2] = w[offset[0]][0]*w[offset[1]][1]*dw[offset[2]][2] * self.invDx
                 
-                force = -self.Vp[p] * kirchoff @ dweight
+                force = -vol * kirchoff @ dweight
 
                 #Cache wip and nabla wip for this particle and each of its 3^d grid nodes in the interpolation stencil
                 self.p_cached_dw[p, oidx] = dweight #always save this because we've never computed nabla wip before!
@@ -948,6 +965,7 @@ class DFGMPMSolver:
                             self.grid_q1[gridIdx] += self.mp[p] * weight * self.v[p] #momentum transfer (PIC)
                         self.grid_f1[gridIdx] += force                    
                         self.grid_n1[gridIdx] += dweight * self.mp[p] #add to the normal for this field at this grid node, remember we need to normalize it later!
+                        if not self.symplectic: self.gridViYi1[gridIdx] += vol * E * weight #Transfer ViYi to the grid for barrier function, field 1
                     elif fieldIdx == 1:
                         #field 2
                         if self.useAPIC:
@@ -956,6 +974,7 @@ class DFGMPMSolver:
                             self.grid_q2[gridIdx] += self.mp[p] * weight * self.v[p] #momentum transfer (PIC)
                         self.grid_f2[gridIdx] += force                    
                         self.grid_n2[gridIdx] += dweight * self.mp[p] #add to the normal for this field at this grid node, remember we need to normalize it later!
+                        if not self.symplectic: self.gridViYi2[gridIdx] += vol * E * weight #Transfer ViYi to the grid for barrier function, field 2
                     else:
                         print("ERROR: why did we get here???")
                         #raise ValueError('ERROR: invalid field idx somehow')
@@ -1105,6 +1124,7 @@ class DFGMPMSolver:
     @ti.kernel
     def BuildInitialBoundary(self):
         ndof = self.activeNodes[None]
+        sdof = self.separableNodes[None]
         for i in range(ndof):
             if self.boundary[i] == 1: 
                 #if node is in a boundary, guess 0
@@ -1115,7 +1135,6 @@ class DFGMPMSolver:
                 for d in ti.static(range(self.dim)):
                     self.dv[i*self.dim+d] = self.gravity[None][d]*self.dt
         if self.useDFG:
-            sdof = self.separableNodes[None]
             for i in range(sdof):
                 if self.boundary[ndof + i] == 1:
                     #if node is in a boundary, guess 0
@@ -1207,7 +1226,7 @@ class DFGMPMSolver:
                 dv = ti.Vector.zero(float, self.dim)
                 for d in ti.static(range(self.dim)):
                     dv[d] = self.DV[ndof*self.dim + i*self.dim + d]
-                ke += dv.dot(dv) * self.grid_m2[I]
+                ke += dv.dot(dv) * self.grid_m2[I] 
 
         #gravitational energy
         ge = 0.0
@@ -1246,7 +1265,19 @@ class DFGMPMSolver:
                         dv[d] = self.DV[ndof*self.dim + i*self.dim + d] #grabbing from second field portion of DV
                     ie -= dv.dot(self.grid_fi2[I]) * self.grid_m2[I] #dt is included in grid_fi2
 
-        return ee + ke / 2 + ge + ie
+        #Barrier Energy (Frictional Contact) -- NOTE: only for Separable Nodes, TAG=Barrier
+        be = 0.0
+        for I in ti.grouped(self.grid_m1):
+            if self.separable[I] == 1:
+                ci = self.gridCi[I]         #NOTE we should have computed ci by now since we do it after each UpdateDV
+                chat = self.chat
+                B = self.computeB(ci, chat) #takes care of the zero case too (ci >= chat)
+                ViYi1 = self.gridViYi1[I]
+                ViYi2 = self.gridViYi2[I]
+
+                be += (ViYi1 + ViYi2) * B
+   
+        return ee + ke / 2 + ge + ie + be
 
     #Compute Force based on candidate F; NOTE: this is only used for implicit
     @ti.kernel
@@ -1307,6 +1338,25 @@ class DFGMPMSolver:
                 for d in ti.static(range(self.dim)):
                     self.rhs[ndof*self.dim + i*self.dim + d] = (self.DV[ndof*self.dim + i*self.dim + d] * m2) - (self.dt * f2[d]) - (self.dt * m2 * self.gravity[None][d]) - (impulse2[d] * m2)
 
+        #Add Barrier Energy Gradient to RHS for separable nodes, TAG=Barrier
+        if self.useDFG:
+            for I in ti.grouped(self.grid_m1):
+                if self.separable[I] == 1:
+                    i = self.grid_idx[I]
+                    i2 = self.grid_sep_idx[I]
+
+                    #barrier function derivative
+                    bPrime = self.computeBPrime(self.gridCi[I], self.chat)
+                    bPrime *= (self.gridViYi1[I] + self.gridViYi2[I]) #multiply by the total ViYi contributions to this node
+                    
+                    n_cm1 = self.grid_n1[I]
+                    nablaB1 = bPrime * -n_cm1 #times nabla ci
+                    nablaB2 = bPrime * n_cm1  #times nabla ci
+
+                    for d in ti.static(range(self.dim)):
+                        self.rhs[i*self.dim + d] += nablaB1[d]                  #add field 1 to first part of rhs
+                        self.rhs[ndof*self.dim + i2*self.dim + d] += nablaB2[d] #add field 2 to second part of rhs
+
         if project == True:
             # Boundary projection
             ndof = self.activeNodes[None]
@@ -1348,6 +1398,22 @@ class DFGMPMSolver:
 
         return dFdX
 
+    @ti.func
+    def constructBarrierHessianBlocks(self, hessianB):
+        m00 = ti.Matrix.zero(float, self.dim, self.dim)
+        m01 = ti.Matrix.zero(float, self.dim, self.dim)
+        m10 = ti.Matrix.zero(float, self.dim, self.dim)
+        m11 = ti.Matrix.zero(float, self.dim, self.dim)
+
+        for i in ti.static(range(self.dim)):
+            for j in ti.static(range(self.dim)):
+                m00[i,j] = hessianB[i,j]
+                m01[i,j] = hessianB[i, j + self.dim]
+                m10[i,j] = hessianB[i + self.dim, j]
+                m11[i,j] = hessianB[i + self.dim, j + self.dim]
+
+        return m00, m01, m10, m11
+
     # Build Matrix: construct the Hessian of Energy (w.r.t. dv)
     @ti.kernel
     def BuildMatrix(self, project:ti.template(), project_pd:ti.template()):
@@ -1357,14 +1423,15 @@ class DFGMPMSolver:
             nNbr = 125
             midNbr = 62
         
+        ndof = self.activeNodes[None]
+        sdof = self.separableNodes[None] if self.useDFG else 0
+
         #Need more space if using DFG
         if self.useDFG:
             nNbr *= 2 #NOTE: we'll use this extra space as a scratch space for second field contributions
             #NOTE: leave mid number the same because we want the diagonal to be there in the first field still
+            nNbr += sdof #add space for our barrier contributions to separable nodes
 
-        ndof = self.activeNodes[None]
-        sdof = self.separableNodes[None] if self.useDFG else 0
-        
         #Set inertial term of hessian (diagonal of masses)
         for i in ti.ndrange(ndof):
             #initialize entries
@@ -1468,18 +1535,62 @@ class DFGMPMSolver:
                         ioffset = dofi*nNbr + doffs
 
                         self.entryCol[ioffset] = dofj
-                        self.entryVal[ioffset] += dFdX               
+                        self.entryVal[ioffset] += dFdX  
+
+        #Add Barrier Energy Hessian Terms, TAG=Barrier
+        if self.useDFG:
+            for I in ti.grouped(self.grid_m1):
+                if self.separable[I] == 1:
+                    dof1 = self.grid_idx[I]
+                    dof2 = ndof + self.grid_sep_idx[I]
+                    i2 = self.grid_sep_idx[I]
+
+                    #barrier function second derivative
+                    bDoublePrime = self.computeBDoublePrime(self.gridCi[I], self.chat)
+                    bDoublePrime *= (self.gridViYi1[I] + self.gridViYi2[I]) #multiply this contribution
+
+                    #stack nablaC in a (dim*2) x 1 vector
+                    n_cm1 = self.grid_n1[I]
+                    nablaC = ti.Vector.zero(float, self.dim * 2)
+                    for d in ti.static(range(self.dim)):
+                        nablaC[d] = -n_cm1[d]
+                        nablaC[d + self.dim] = n_cm1[d]
+
+                    hessianB =  bDoublePrime * nablaC.outer_product(nablaC) #this hessian is (dim*2) by (dim*2)
+
+                    #grab the four block wise pieces, each being dim by dim
+                    m00, m01, m10, m11 = self.constructBarrierHessianBlocks(hessianB)
+
+                    #top left block (on diagonal)
+                    self.entryCol[dof1*nNbr + midNbr] = dof1
+                    self.entryVal[dof1*nNbr + midNbr] += m00
+
+                    #top right block (off diagonal)
+                    self.entryCol[dof1*nNbr + (nNbr - sdof) + i2] = dof2 #TODO:Barrier these might be switched ??
+                    self.entryVal[dof1*nNbr + (nNbr - sdof) + i2] += m01
+
+                    #bottom left block (off diagonal)
+                    self.entryCol[dof2*nNbr + (nNbr - sdof) + i2] = dof1 #TODO:Barrier these might be switched ??
+                    self.entryVal[dof2*nNbr + (nNbr - sdof) + i2] += m10
+
+                    #bottom right block (also on diagonal)
+                    self.entryCol[dof2*nNbr + midNbr] = dof2
+                    self.entryVal[dof2*nNbr + midNbr] += m11
 
     #Set up and solve the linear system using PCG and Sparse Matrix
     def SolveLinearSystem(self):
         ndof = self.activeNodes[None]
         sdof = self.separableNodes[None] if self.useDFG else 0
+        nNbr = int(5**self.dim)
+        if self.useDFG:
+            nNbr *= 2
+            nNbr += sdof
         if self.dim == 2:
             self.matrix.prepareColandVal(ndof + sdof)
-            self.matrix.setFromColandValDFG(self.entryCol, self.entryVal, ndof + sdof)
+            self.matrix.setFromColandValDFG(self.entryCol, self.entryVal, ndof + sdof, nNbr)
         else:
             self.matrix.prepareColandVal(ndof + sdof, d = 3)
-            self.matrix.setFromColandVal3DFG(self.entryCol, self.entryVal, ndof + sdof)
+            self.matrix.setFromColandVal3DFG(self.entryCol, self.entryVal, ndof + sdof, nNbr)
 
         #print(self.matrix.toFullMatrix())
 
@@ -1515,6 +1626,56 @@ class DFGMPMSolver:
                 gid2 = self.sepDof2idx[i]
                 self.grid_v2[gid2] += dv2
 
+    #Compute our constraint for each separable grid node #NOTE: remember to do this every time we update DV!!!
+    @ti.kernel
+    def computeCi(self):
+        for I in ti.grouped(self.grid_m1):
+            if self.separable[I] == 1:
+                #Grab dof indeces
+                i = self.grid_idx[I]
+                i2 = self.grid_sep_idx[I]
+
+                #Grab vn for each field
+                v1n = self.grid_v1[I]
+                v2n = self.grid_v2[I]
+
+                #Now construct dv1 and dv2
+                ndof = self.activeNodes[None]
+                dv1 = ti.Vector.zero(float, self.dim)
+                dv2 = ti.Vector.zero(float, self.dim)
+                for d in ti.static(range(self.dim)):
+                    dv1[d] = self.DV[i*self.dim + d] #grab from first portion of DV
+                    dv2[d] = self.DV[ndof*self.dim + i2*self.dim + d] #grabbing from second field portion of DV
+                
+                #Grab n1cm
+                n_cm1 = self.grid_n1[I] #NOTE: we stored n_cm1 in here during computeContactForces
+                
+                #Set ci based on constraint
+                self.gridCi[I] = (v2n + dv2 - v1n - dv1).dot(n_cm1)
+
+    @ti.kernel
+    def projectCi(self):
+        #Now we must ensure that there are no Ci <= 0, TAG=Barrier
+        for I in ti.grouped(self.grid_m1):
+            if self.separable[I] == 1:
+                ci = self.gridCi[I]
+                if ci > 0: #constraint already satisfied
+                    print("constraints violated at beginning")
+                    continue
+                i = self.grid_idx[I]
+                i2 = self.grid_sep_idx[I]
+
+                #TODO:Barrier
+
+    @ti.kernel
+    def checkConstraints(self):
+        self.constraintsViolated[None] = 0
+        for i in range(self.separableNodes[None]):
+            I = self.sepDof2idx[i]
+            ci = self.gridCi[I]
+            if ci <= 0:
+                self.constraintsViolated[None] = 1
+
     def implicitNewton(self):
         printProgress = True
                 
@@ -1524,9 +1685,12 @@ class DFGMPMSolver:
         self.rhs.fill(0)
         self.dv.fill(0)
         self.DV.fill(0)
-        self.BuildInitialBoundary() #initial guess based on boundaries #TODO:Boundary - ensure our guess makes all c_i > 0
+        self.BuildInitialBoundary() #initial guess based on boundaries
 
-        self.computeViYi() #Transfer volume and barrier stiffness together
+        #Make sure no constraints are broken (ensure our guess makes all c_i > 0), TAG=Barrier
+        self.UpdateDV(0.0) #update DV to hold what we just stored in dv as init guess (need this for computeCi)
+        self.computeCi() #compute all constraints and save them
+        self.projectCi() #fix any broken constraints in our initial guess
 
         #Newton Iteration
         max_iter_newton = 150 #NOTE: should be inf, 10k enough
@@ -1535,11 +1699,12 @@ class DFGMPMSolver:
             self.RestoreStrain() #Reload original F
             self.rhs.fill(0)
             self.UpdateDV(0.0) #set DV_i = dv_i
+            self.computeCi() #do this every time we update DV
             self.UpdateState() #compute updated F based on DV
-            E0 = self.TotalEnergy() #compute total energy based on candidate DV #TODO:Boundary - add B(dv)
+            E0 = self.TotalEnergy() #compute total energy based on candidate DV
             #print("[Newton] E0 = ", E0) #NOTE: got same E0 using useDFG = True and False!
             self.computeForces() #Compute grid forces based on the candidate Fs
-            self.ComputeResidual(True) #Compute g, True -> projectResidual #TODO:Boundary - add nabla B(dv)
+            self.ComputeResidual(True) #Compute g, True -> projectResidual
 
             #Check if our guess was enough, NOTE: good for freefall
             if iter == 0:
@@ -1550,7 +1715,7 @@ class DFGMPMSolver:
                     if printProgress: print("[Newton] Newton finished in", iter, "iteration(s) with residual", rnorm)
                     break
 
-            self.BuildMatrix(True, False) # Compute H #TODO:Boundary - add nabla^2 B(dv)
+            self.BuildMatrix(True, False) # Compute H
             self.SolveLinearSystem()  # solve dx = H^(-1) g
 
             # Exiting Newton
@@ -1566,17 +1731,21 @@ class DFGMPMSolver:
 
             #Line Search: what alpha gives the best reduction in energy?
             alpha = 1.0
-            #TODO:Boundary - compute alpha_CCD that ensures all c_i > 0
+            #TODO:Barrier - compute alpha_CCD that ensures all c_i > 0
             for _ in range(15): #NOTE: 
                 self.RestoreStrain()    #reload original F again
                 self.UpdateDV(alpha)    #DV_i = dv_i + alpha * data_x_i
+                self.computeCi()        #recompute every time we update DV
                 self.UpdateState()      #Compute updated F based on DV
+                
+                #TODO:Barrier - may result in tunneling, TAG=Barrier
+                self.checkConstraints()
+                if self.constraintsViolated[None] == 1:
+                    alpha /= 2.0
+                    continue
+                
                 E = self.TotalEnergy()  #compute energy based on F
-                # print("alpha=",alpha,"E=",E)
-                #TODO: may result in tunneling
-                # if constraints Violated:
-                #     alpha /= 2.0
-                #     continue
+                print("alpha=", alpha, "E=", E)
                 if E <= E0:             #If the energy we found is less than original, we're good!
                     break
                 alpha /= 2              #split alpha in half each time
@@ -2118,7 +2287,7 @@ class DFGMPMSolver:
 
         #NOTE: don't add gravity here because we build gravity into our implicit solver
 
-        #TODO:Impulse should impulse happen before or after implicit solve for velocity? NOTE: must be incorporated into the RHS of implicit solve! (like gravity)
+        #NOTE: must be incorporated into the RHS of implicit solve! (like gravity)
         if self.useImpulse:
             if self.elapsedTime >= self.impulseStartTime and self.elapsedTime < (self.impulseStartTime + self.impulseDuration):
                 with Timer("Apply Impulse"):
@@ -2160,6 +2329,7 @@ class DFGMPMSolver:
     def reset(self, arr: ti.ext_arr(), partCount: ti.ext_arr(), initVel: ti.ext_arr(), pMasses: ti.ext_arr(), pVols: ti.ext_arr(), EList: ti.ext_arr(), nuList: ti.ext_arr(), damageList: ti.ext_arr()):
         self.gravity[None] = ti.Vector.zero(float, self.dim)
         self.gravity[None][1] = self.gravMag
+        self.constraintsViolated[None] = 0
         stretchedSigma = 0.0
         for i in range(self.numParticles):
             self.x[i] = [ti.cast(arr[i,0], ti.f64), ti.cast(arr[i,1], ti.f64)] if self.dim == 2 else [ti.cast(arr[i,0], ti.f64), ti.cast(arr[i,1], ti.f64), ti.cast(arr[i,2], ti.f64)] 
