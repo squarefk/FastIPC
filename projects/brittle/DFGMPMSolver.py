@@ -31,6 +31,7 @@ class DFGMPMSolver:
         self.endFrame = endFrame
         self.fps = fps
         self.frameDt = 1.0 / fps
+        self.firstFrame = True
         self.dt = dt
         self.maxDt = self.frameDt if self.frameDt < dt else dt #used to cap implicit time stepping
         self.minDt = 1e-6
@@ -119,6 +120,7 @@ class DFGMPMSolver:
         #Barrier Function Parameters
         self.chat = 0.001
         self.constraintsViolated = ti.field(dtype=int, shape=())
+        self.delta = ti.field(dtype=float, shape=()) # Store a double precision delta
 
         #Particle Structures
         #---Lame Parameters
@@ -305,6 +307,8 @@ class DFGMPMSolver:
         self.rhs = ti.field(float, shape=MAX_LINEAR)
         self.boundary = ti.field(int, shape=MAX_LINEAR)
         self.matrix = SparseMatrix()
+        self.matrix1 = SparseMatrix() # for test Gradient only
+        self.matrix2 = SparseMatrix() # for test Gradient only
         self.cgsolver = CGSolver()
 
     ##########
@@ -1722,6 +1726,10 @@ class DFGMPMSolver:
                 self.constraintsViolated[None] = 1
 
     def implicitNewton(self):
+        # Numerial test of gradient and hessian
+        if not self.firstFrame:
+            self.testGradient()
+        
         printProgress = True
                 
         self.BackupStrain() #Backup F because we need to iteratively check how the new candidate velocities are affecting F (to compute energy)
@@ -1781,7 +1789,7 @@ class DFGMPMSolver:
             for _ in range(15): #NOTE: 
                 self.RestoreStrain()    #reload original F again
                 self.UpdateDV(alpha)    #DV_i = dv_i + alpha * data_x_i
-                self.computeCi()        #recompute every time we update DV
+                if self.useImplicitContact: self.computeCi()        #recompute every time we update DV
                 self.UpdateState()      #Compute updated F based on DV
                 
                 #TODO:Barrier - may result in tunneling, TAG=Barrier
@@ -1810,6 +1818,103 @@ class DFGMPMSolver:
         
         self.implicitUpdate()
         self.RestoreStrain()
+
+    @ti.kernel
+    def setdv(self):
+        for i in range(self.activeNodes[None]*self.dim):
+            self.dv[i] = ti.cast(ti.random(ti.f32), ti.f64)* 2.0 - 1.0
+
+    @ti.kernel
+    def setddv(self):
+        for i in range(self.activeNodes[None]*self.dim):
+            self.data_x[i] = (ti.cast(ti.random(ti.f32), ti.f64) * 2.0 - 1.0) * self.delta[None]
+
+    @ti.kernel
+    def setdelta(self):
+        self.delta[None] = 1e-6
+
+    def testGradient(self):
+        print("+++++++ Derivative Test +++++++")
+        ndof = self.activeNodes[None]
+        sdof = self.separableNodes[None] if self.useDFG else 0
+        tdof = (ndof + sdof) * self.dim
+        self.BackupStrain() # Backup F^n
+        self.dv.fill(0)
+        self.setdv() # Randomize dv
+        self.RestoreStrain()
+        self.UpdateDV(0.0)
+        if self.useImplicitContact: self.computeCi()
+        self.UpdateState()
+        E0 = self.TotalEnergy()
+        print("E0 = ", E0)
+        self.computeForces() 
+        self.ComputeResidual(False) # Compute g
+        g0 = self.rhs.to_numpy()[0:tdof]
+        
+        self.setdelta()
+        for _ in range(5):        
+            self.setddv()
+            deltax = self.data_x.to_numpy()[0:tdof]
+
+            h = self.delta[None]
+            self.RestoreStrain()
+            self.UpdateDV(1.0)
+            if self.useImplicitContact: self.computeCi()  #recompute every time we update DV
+            self.UpdateState()
+            E1 = self.TotalEnergy()
+            self.computeForces()
+            self.ComputeResidual(False)
+            g1 = self.rhs.to_numpy()[0:tdof]
+
+            self.BuildMatrix(False, False)
+
+            nNbr = int(5**self.dim)
+            if self.useDFG:
+                nNbr *= 2
+                nNbr += sdof
+            if self.dim == 2:
+                self.matrix1.prepareColandVal(ndof + sdof)
+                self.matrix1.setFromColandValDFG(self.entryCol, self.entryVal, ndof + sdof, nNbr)
+            else:
+                self.matrix1.prepareColandVal(ndof + sdof, d = 3)
+                self.matrix1.setFromColandVal3DFG(self.entryCol, self.entryVal, ndof + sdof, nNbr)              
+
+            self.RestoreStrain()
+            self.UpdateDV(-1.0)
+            self.UpdateState()
+            E2 = self.TotalEnergy()
+            self.computeForces()
+            self.ComputeResidual(False)
+            g2 = self.rhs.to_numpy()[0:tdof]
+
+            self.BuildMatrix(False, False)
+            if self.dim == 2:
+                self.matrix2.prepareColandVal(ndof + sdof)
+                self.matrix2.setFromColandValDFG(self.entryCol, self.entryVal, ndof + sdof, nNbr)
+            else:
+                self.matrix2.prepareColandVal(ndof + sdof, d = 3)
+                self.matrix2.setFromColandVal3DFG(self.entryCol, self.entryVal, ndof + sdof, nNbr)
+
+            g_Err = ((E1-E2) - (g1+g2).dot(deltax))/h
+            A, B = (E1-E2)/h , (g1+g2).dot(deltax)/h
+            g_Err = A - B
+            g_Err_relative = g_Err / ti.max(ti.abs(A), ti.abs(B))
+            
+            print("gradient", h, g_Err, g_Err_relative, A, B)
+
+            self.matrix1.multiply(self.data_x)
+            self.matrix2.multiply(self.data_x)
+
+            A = (g1-g2)/h
+            B = (self.matrix1.Ap.to_numpy()[0:tdof] + self.matrix2.Ap.to_numpy()[0:tdof])/h
+            A_norm = np.linalg.norm(A)
+            B_norm = np.linalg.norm(B)
+            H_Err = np.linalg.norm(A - B)
+            H_Err_relative = H_Err / ti.max(A_norm, B_norm)
+            print("hessian", h, H_Err, H_Err_relative, A_norm, B_norm)
+
+        self.RestoreStrain()
+
 
     #Iterate particles to compute maximum velocity
     @ti.kernel
@@ -2673,5 +2778,5 @@ class DFGMPMSolver:
                         frameTime += self.dt
 
                         print("[Simulation] Finished computing substep", currSubstep, "of frame", frame+1, "with dt", self.dt)
-                        
+                if self.firstFrame: self.firstFrame = False       
         Timer_Print()
