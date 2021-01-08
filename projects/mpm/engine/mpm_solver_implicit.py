@@ -690,7 +690,7 @@ class MPMSolverImplicit:
         for i in range(ndof*d):
             self.data_x[i] = -self.cgsolver.x[i]        
 
-    def SolveLinearSystem(self, dt):
+    def SolveLinearSystem(self, dt, verbose=True, max_iterations=500, terminate_residual=1e-4):
         ndof = self.num_active_grid[None]
         d = self.dim
 
@@ -704,7 +704,7 @@ class MPMSolverImplicit:
 
         self.cgsolver.compute(self.matrix,stride=d)
         self.cgsolver.setBoundary(self.boundary)
-        self.cgsolver.solve(self.rhs)
+        self.cgsolver.solve(self.rhs, verbose=verbose, max_iterations=max_iterations, terminate_residual=terminate_residual)
 
         # for i in range(ndof*d):
         #     self.data_x[i] = -self.cgsolver.x[i]
@@ -839,7 +839,7 @@ class MPMSolverImplicit:
         return result
 
 
-    def implicit_newton(self, dt, verbose=True, max_iterations=150, terminate_residual=1e-3):
+    def implicit_newton(self, dt, verbose=True, max_iterations=150, terminate_residual=1e-3, cg_max_iterations=500, cg_terminate_residual=1e-4):
         # perform one full newton
         # # Numerial test of gradient and hessian
         # if self.frame >= 0:
@@ -882,7 +882,7 @@ class MPMSolverImplicit:
             self.data_val.fill(0)
             self.build_T()
 
-            self.SolveLinearSystem(dt)  # solve dx = H^(-1)g
+            self.SolveLinearSystem(dt, verbose=verbose, max_iterations=cg_max_iterations, terminate_residual=cg_terminate_residual)  # solve dx = H^(-1)g
 
             # Exiting Newton
             ndof = self.num_active_grid[None]
