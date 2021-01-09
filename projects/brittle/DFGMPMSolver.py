@@ -25,7 +25,7 @@ class DFGMPMSolver:
     }
 
     #define constructor here
-    def __init__(self, endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG = True, frictionCoefficient = 0.0, verbose = False, useAPIC = False, flipPicRatio = 0.0, symplectic = True):
+    def __init__(self, endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG = True, frictionCoefficient = 0.0, verbose = False, useAPIC = False, flipPicRatio = 0.0, symplectic = True, prescoredDamageList = []):
         
         #Simulation Parameters
         self.endFrame = endFrame
@@ -69,8 +69,10 @@ class DFGMPMSolver:
         self.activeNodes = ti.field(dtype=int, shape=()) #track current active nodes
         self.separableNodes = ti.field(dtype=int, shape=()) #track current separable nodes
         self.symplectic = symplectic
-        self.useImplicitContact = False
+        self.useImplicitContact = True
         self.gravity = ti.Vector.field(self.dim, dtype=float, shape=())
+        self.prescoredDamage = False if len(prescoredDamageList) == 0 else True
+        self.prescoredDamageList = np.array(prescoredDamageList)
         
         #Collision Variables
         self.collisionCallbacks = [] #hold function callbacks for post processing velocity
@@ -118,9 +120,14 @@ class DFGMPMSolver:
         self.fricCoeff = frictionCoefficient
 
         #Barrier Function Parameters
-        self.chat = 0.001
+        self.chat = 0.1
         self.constraintsViolated = ti.field(dtype=int, shape=())
         self.delta = ti.field(dtype=float, shape=()) # Store a double precision delta
+        self.factor = 1
+        self.energyFactor = 1.0
+        self.rhsFactor = 1.0 #1e-10 does lower error
+        self.hessianFactor = 1.0 #can't find anything that lowers rel error
+        self.zeroingFactor = 1.0
 
         #Particle Structures
         #---Lame Parameters
@@ -210,6 +217,8 @@ class DFGMPMSolver:
         self.separable = ti.field(dtype=int)
         #---Neighbor Search Structures
         self.gridNumParticles = ti.field(dtype=int)      #track number of particles in each cell using cell index
+        self.maxPPC = 2**10
+        #self.backGrid_sparse = ti.Vector.field(self.maxPPC, dtype=int)
         #---Barrier Function Structures
         self.gridViYi1 = ti.field(dtype=float)
         self.gridViYi2 = ti.field(dtype=float)
@@ -259,9 +268,12 @@ class DFGMPMSolver:
             block_component(maxD)
         block_component(self.separable) # whether grid node is separable or not
         block_component(self.gridNumParticles) #keep track of how many particles are at each cell of backGrid
+        # for backGrid in self.backGrid_sparse:
+        #     block_component(backGrid)
         block_component(self.gridViYi1)
         block_component(self.gridViYi2)
         block_component(self.gridCi)
+        
 
         #Neighbor Search Structures
         #---Parameters---NOTE: if these values are too low, we get data races!!! Try to keep these as high as possible (RIP to ur RAM)
@@ -507,8 +519,9 @@ class DFGMPMSolver:
             p = self.pid[I]
             cell = self.backGridIdx(self.x[p]) #grab cell idx (vector of ints)
             offs = ti.atomic_add(self.gridNumParticles[cell], 1) #atomically add one to our grid cell's particle count NOTE: returns the OLD value before add
-            #print("cell:", cell, "offs:", offs)
-            #print("backGrid shape:", self.backGrid.shape)
+            # print("cell:", cell, "offs:", offs)
+            # print("backGrid shape:", self.backGrid.shape)
+            # print("hi:", self.backGrid[8,45,101,0]) #x = 8 doesnt even work
             self.backGrid[cell, offs] = p #place particle idx into the grid cell bucket at the correct place in the cell's neighbor list (using offs)
             
 
@@ -1058,9 +1071,17 @@ class DFGMPMSolver:
                 v_2 = self.grid_v2[I]
                 v_cm = q_cm / m_cm #NOTE: we need to compute this like this to conserve mass and momentum
 
-                #normals
-                n_1 = self.grid_n1[I].normalized() #don't forget to normalize these!!
-                n_2 = self.grid_n2[I].normalized()
+                #normals, make sure we normalize and treat 0 norms correctly
+                n_1 = self.grid_n1[I]
+                n_2 = self.grid_n2[I]
+                if n_1.norm_sqr() == 0:
+                    n_1 = ti.Vector.zero(float, self.dim)
+                else:
+                    n_1 = n_1.normalized()
+                if n_2.norm_sqr() == 0:
+                    n_2 = ti.Vector.zero(float, self.dim)
+                else:
+                    n_2 = n_2.normalized()
                 n_cm1 = (n_1 - n_2).normalized()
                 n_cm2 = -n_cm1
 
@@ -1283,9 +1304,10 @@ class DFGMPMSolver:
                     ViYi1 = self.gridViYi1[I]
                     ViYi2 = self.gridViYi2[I]
 
-                    be += (ViYi1 + ViYi2) * B
+                    be += (ViYi1 + ViYi2) * B * self.factor * self.energyFactor
+                    #print("B:", B, "ci:", ci, "chat:", chat)
    
-        return ee + ke / 2 + ge + ie + be
+        return ((ee + ke / 2 + ge + ie) * self.zeroingFactor) + be
 
     #Compute Force based on candidate F; NOTE: this is only used for implicit
     @ti.kernel
@@ -1334,6 +1356,7 @@ class DFGMPMSolver:
             impulse = self.grid_fi1[gid] #this is a * dt = velocity
             for d in ti.static(range(self.dim)):
                 self.rhs[i*self.dim+d] = (self.DV[i*self.dim+d] * m) - (self.dt * f[d]) - (self.dt * m * self.gravity[None][d]) - (impulse[d] * m) #NOTE: here we incorporate all external forces (gravity and impulses)
+                self.rhs[i*self.dim+d] *= self.zeroingFactor
         
         #if using DFG, iterate the separable nodes to set rhs for field 2
         if self.useDFG:
@@ -1345,6 +1368,7 @@ class DFGMPMSolver:
                 impulse2 = self.grid_fi2[gid2] #this is a * dt = velocity
                 for d in ti.static(range(self.dim)):
                     self.rhs[ndof*self.dim + i*self.dim + d] = (self.DV[ndof*self.dim + i*self.dim + d] * m2) - (self.dt * f2[d]) - (self.dt * m2 * self.gravity[None][d]) - (impulse2[d] * m2)
+                    self.rhs[ndof*self.dim + i*self.dim + d] *= self.zeroingFactor
 
         #Add Barrier Energy Gradient to RHS for separable nodes, TAG=Barrier
         if self.useDFG and self.useImplicitContact:
@@ -1362,8 +1386,8 @@ class DFGMPMSolver:
                     nablaB2 = bPrime * n_cm1  #times nabla ci
 
                     for d in ti.static(range(self.dim)):
-                        self.rhs[i*self.dim + d] -= nablaB1[d]                  #add field 1 to first part of rhs
-                        self.rhs[ndof*self.dim + i2*self.dim + d] -= nablaB2[d] #add field 2 to second part of rhs
+                        self.rhs[i*self.dim + d] += self.factor * nablaB1[d] * self.rhsFactor                 #add field 1 to first part of rhs
+                        self.rhs[ndof*self.dim + i2*self.dim + d] += self.factor * nablaB2[d] * self.rhsFactor #add field 2 to second part of rhs
 
         if project == True:
             # Boundary projection
@@ -1450,7 +1474,7 @@ class DFGMPMSolver:
             gid = self.dof2idx[i]
             m = self.grid_m1[gid]
             self.entryCol[i*nNbr + midNbr] = i
-            self.entryVal[i*nNbr + midNbr] = ti.Matrix.identity(float, self.dim) * m
+            self.entryVal[i*nNbr + midNbr] = ti.Matrix.identity(float, self.dim) * m * self.zeroingFactor
         for i in ti.ndrange(sdof):
             #initialize entries
             for j in range(nNbr):
@@ -1460,7 +1484,7 @@ class DFGMPMSolver:
             gid2 = self.sepDof2idx[i]
             m2 = self.grid_m2[gid2]
             self.entryCol[(ndof + i)*nNbr + midNbr] = ndof + i #should be total dof index here!
-            self.entryVal[(ndof + i)*nNbr + midNbr] = ti.Matrix.identity(float, self.dim) * m2
+            self.entryVal[(ndof + i)*nNbr + midNbr] = ti.Matrix.identity(float, self.dim) * m2 * self.zeroingFactor
 
         # Now add the second term of Hessian
         for I in ti.grouped(self.pid):
@@ -1508,7 +1532,7 @@ class DFGMPMSolver:
                         ioffset = dofi*nNbr + doffs
                         
                         self.entryCol[ioffset] = dofj
-                        self.entryVal[ioffset] += dFdX
+                        self.entryVal[ioffset] += dFdX * self.zeroingFactor
             
             if ti.static(self.dim == 3):
                 #Cache the proper indeces to map this particle to each of its 3^dim stencil nodes
@@ -1543,7 +1567,7 @@ class DFGMPMSolver:
                         ioffset = dofi*nNbr + doffs
 
                         self.entryCol[ioffset] = dofj
-                        self.entryVal[ioffset] += dFdX  
+                        self.entryVal[ioffset] += dFdX * self.zeroingFactor
 
         #Add Barrier Energy Hessian Terms, TAG=Barrier
         if self.useDFG and self.useImplicitContact:
@@ -1564,26 +1588,30 @@ class DFGMPMSolver:
                         nablaC[d] = -n_cm1[d]
                         nablaC[d + self.dim] = n_cm1[d]
 
-                    hessianB =  bDoublePrime * nablaC.outer_product(nablaC) #this hessian is (dim*2) by (dim*2)
+                    hessianB =  bDoublePrime * nablaC.outer_product(nablaC) * self.hessianFactor #this hessian is (dim*2) by (dim*2)
+
+                    #print("hessian:", hessianB, "nablaC:", nablaC, "bDoublePrime:", bDoublePrime, "outerProd:", nablaC.outer_product(nablaC))
 
                     #grab the four block wise pieces, each being dim by dim
                     m00, m01, m10, m11 = self.constructBarrierHessianBlocks(hessianB)
 
+                    
+                    #NOTE: m00 = m11, and m01 = m10 by nature
                     #top left block (on diagonal)
                     self.entryCol[dof1*nNbr + midNbr] = dof1
-                    self.entryVal[dof1*nNbr + midNbr] += m00
+                    self.entryVal[dof1*nNbr + midNbr] += self.factor * m00
 
                     #top right block (off diagonal)
-                    self.entryCol[dof1*nNbr + (nNbr - sdof) + i2] = dof2 #TODO:Barrier these might be switched ??
-                    self.entryVal[dof1*nNbr + (nNbr - sdof) + i2] += m01
+                    self.entryCol[dof1*nNbr + (nNbr - sdof) + i2] = dof2
+                    self.entryVal[dof1*nNbr + (nNbr - sdof) + i2] += self.factor * m01
 
                     #bottom left block (off diagonal)
-                    self.entryCol[dof2*nNbr + (nNbr - sdof) + i2] = dof1 #TODO:Barrier these might be switched ??
-                    self.entryVal[dof2*nNbr + (nNbr - sdof) + i2] += m10
+                    self.entryCol[dof2*nNbr + (nNbr - sdof) + i2] = dof1
+                    self.entryVal[dof2*nNbr + (nNbr - sdof) + i2] += self.factor * m10
 
                     #bottom right block (also on diagonal)
                     self.entryCol[dof2*nNbr + midNbr] = dof2
-                    self.entryVal[dof2*nNbr + midNbr] += m11
+                    self.entryVal[dof2*nNbr + midNbr] += self.factor * m11
 
     #Set up and solve the linear system using PCG and Sparse Matrix
     def SolveLinearSystem(self):
@@ -1659,6 +1687,7 @@ class DFGMPMSolver:
                 n_cm1 = self.grid_n1[I] #NOTE: we stored n_cm1 in here during computeContactForces
                 
                 #Set ci based on constraint
+                #print("v2n", v2n, "dv2", dv2, "v1n", v1n, "dv1", dv1, "n_cm1", n_cm1)
                 self.gridCi[I] = (v2n + dv2 - v1n - dv1).dot(n_cm1)
 
     #Routine to project all ci <= 0 to be ci > 0 in our initial guesses, TAG=Barrier
@@ -1687,21 +1716,29 @@ class DFGMPMSolver:
                     n_cm1 = self.grid_n1[I]
                     n_cm2 = self.grid_n2[I]
 
+                    dv1_guess = ti.Vector.zero(float, self.dim)
+                    dv2_guess = ti.Vector.zero(float, self.dim)
                     #Add in the guess we just guessed
                     for d in ti.static(range(self.dim)):
-                        v_1[d] += self.DV[i*self.dim + d] #grab from first portion of DV
-                        v_2[d] += self.DV[ndof*self.dim + i2*self.dim + d] #grabbing from second field portion of DV
+                        dv1_guess[d] += self.DV[i*self.dim + d] #grab from first portion of DV
+                        dv2_guess[d] += self.DV[ndof*self.dim + i2*self.dim + d] #grabbing from second field portion of DV
 
                     #Now compute vcm using updated v1 and v2
-                    q_1 = v_1 * m_1
-                    q_2 = v_2 * m_2
+                    v_1_updated = v_1 + dv1_guess
+                    v_2_updated = v_2 + dv2_guess
+                    q_1 = v_1_updated * m_1
+                    q_2 = v_2_updated * m_2
                     q_cm = q_1 + q_2 
                     m_cm = m_1 + m_2
                     v_cm = q_cm / m_cm
 
                     #compute candidate dv1 and dv2 using contact force
-                    dv1 = (v_cm - v_1).dot(n_cm1) * n_cm1
-                    dv2 = (v_cm - v_2).dot(n_cm2) * n_cm2
+                    dv1 = (v_cm - v_1_updated).dot(n_cm1) * n_cm1
+                    dv2 = (v_cm - v_2_updated).dot(n_cm2) * n_cm2
+
+                    #Include the guess
+                    dv1 += dv1_guess
+                    dv2 += dv2_guess
 
                     #Now we iterate on these until we satisfy the condition
                     eps = 0.1 * (m_1 + m_2) / 2.0 * self.chat
@@ -1710,6 +1747,8 @@ class DFGMPMSolver:
                         dv1 += -(1 / m_1) * eps * n_cm1
                         dv2 +=  (1/ m_2) * eps * n_cm1
                         ciNew = (v_2 + dv2 - v_1 - dv1).dot(n_cm1)
+
+                    #print("I:", I, "ciBefore:", ci, "ciNew:", ciNew)
 
                     #Now save these new guesses in dv
                     for d in ti.static(range(self.dim)):
@@ -1723,12 +1762,13 @@ class DFGMPMSolver:
             I = self.sepDof2idx[i]
             ci = self.gridCi[I]
             if ci <= 0:
+                #print("constraint violated at grid index:", I)
                 self.constraintsViolated[None] = 1
 
     def implicitNewton(self):
         # Numerial test of gradient and hessian
-        if not self.firstFrame:
-            self.testGradient()
+        #if not self.firstFrame:
+        self.testGradient()
         
         printProgress = True
                 
@@ -1755,8 +1795,10 @@ class DFGMPMSolver:
             self.UpdateDV(0.0) #set DV_i = dv_i
             if self.useImplicitContact: self.computeCi() #do this every time we update DV
             self.UpdateState() #compute updated F based on DV
+            self.checkConstraints()
+
             E0 = self.TotalEnergy() #compute total energy based on candidate DV
-            #print("[Newton] E0 = ", E0) #NOTE: got same E0 using useDFG = True and False!
+            print("[Newton] E0 = ", E0) #NOTE: got same E0 using useDFG = True and False!
             self.computeForces() #Compute grid forces based on the candidate Fs
             self.ComputeResidual(True) #Compute g, True -> projectResidual
 
@@ -1819,14 +1861,152 @@ class DFGMPMSolver:
         self.implicitUpdate()
         self.RestoreStrain()
 
+    #Routine to project all ci <= 0 to be ci > 0 in our initial guesses, TAG=Barrier
+    @ti.kernel
+    def projectCiDerivativeTest(self):
+        #Now we must ensure that there are no Ci <= 0
+        for I in ti.grouped(self.grid_m1):
+            if self.separable[I] == 1:
+                ndof = self.activeNodes[None]
+                i = self.grid_idx[I]
+                i2 = self.grid_sep_idx[I]
+                
+                m_1 = self.grid_m1[I]
+                m_2 = self.grid_m2[I]
+                m_cm = m_1 + m_2
+                v_1 = self.grid_v1[I]
+                v_2 = self.grid_v2[I]
+                n_cm1 = self.grid_n1[I]
+                n_cm2 = self.grid_n2[I]
+
+                epsStep = 0.001
+
+                x1 = ti.Vector.zero(float, self.dim)
+                x2 = ti.Vector.zero(float, self.dim)
+                dx1 = ti.Vector.zero(float, self.dim)
+                dx2 = ti.Vector.zero(float, self.dim)
+                for d in ti.static(range(self.dim)):
+                    x1[d] += self.dv[i*self.dim + d] #grab from first portion of dv (we projected initial guess into here)
+                    x2[d] += self.dv[ndof*self.dim + i2*self.dim + d] #grabbing from second field portion of dv
+                    dx1[d] += self.data_x[i*self.dim + d] #grab from first portion of data_x
+                    dx2[d] += self.data_x[ndof*self.dim + i2*self.dim + d] #grabbing from second field portion of data_x
+
+                #(ti.cast(ti.random(ti.f32), ti.f64) * 2.0 - 1.0) * self.delta[None] #resample randomly to find a better configuration
+
+                maxIters = 5000
+
+                #Now we iteratively loop projecting on x+dx and x-dx until we converge to a solution that works for both
+                ciPlus = -1.0
+                ciMinus = -1.0
+                currIter = 0
+                while ciPlus <= 0 or ciMinus <= 0:
+
+                    if currIter == maxIters:
+                        #Resample dx1 and dx2!!! This solution isn't working obviously lol
+                        for d in ti.static(range(self.dim)):
+                            dx1[d] = (ti.cast(ti.random(ti.f32), ti.f64) * 2.0 - 1.0) * self.delta[None]
+                            dx2[d] = (ti.cast(ti.random(ti.f32), ti.f64) * 2.0 - 1.0) * self.delta[None]
+                            currIter = 0
+                            ciPlus = -1.0
+                            ciMinus = -1.0
+
+                    #Now we project x + dx and resave this into dx1 and dx2
+                    #Compute Ci for x+dx
+                    ci = (v_2 + (x2 + dx2) - v_1 - (x1 + dx1)).dot(n_cm1)
+                    ciNew = 0.0
+                    #Only project inside data x if we have a broken constraint
+                    if ci <= 0:
+                        #Now compute vcm using updated v1 and v2
+                        v_1_updated = v_1 + (x1 + dx1)
+                        v_2_updated = v_2 + (x2 + dx2)
+                        q_1 = v_1_updated * m_1
+                        q_2 = v_2_updated * m_2
+                        q_cm = q_1 + q_2 
+                        v_cm = q_cm / m_cm
+
+                        #compute candidate dv1 and dv2 using contact force
+                        dv1 = (v_cm - v_1_updated).dot(n_cm1) * n_cm1
+                        dv2 = (v_cm - v_2_updated).dot(n_cm2) * n_cm2
+
+                        #add in the initial guess
+                        dv1 += x1 + dx1
+                        dv2 += x2 + dx2
+
+                        #Now we iterate on these until we satisfy the condition
+                        eps = epsStep * (m_cm) / 2.0 * self.chat
+                        ciNew = (v_2 + dv2 - v_1 - dv1).dot(n_cm1)
+                        while ciNew <= 0:
+                            dv1 += -(1 / m_1) * eps * n_cm1
+                            dv2 +=  (1/ m_2) * eps * n_cm1
+                            ciNew = (v_2 + dv2 - v_1 - dv1).dot(n_cm1)
+
+                        #Now with dv1 and dv2 that satisfy constraints for x + dx we must put this result in dx1 and dx2 properly for x - dx
+                        dx1 = dv1 - x1
+                        dx2 = dv2 - x2
+
+                    #Now we must compute constraint for x - dx using these new dx values
+                    ci = (v_2 + (x2 - dx2) - v_1 - (x1 - dx1)).dot(n_cm1)
+                    ciNew = 0.0
+                    if ci <= 0:
+                        #Now we project for x - dx
+                        #Now compute vcm using updated v1 and v2
+                        v_1_updated = v_1 + (x1 - dx1)
+                        v_2_updated = v_2 + (x2 - dx2)
+                        q_1 = v_1_updated * m_1
+                        q_2 = v_2_updated * m_2
+                        q_cm = q_1 + q_2 
+                        v_cm = q_cm / m_cm
+
+                        #compute candidate dv1 and dv2 using contact force
+                        dv1 = (v_cm - v_1_updated).dot(n_cm1) * n_cm1
+                        dv2 = (v_cm - v_2_updated).dot(n_cm2) * n_cm2
+
+                        #add in the initial guess
+                        dv1 += (x1 - dx1)
+                        dv2 += (x2 - dx2)
+
+                        #Now we iterate on these until we satisfy the condition
+                        eps = epsStep * (m_cm) / 2.0 * self.chat
+                        ciNew = (v_2 + dv2 - v_1 - dv1).dot(n_cm1)
+                        while ciNew <= 0:
+                            dv1 += -(1 / m_1) * eps * n_cm1
+                            dv2 +=  (1/ m_2) * eps * n_cm1
+                            ciNew = (v_2 + dv2 - v_1 - dv1).dot(n_cm1)
+
+                        #Now with dv1 and dv2 that satisfy constraints for x - dx we must save this result
+                        dx1 = x1 - dv1
+                        dx2 = x2 - dv2
+
+                    #NOW finally let's test that this dx1 and dx2 satisfies BOTH constraints
+                    ciPlus = (v_2 + (x2 + dx2) - v_1 - (x1 + dx1)).dot(n_cm1)
+                    ciMinus = (v_2 + (x2 - dx2) - v_1 - (x1 - dx1)).dot(n_cm1)
+                    # if ciPlus <= 0:
+                    #     print("ciPlus <= 0:", ciPlus)
+                    # if ciMinus <= 0:
+                    #     print("ciMinus <= 0:", ciMinus)
+                    # if ciPlus > 0 and ciMinus > 0:
+                    #     print("Both constraints good!")
+
+                    currIter += 1
+
+                #Now put into data_x
+                #print("Found a solution -- ciPlus:", ciPlus, "and ciMinus:", ciMinus)
+                for d in ti.static(range(self.dim)):
+                    self.data_x[i*self.dim + d] = dx1[d] 
+                    self.data_x[ndof*self.dim + i2*self.dim + d] = dx2[d]
+
     @ti.kernel
     def setdv(self):
-        for i in range(self.activeNodes[None]*self.dim):
+        ndof = self.activeNodes[None]
+        sdof = self.separableNodes[None] if self.useDFG else 0
+        for i in range((ndof + sdof)*self.dim):
             self.dv[i] = ti.cast(ti.random(ti.f32), ti.f64)* 2.0 - 1.0
 
     @ti.kernel
     def setddv(self):
-        for i in range(self.activeNodes[None]*self.dim):
+        ndof = self.activeNodes[None]
+        sdof = self.separableNodes[None] if self.useDFG else 0
+        for i in range((ndof + sdof)*self.dim):
             self.data_x[i] = (ti.cast(ti.random(ti.f32), ti.f64) * 2.0 - 1.0) * self.delta[None]
 
     @ti.kernel
@@ -1843,7 +2023,11 @@ class DFGMPMSolver:
         self.setdv() # Randomize dv
         self.RestoreStrain()
         self.UpdateDV(0.0)
-        if self.useImplicitContact: self.computeCi()
+        if self.useImplicitContact: 
+            self.computeCi()
+            self.projectCi() #fix broken constraints and save to dv
+            self.UpdateDV(0.0)
+            self.computeCi() #compute updated ci based on DV (why we need to updateDV before this)
         self.UpdateState()
         E0 = self.TotalEnergy()
         print("E0 = ", E0)
@@ -1854,14 +2038,19 @@ class DFGMPMSolver:
         self.setdelta()
         for _ in range(5):        
             self.setddv()
-            deltax = self.data_x.to_numpy()[0:tdof]
+            
+            if self.useImplicitContact:
+                self.projectCiDerivativeTest() #compute constraints and then project data_x directly
+
+            deltax = self.data_x.to_numpy()[0:tdof] #now grab deltax from data_x
 
             h = self.delta[None]
             self.RestoreStrain()
-            self.UpdateDV(1.0)
-            if self.useImplicitContact: self.computeCi()  #recompute every time we update DV
+            self.UpdateDV(1.0) #put x + dx in DV
+            if self.useImplicitContact: self.computeCi()
             self.UpdateState()
             E1 = self.TotalEnergy()
+            #print("E1 = ", E1)
             self.computeForces()
             self.ComputeResidual(False)
             g1 = self.rhs.to_numpy()[0:tdof]
@@ -1880,9 +2069,11 @@ class DFGMPMSolver:
                 self.matrix1.setFromColandVal3DFG(self.entryCol, self.entryVal, ndof + sdof, nNbr)              
 
             self.RestoreStrain()
-            self.UpdateDV(-1.0)
+            self.UpdateDV(-1.0) #put x - dx in DV
+            if self.useImplicitContact: self.computeCi()
             self.UpdateState()
             E2 = self.TotalEnergy()
+            #print("E2 = ", E2)
             self.computeForces()
             self.ComputeResidual(False)
             g2 = self.rhs.to_numpy()[0:tdof]
@@ -1896,6 +2087,7 @@ class DFGMPMSolver:
                 self.matrix2.setFromColandVal3DFG(self.entryCol, self.entryVal, ndof + sdof, nNbr)
 
             g_Err = ((E1-E2) - (g1+g2).dot(deltax))/h
+            #print("gradient E1: ", E1, "E2:", E2, "g1:", g1, "g2:", g2, "deltax", deltax)
             A, B = (E1-E2)/h , (g1+g2).dot(deltax)/h
             g_Err = A - B
             g_Err_relative = g_Err / ti.max(ti.abs(A), ti.abs(B))
@@ -2322,22 +2514,22 @@ class DFGMPMSolver:
 
         #these routines are unique to DFGMPM
         if self.useDFG:
-            #print("A")
+            print("A")
             with Timer("Back Grid Sort"):
                 self.backGridSort()
-                #print("B")
+                print("B")
             with Timer("Particle Neighbor Sorting"):
                 self.particleNeighborSorting()
-                #print("C")
+                print("C")
             #Only perform surface detection on the very first substep to prevent artificial DFG fracture
             if self.elapsedTime == 0:
                 with Timer("Surface Detection"):
                     self.surfaceDetection()
-                    #print("D")
+                    print("D")
             if self.useRankineDamage:
                 with Timer("Update Damage"): #NOTE: make sure to do this before we compute the damage gradients!
                     self.updateDamage()
-                    #print("E")
+                    print("E")
             with Timer("Compute Particle DGs"):
                 self.computeParticleDG()
             with Timer("Compute Grid DGs"):
@@ -2496,15 +2688,6 @@ class DFGMPMSolver:
             if self.useAnisoMPMDamage: 
                 self.damageLaplacians[i] = 0.0
                 self.dTildeH[i] = 0.0
-            if (self.x[i][0] > 0.45) and self.x[i][1] > 0.546 and self.x[i][1] < 0.554: #put damaged particles as a band in the center
-                self.Dp[i] = 1
-                self.material[i] = 1
-            if (self.x[i][0] < 0.55) and self.x[i][1] > 0.446 and self.x[i][1] < 0.454: #put damaged particles as a band in the center
-                self.Dp[i] = 1
-                self.material[i] = 1
-            # if (self.x[i][0] > 0.48 and self.x[i][0] < 0.51):
-            #     self.Dp[i] = 1
-            #     self.material[i] = 1
         
         #Set different settings for different objects (initVel, mass, volume, and surfaceThreshold for example)
         for serial in range(1):
@@ -2581,6 +2764,13 @@ class DFGMPMSolver:
 
         if self.useWeibull == False and self.useRankineDamage:
             print("[Rankine Damage] Hs:", Hs)
+
+    #Second reset kernel because first one can only have 8 external args
+    @ti.kernel
+    def reset2(self,  prescoredDamageList: ti.ext_arr()):
+        for i in range(self.numParticles):
+            if self.prescoredDamage:
+                self.Dp[i] = prescoredDamageList[i]
 
     def writeData(self, frame: ti.i32, s: ti.i32):
         
@@ -2715,9 +2905,9 @@ class DFGMPMSolver:
                 writer2.export_frame(frame * self.numSubsteps + s, self.outputPath2)
         
         if(s == -1):
-            print('#####[Simulation]: Finished writing frame ', frame, '...')
+            print('####################[Simulation]: Finished writing frame ', frame, '...')
         else:
-            print('#####[Simulation]: Finished writing substep ', s, 'of frame ', frame, '...')
+            print('####################[Simulation]: Finished writing substep ', s, 'of frame ', frame, '...')
 
     def simulate(self):
         
@@ -2732,9 +2922,10 @@ class DFGMPMSolver:
             print("[Simulation] Implicit MaxDt: ", self.maxDt)
             if self.useDFG: print("[Simulation] Implicit DFGMPM")
             if not self.useDFG: print("[Simulation] Implicit Single Field MPM")
-            if self.useImplicitContact: print("[Simulation] with Implicit Contact")
+            if self.useImplicitContact: print("[Simulation] with Implicit Contact using chat =", self.chat)
             if not self.useImplicitContact: print("[Simulation] with Explicit Contact")
         self.reset(self.vertices, self.particleCounts, self.initialVelocity, self.pMasses, self.pVolumes, self.EList, self.nuList, self.damageList) #init
+        self.reset2(self.prescoredDamageList) #second reset function because we can't pass more than 8 args to a kernel
         
         #Time Stepping
         for frame in range(self.endFrame):

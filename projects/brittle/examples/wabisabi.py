@@ -5,9 +5,9 @@ from common.utils.particleSampling import *
 from common.utils.cfl import *
 from projects.brittle.DFGMPMSolver import *
 
-ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+#i.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 #ti.init(default_fp=ti.f64, arch=ti.cpu)  #CPU, parallel
-#ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
+ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10.0
 outputPath = "../output/wabisabi/brittle.ply"
@@ -53,10 +53,10 @@ cfl = 0.4
 maxDt = suggestedDt(E, nu, rho, dx, cfl)
 dt = 0.9 * maxDt
 
-useDFG = False
+useDFG = True
 verbose = False
 useAPIC = False
-symplectic = False
+symplectic = True
 frictionCoefficient = 0.0
 flipPicRatio = 0.9 #want to blend in more PIC for stiffness -> lower
 

@@ -4,7 +4,8 @@ from common.utils.particleSampling import *
 from common.utils.cfl import *
 from projects.brittle.DFGMPMSolver import *
 
-ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+#ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10.0
 outputPath = "../output/hangingBlock2D/brittle.ply"
@@ -53,7 +54,16 @@ flipPicRatio = 0.90
 
 if not symplectic: dt = 1e-3
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic)
+prescoredDamageList = []
+for i in range(len(vertices)):
+    damage = 0.0
+    if vertices[i][0] > 0.45 and vertices[i][1] > 0.546 and vertices[i][1] < 0.554:
+        damage = 1.0
+    if vertices[i][0] < 0.55 and vertices[i][1] > 0.446 and vertices[i][1] < 0.454:
+        damage = 1.0
+    prescoredDamageList.append(damage)
+
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic, prescoredDamageList)
 
 #Collision Objects
 # groundCenter = (0, 0.05)

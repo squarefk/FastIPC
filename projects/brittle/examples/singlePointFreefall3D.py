@@ -9,8 +9,8 @@ from projects.brittle.DFGMPMSolver import *
 ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10.0
-outputPath = "../output/singlePointFreefall2D/brittle.ply"
-outputPath2 = "../output/singlePointFreefall2D/brittle_nodes.ply"
+outputPath = "../output/singlePointFreefall3D/brittle.ply"
+outputPath2 = "../output/singlePointFreefall3D/brittle_nodes.ply"
 fps = 30
 endFrame = 3 * fps
 
@@ -19,7 +19,7 @@ nu = 0.15
 EList = [E]
 nuList = [nu]
 
-points = [[0.48, 0.5], [0.49, 0.5], [0.50, 0.5], [0.51, 0.5]]
+points = [[0.48, 0.5, 0], [0.49, 0.5, 0], [0.50, 0.5, 0], [0.51, 0.5, 0]]
 vertices = np.array(points)
 surfaceThreshold = 0
 
@@ -36,7 +36,7 @@ particleVolumes = [pVol]
 vel = 0.0
 xVel = vel 
 yVel = -vel
-initVel = [xVel,yVel]
+initVel = [xVel,yVel,xVel]
 initialVelocity = [initVel]
 
 #dx = 0.01 #TODO
@@ -61,14 +61,7 @@ if(len(sys.argv) == 6):
     outputPath = sys.argv[4]
     outputPath2 = sys.argv[5]
 
-prescoredDamageList = []
-for i in range(vertexCount):
-    damage = 0.0
-    if vertices[i][0] > 0.48 and vertices[i][0] < 0.51:
-        damage = 1.0
-    prescoredDamageList.append(damage)
-        
-solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic, prescoredDamageList)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic)
 
 #Add Damage Model
 percentStretch = 7.5e-4 #7e-4 < p < 1e-3
@@ -106,24 +99,24 @@ if useWeibull == True: solver.addWeibullDistribution(vRef, m)
 
 wallFriction = 0.0
 
-groundCenter = (0, 0.05)
-groundNormal = (0, 1)
+groundCenter = (0, 0.05, 0)
+groundNormal = (0, 1, 0)
 surface = solver.surfaceSticky
 solver.addHalfSpace(groundCenter, groundNormal, surface, wallFriction)
 
 #sticky wall to hold onto right most particle
-groundCenter = (0, 0.505)
-groundNormal = (0, -1)
+groundCenter = (0, 0.505, 0)
+groundNormal = (0, -1, 0)
 surface = solver.surfaceSticky
 solver.addHalfSpace(groundCenter, groundNormal, surface, 0)
 
-groundCenter = (0.05, 0)
-groundNormal = (1, 0)
+groundCenter = (0.05, 0, 0)
+groundNormal = (1, 0, 0)
 surface = solver.surfaceSticky
 solver.addHalfSpace(groundCenter, groundNormal, surface, wallFriction)
 
-groundCenter = (0.95, 0)
-groundNormal = (-1, 0)
+groundCenter = (0.95, 0, 0)
+groundNormal = (-1, 0, 0)
 surface = solver.surfaceSticky
 solver.addHalfSpace(groundCenter, groundNormal, surface, wallFriction)
 
