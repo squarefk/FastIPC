@@ -19,7 +19,9 @@ nu = 0.15
 EList = [E]
 nuList = [nu]
 
-points = [[0.48, 0.5], [0.49, 0.5], [0.50, 0.5], [0.51, 0.5]]
+#points = [[0.48, 0.5], [0.49, 0.5], [0.50, 0.5], [0.51, 0.5]] #4 in x axis
+#points = [[0.48, 0.48], [0.49, 0.49], [0.50, 0.5], [0.51, 0.51]] #4 diagonal
+points = [[0.48, 0.48], [0.49, 0.49], [0.50, 0.5], [0.51, 0.51], [0.50, 0.49]] #4 diagonal + 5th that breaks test
 vertices = np.array(points)
 surfaceThreshold = 0
 
@@ -96,8 +98,8 @@ c = (0.5, 0.5)
 strength = -1e4
 startTime = 0.0
 duration = 3.0 / float(fps)
-if useDFG == True:
-    solver.addImpulse(c, strength, startTime, duration)
+# if useDFG == True:
+#     solver.addImpulse(c, strength, startTime, duration)
 
 useWeibull = False
 vRef = vol

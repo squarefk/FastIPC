@@ -120,4 +120,5 @@ groundNormal = (-1, 0, 0)
 surface = solver.surfaceSticky
 solver.addHalfSpace(groundCenter, groundNormal, surface, wallFriction)
 
-solver.simulate()
+solver.testEigenDecomp3D()
+#solver.simulate()

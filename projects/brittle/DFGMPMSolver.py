@@ -119,15 +119,16 @@ class DFGMPMSolver:
         self.minDp = 1.0
         self.fricCoeff = frictionCoefficient
 
-        #Barrier Function Parameters
+        #Barrier Function Parameters, TAG=Barrier
         self.chat = 0.1
         self.constraintsViolated = ti.field(dtype=int, shape=())
         self.delta = ti.field(dtype=float, shape=()) # Store a double precision delta
-        self.factor = 1
+        self.factor = 1.0
         self.energyFactor = 1.0
         self.rhsFactor = 1.0 #1e-10 does lower error
         self.hessianFactor = 1.0 #can't find anything that lowers rel error
-        self.zeroingFactor = 1.0
+        self.zeroingFactor = 0.0
+        self.projectionThreshold = 1e-10
 
         #Particle Structures
         #---Lame Parameters
@@ -425,7 +426,6 @@ class DFGMPMSolver:
     @ti.kernel
     def testEigenDecomp(self):
         A = ti.Matrix([[0.0, 0.0],[0.0, 0.0]])
-        self.eigenDecomposition2D(A)
         for i in range(10):
             base = -5.0
             interval = 10.0
@@ -433,7 +433,111 @@ class DFGMPMSolver:
             b = base + (interval*ti.random())
             c = base + (interval*ti.random())
             A = ti.Matrix([[a,b],[b,c]])
-            self.eigenDecomposition2D(A)
+            values, v1, v2 = self.eigenDecomposition2D(A)
+            
+            #Now let's reconstruct A
+            Areconstructed = (values[0] * v1.outer_product(v1)) + (values[1] * v2.outer_product(v2))
+            print("A:", A)
+            print("B:", Areconstructed)
+            print("e:", values)
+            print("v1:", v1)
+            print("v2:", v2)
+            print()
+
+    #3D EigenDecomposition Algorithm from Wikipedia here: https://en.wikipedia.org/wiki/Eigenvalue_algorithm#3.C3.973_matrices
+    @ti.func
+    def eigenDecomposition3D(self, M):
+        e = ti.Vector([0.0, 0.0, 0.0])
+        v1 = ti.Vector([0.0, 0.0, 0.0])
+        v2 = ti.Vector([0.0, 0.0, 0.0])
+        v3 = ti.Vector([0.0, 0.0, 0.0])
+
+        I = ti.Matrix.identity(float, 3)
+
+        m11 = M[0,0]
+        m12 = M[0,1]
+        m13 = M[0,2]
+        m21 = M[1,0]
+        m22 = M[1,1]
+        m23 = M[1,2]
+        m31 = M[2,0]
+        m32 = M[2,1]
+        m33 = M[2,2]
+
+        p1 = m12**2 + m13**2 + m23**2
+        if p1 == 0:
+            #M is diagonal
+            e[0] = m11
+            e[1] = m22
+            e[2] = m33
+        else:
+            q = (m11 + m22 + m33) / 3.0
+            p2 = (m11 - q)**2 + (m22 - q)**2 + (m33 - q)**2 + (2 * math.pi)
+            p = (p2 / 6.0)**(0.5)
+            B = (1.0 / p) * (M - q * I)
+            r = B.determinant() / 2.0
+
+            #In exact solution -1 <= r <= 1, but error can cause outside this range so we will fix this
+            phi = 0.0
+            if r <= -1:
+                phi = math.pi / 3.0
+            elif r >= 1:
+                phi = 0.0
+            else:
+                phi = ti.acos(r) / 3.0 #acos wants input between -1 and 1 so only can do this as an else case
+
+            #Enforce eigenvalues to satisfy e0 >= e1 >= e2
+            e[0] = q + 2.0 * p * ti.cos(phi)
+            e[2] = q + 2.0 * p * ti.cos(phi + (2*math.pi/3.0))
+            e[1] = 3.0 * q - e[0] - e[2]
+
+        #And now we must compute the eigenvectors
+        #TODO:3D these eigenvectors are wrong lmao
+        M1 = M - (e[0] * I)
+        M2 = M - (e[1] * I)
+        M1M1 = M1 * M1
+        M1M2 = M1 * M2
+
+        v3[0] = M1M1[0,0]
+        v3[1] = M1M1[1,0]
+        v3[2] = M1M1[2,0]
+        v3.normalized()
+
+        v1[0] = M1M2[0,1]
+        v1[1] = M1M2[1,1]
+        v1[2] = M1M2[2,1]
+        v1.normalized()
+
+        v2 = (v1.cross(v3)).normalized()
+        #v3 = (v1.cross(v2)).normalized()
+        
+        return e, v1, v2, v3
+
+    @ti.kernel
+    def testEigenDecomp3D(self):
+        A = ti.Matrix([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
+        for i in range(10):
+            base = -5.0
+            interval = 10.0
+            a = base + (interval*ti.random())
+            b = base + (interval*ti.random())
+            c = base + (interval*ti.random())
+            d = base + (interval*ti.random())
+            e = base + (interval*ti.random())
+            f = base + (interval*ti.random())
+            A = ti.Matrix([[a, b, c], [b, d, e], [c, e, f]]) #ensure matrix is symmetric since it will be a Cauchy stress
+            values, v1, v2, v3 = self.eigenDecomposition3D(A)
+            
+            #Now let's reconstruct A
+            Areconstructed = (values[0] * v1.outer_product(v1)) + (values[1] * v2.outer_product(v2)) + (values[2] * v3.outer_product(v3))
+            print("A:", A)
+            print("B:", Areconstructed)
+            print("e:", values)
+            print("v1:", v1)
+            print("v2:", v2)
+            print("v3:", v3)
+            print()
+            
 
     ##########
 
@@ -870,7 +974,7 @@ class DFGMPMSolver:
                 
                 #Get cauchy stress and its eigenvalues and eigenvectors, then construct sigmaPlus
                 kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, self.mu[p], self.la[p]) #FCR elasticity             
-                e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
+                e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors #TODO:3D
                 sigmaPlus = (self.macaulay(e[0]) * v1.outer_product(v1)) + (self.macaulay(e[1]) * v2.outer_product(v2))
 
                 #Compute Phi
@@ -880,7 +984,7 @@ class DFGMPMSolver:
                 contraction = 0.0
                 for i in ti.static(range(self.dim)):
                     for j in ti.static(range(self.dim)):
-                        contraction += Asig[i, j] * sigA[i, j] #TODO:3D
+                        contraction += Asig[i, j] * sigA[i, j]
                 phi = (1.0 / self.sigmaC[p]**2.0) * contraction
 
                 dTilde = max(self.dTildeH[p], self.zeta * self.macaulay(phi - 1)) #make sure driving force always increasing
@@ -984,7 +1088,7 @@ class DFGMPMSolver:
                             self.grid_q1[gridIdx] += self.mp[p] * weight * self.v[p] #momentum transfer (PIC)
                         self.grid_f1[gridIdx] += force                    
                         self.grid_n1[gridIdx] += dweight * self.mp[p] #add to the normal for this field at this grid node, remember we need to normalize it later!
-                        if not self.symplectic: self.gridViYi1[gridIdx] += vol * E * weight #Transfer ViYi to the grid for barrier function, field 1
+                        if not self.symplectic: self.gridViYi1[gridIdx] += vol * E * weight #Transfer ViYi to the grid for barrier function, field 1, TAG=Barrier
                     elif fieldIdx == 1:
                         #field 2
                         if self.useAPIC:
@@ -1303,9 +1407,8 @@ class DFGMPMSolver:
                     B = self.computeB(ci, chat) #takes care of the zero case too (ci >= chat)
                     ViYi1 = self.gridViYi1[I]
                     ViYi2 = self.gridViYi2[I]
-
+                    
                     be += (ViYi1 + ViYi2) * B * self.factor * self.energyFactor
-                    #print("B:", B, "ci:", ci, "chat:", chat)
    
         return ((ee + ke / 2 + ge + ie) * self.zeroingFactor) + be
 
@@ -1377,17 +1480,20 @@ class DFGMPMSolver:
                     i = self.grid_idx[I]
                     i2 = self.grid_sep_idx[I]
 
+                    ViYi1 = self.gridViYi1[I]
+                    ViYi2 = self.gridViYi2[I]
+
                     #barrier function derivative
                     bPrime = self.computeBPrime(self.gridCi[I], self.chat)
-                    bPrime *= (self.gridViYi1[I] + self.gridViYi2[I]) #multiply by the total ViYi contributions to this node
+                    bPrime *= (ViYi1 + ViYi2) #multiply by the total ViYi contributions to this node
                     
                     n_cm1 = self.grid_n1[I]
-                    nablaB1 = bPrime * -n_cm1 #times nabla ci
-                    nablaB2 = bPrime * n_cm1  #times nabla ci
+                    nablaB1 = bPrime * -n_cm1 * (self.factor * self.rhsFactor) #times nabla ci
+                    nablaB2 = bPrime * n_cm1 * (self.factor * self.rhsFactor)  #times nabla ci
 
                     for d in ti.static(range(self.dim)):
-                        self.rhs[i*self.dim + d] += self.factor * nablaB1[d] * self.rhsFactor                 #add field 1 to first part of rhs
-                        self.rhs[ndof*self.dim + i2*self.dim + d] += self.factor * nablaB2[d] * self.rhsFactor #add field 2 to second part of rhs
+                        self.rhs[i*self.dim + d] += nablaB1[d]                #add field 1 to first part of rhs
+                        self.rhs[ndof*self.dim + i2*self.dim + d] += nablaB2[d] #add field 2 to second part of rhs
 
         if project == True:
             # Boundary projection
@@ -1590,12 +1696,9 @@ class DFGMPMSolver:
 
                     hessianB =  bDoublePrime * nablaC.outer_product(nablaC) * self.hessianFactor #this hessian is (dim*2) by (dim*2)
 
-                    #print("hessian:", hessianB, "nablaC:", nablaC, "bDoublePrime:", bDoublePrime, "outerProd:", nablaC.outer_product(nablaC))
-
                     #grab the four block wise pieces, each being dim by dim
                     m00, m01, m10, m11 = self.constructBarrierHessianBlocks(hessianB)
 
-                    
                     #NOTE: m00 = m11, and m01 = m10 by nature
                     #top left block (on diagonal)
                     self.entryCol[dof1*nNbr + midNbr] = dof1
@@ -1662,7 +1765,7 @@ class DFGMPMSolver:
                 gid2 = self.sepDof2idx[i]
                 self.grid_v2[gid2] += dv2
 
-    #Compute our constraint for each separable grid node #NOTE: remember to do this every time we update DV!!!
+    #Compute our constraint for each separable grid node #NOTE: remember to do this every time we update DV!!!, TAG=Barrier
     @ti.kernel
     def computeCi(self):
         for I in ti.grouped(self.grid_m1):
@@ -1687,7 +1790,6 @@ class DFGMPMSolver:
                 n_cm1 = self.grid_n1[I] #NOTE: we stored n_cm1 in here during computeContactForces
                 
                 #Set ci based on constraint
-                #print("v2n", v2n, "dv2", dv2, "v1n", v1n, "dv1", dv1, "n_cm1", n_cm1)
                 self.gridCi[I] = (v2n + dv2 - v1n - dv1).dot(n_cm1)
 
     #Routine to project all ci <= 0 to be ci > 0 in our initial guesses, TAG=Barrier
@@ -1743,7 +1845,7 @@ class DFGMPMSolver:
                     #Now we iterate on these until we satisfy the condition
                     eps = 0.1 * (m_1 + m_2) / 2.0 * self.chat
                     ciNew = (v_2 + dv2 - v_1 - dv1).dot(n_cm1)
-                    while ciNew <= 0:
+                    while ciNew <= self.projectionThreshold:
                         dv1 += -(1 / m_1) * eps * n_cm1
                         dv2 +=  (1/ m_2) * eps * n_cm1
                         ciNew = (v_2 + dv2 - v_1 - dv1).dot(n_cm1)
@@ -1795,8 +1897,6 @@ class DFGMPMSolver:
             self.UpdateDV(0.0) #set DV_i = dv_i
             if self.useImplicitContact: self.computeCi() #do this every time we update DV
             self.UpdateState() #compute updated F based on DV
-            self.checkConstraints()
-
             E0 = self.TotalEnergy() #compute total energy based on candidate DV
             print("[Newton] E0 = ", E0) #NOTE: got same E0 using useDFG = True and False!
             self.computeForces() #Compute grid forces based on the candidate Fs
@@ -1899,7 +1999,7 @@ class DFGMPMSolver:
                 ciPlus = -1.0
                 ciMinus = -1.0
                 currIter = 0
-                while ciPlus <= 0 or ciMinus <= 0:
+                while ciPlus <= self.projectionThreshold or ciMinus <= self.projectionThreshold: #don't want ci too small to avoid numerical errors in barrier functions
 
                     if currIter == maxIters:
                         #Resample dx1 and dx2!!! This solution isn't working obviously lol
@@ -1915,7 +2015,7 @@ class DFGMPMSolver:
                     ci = (v_2 + (x2 + dx2) - v_1 - (x1 + dx1)).dot(n_cm1)
                     ciNew = 0.0
                     #Only project inside data x if we have a broken constraint
-                    if ci <= 0:
+                    if ci <= self.projectionThreshold:
                         #Now compute vcm using updated v1 and v2
                         v_1_updated = v_1 + (x1 + dx1)
                         v_2_updated = v_2 + (x2 + dx2)
@@ -1935,7 +2035,7 @@ class DFGMPMSolver:
                         #Now we iterate on these until we satisfy the condition
                         eps = epsStep * (m_cm) / 2.0 * self.chat
                         ciNew = (v_2 + dv2 - v_1 - dv1).dot(n_cm1)
-                        while ciNew <= 0:
+                        while ciNew <= self.projectionThreshold:
                             dv1 += -(1 / m_1) * eps * n_cm1
                             dv2 +=  (1/ m_2) * eps * n_cm1
                             ciNew = (v_2 + dv2 - v_1 - dv1).dot(n_cm1)
@@ -1947,7 +2047,7 @@ class DFGMPMSolver:
                     #Now we must compute constraint for x - dx using these new dx values
                     ci = (v_2 + (x2 - dx2) - v_1 - (x1 - dx1)).dot(n_cm1)
                     ciNew = 0.0
-                    if ci <= 0:
+                    if ci <= self.projectionThreshold:
                         #Now we project for x - dx
                         #Now compute vcm using updated v1 and v2
                         v_1_updated = v_1 + (x1 - dx1)
@@ -1968,7 +2068,7 @@ class DFGMPMSolver:
                         #Now we iterate on these until we satisfy the condition
                         eps = epsStep * (m_cm) / 2.0 * self.chat
                         ciNew = (v_2 + dv2 - v_1 - dv1).dot(n_cm1)
-                        while ciNew <= 0:
+                        while ciNew <= self.projectionThreshold:
                             dv1 += -(1 / m_1) * eps * n_cm1
                             dv2 +=  (1/ m_2) * eps * n_cm1
                             ciNew = (v_2 + dv2 - v_1 - dv1).dot(n_cm1)

@@ -3,7 +3,7 @@ import numpy as np
 import triangle as tr
 
 #ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
-ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
+ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1, debug=True)  #CPU, sequential
 
 #Sparse Grids
 #---Params
@@ -12,7 +12,7 @@ dx = 0.003
 rp = (3*(dx**2))**0.5
 invDx = 1.0 / 0.003
 nGrid = ti.ceil(invDx)
-grid_size = 4096
+grid_size = 4096 
 grid_block_size = 128
 leaf_block_size = 16 if dim == 2 else 8
 indices = ti.ij if dim == 2 else ti.ijk
@@ -32,6 +32,12 @@ def block_component(c):
 gridNumParticles = ti.field(dtype=int)      #track number of particles in each cell using cell index
 maxPPC = 2**10
 block_component(gridNumParticles) #keep track of how many particles are at each cell of backGrid
+
+#Densely adding this structure
+# gridNumIndeces = ti.ij if dim == 2 else ti.ijk
+# gridNumShape = (nGrid, nGrid) if dim == 2 else (nGrid, nGrid, nGrid)
+# ti.root.dense(gridNumIndeces, gridNumShape).place(gridNumParticles)
+
 backGrid = ti.field(int)              #background grid to map grid cells to a list of particles they contain
 backGridIndeces = ti.ijk if dim == 2 else ti.ijkl
 backGridShape = (nGrid, nGrid, maxPPC) if dim == 2 else (nGrid, nGrid, nGrid, maxPPC)
@@ -53,7 +59,16 @@ def backGridIdx(x):
 def stencil_range():
     return ti.ndrange(*((3, ) * dim))
 
-def addParticles():
+def addParticles2D():
+    N = 10
+    w = 0.2
+    dw = w / N
+    for i in range(N):
+        for j in range(N):
+            x[i*10 + j] = [0.4 + (i * dw), 0.4 + (j * dw)]
+            mp[i*10 + j] = 0.001
+
+def addParticles3D():
     N = 10
     w = 0.2
     dw = w / N
@@ -84,7 +99,10 @@ def backGridSort():
         backGrid[cell, offs] = p #place particle idx into the grid cell bucket at the correct place in the cell's neighbor list (using offs)
  
 
-addParticles()
+if dim == 2:
+    addParticles2D()
+elif dim == 3:
+    addParticles3D()
 grid.deactivate_all()
 build_pid()
 backGridSort()
