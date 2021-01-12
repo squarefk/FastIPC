@@ -2,8 +2,8 @@ import taichi as ti
 import numpy as np
 import triangle as tr
 
-#ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
-ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1, debug=True)  #CPU, sequential
+ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+#ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1, debug=True)  #CPU, sequential
 
 #Sparse Grids
 #---Params

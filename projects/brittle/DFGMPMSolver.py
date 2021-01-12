@@ -444,7 +444,7 @@ class DFGMPMSolver:
             print("v2:", v2)
             print()
 
-    #3D EigenDecomposition Algorithm from Wikipedia here: https://en.wikipedia.org/wiki/Eigenvalue_algorithm#3.C3.973_matrices
+    #3D EigenDecomposition Algorithm from Deledalle2017 on 3x3 Hermitian EigenDecomp: https://hal.archives-ouvertes.fr/hal-01501221/document 
     @ti.func
     def eigenDecomposition3D(self, M):
         values = ti.Vector([0.0, 0.0, 0.0])
@@ -467,58 +467,29 @@ class DFGMPMSolver:
         phi = math.pi / 2.0
         if x2 > 0:
             phi = ti.atan2(ti.sqrt(4 * x1**3 - x2**2), x2) #atan2(y,x) need to feed numerator and denominator
+            #print("x2 > 0")
         elif x2 < 0:
-            phi = ti.atan2(ti.sqrt(4 * x1**3 - x2**2), x2) + math.pi
+            phi = ti.atan2(ti.sqrt(4 * x1**3 - x2**2), x2) #NOTE: don't add the pi here bc use atan2, already in the proper quadrant 
+            #print("x2 < 0")
 
         values[0] = (a + b + c - (2 * ti.sqrt(x1) * ti.cos(phi / 3.0))) / 3.0
         values[1] = (a + b + c + (2 * ti.sqrt(x1) * ti.cos((phi - math.pi)/ 3.0))) / 3.0
         values[2] = (a + b + c + (2 * ti.sqrt(x1) * ti.cos((phi + math.pi)/ 3.0))) / 3.0
-        
-        # I = ti.Matrix.identity(float, 3)
 
-        # m11 = M[0,0]
-        # m12 = M[0,1]
-        # m13 = M[0,2]
-        # m21 = M[1,0]
-        # m22 = M[1,1]
-        # m23 = M[1,2]
-        # m31 = M[2,0]
-        # m32 = M[2,1]
-        # m33 = M[2,2]
+        #Make sure we aren't dividing by zero, there are four distinct expressions that might be 0: f = 0, and all three denoms of m1, m2, m3
+        if f == 0:
+            print("[EigenDecomp] ERROR: f == 0")
+        if ((f*(b - values[0])) - (d*e)) == 0:
+            print("[EigenDecomp] ERROR: ((f*(b - values[0])) - (d*e)) == 0")
+        if ((f*(b - values[1])) - (d*e)) == 0:
+            print("[EigenDecomp] ERROR: ((f*(b - values[1])) - (d*e)) == 0")
+        if ((f*(b - values[2])) - (d*e)) == 0:
+            print("[EigenDecomp] ERROR: ((f*(b - values[2])) - (d*e)) == 0")
 
-        # p1 = m12**2 + m13**2 + m23**2
-        # if p1 == 0:
-        #     #M is diagonal
-        #     values[0] = m11
-        #     values[1] = m22
-        #     values[2] = m33
-        # else:
-        #     q = (m11 + m22 + m33) / 3.0
-        #     p2 = (m11 - q)**2 + (m22 - q)**2 + (m33 - q)**2 + (2 * math.pi)
-        #     p = (p2 / 6.0)**(0.5)
-        #     B = (1.0 / p) * (M - q * I)
-        #     r = B.determinant() / 2.0
-
-        #     #In exact solution -1 <= r <= 1, but error can cause outside this range so we will fix this
-        #     phi = 0.0
-        #     if r <= -1:
-        #         phi = math.pi / 3.0
-        #     elif r >= 1:
-        #         phi = 0.0
-        #     else:
-        #         phi = ti.acos(r) / 3.0 #acos wants input between -1 and 1 so only can do this as an else case
-
-        #     #Enforce eigenvalues to satisfy e0 >= e1 >= e2
-        #     values[0] = q + 2.0 * p * ti.cos(phi)
-        #     values[2] = q + 2.0 * p * ti.cos(phi + (2*math.pi/3.0))
-        #     values[1] = 3.0 * q - values[0] - values[2]
-
-        #And now we must compute the eigenvectors, I used this routine for computing the eigenvectors: https://hal.archives-ouvertes.fr/hal-01501221/document
+        #And now we must compute the eigenvectors
         m1 = ((d * (c - values[0])) - (e*f)) / ((f*(b - values[0])) - (d*e))
         m2 = ((d * (c - values[1])) - (e*f)) / ((f*(b - values[1])) - (d*e))
         m3 = ((d * (c - values[2])) - (e*f)) / ((f*(b - values[2])) - (d*e))
-
-        #TODO: make sure we aren't dividing by zero, there are four distinct expressions that might be 0: f = 0, and all three denoms of m1, m2, m3
 
         v1[0] = (values[0] - c - (e*m1)) / f
         v1[1] = m1
@@ -535,6 +506,29 @@ class DFGMPMSolver:
         v3[2] = 1.0
         v3 = v3.normalized()
         
+        #Reorder so that our eigenvalues are in descending order, simple bubble sort bc n=3 lol
+        sorted = False
+        while sorted == False:
+            sorted = True
+            if values[0] < values[1]:
+                #swap
+                temp = values[0]
+                values[0] = values[1]
+                values[1] = temp
+                temp2 = v1
+                v1 = v2
+                v2 = temp2
+                sorted = False
+            if values[1] < values[2]:
+                #swap
+                temp = values[1]
+                values[1] = values[2]
+                values[2] = temp
+                temp2 = v2
+                v2 = v3
+                v3 = temp2
+                sorted = False
+
         return values, v1, v2, v3
 
     @ti.kernel
@@ -549,6 +543,7 @@ class DFGMPMSolver:
             d = base + (interval*ti.random())
             e = base + (interval*ti.random())
             f = base + (interval*ti.random())
+            #c = 0 #test with c = 0 to throw error
             A = ti.Matrix([[a, b, c], [b, d, e], [c, e, f]]) #ensure matrix is symmetric since it will be a Cauchy stress
             values, v1, v2, v3 = self.eigenDecomposition3D(A)
             
