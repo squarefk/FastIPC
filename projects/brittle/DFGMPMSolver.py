@@ -120,14 +120,14 @@ class DFGMPMSolver:
         self.fricCoeff = frictionCoefficient
 
         #Barrier Function Parameters, TAG=Barrier
-        self.chat = 0.1
+        self.chat = 0.001
         self.constraintsViolated = ti.field(dtype=int, shape=())
         self.delta = ti.field(dtype=float, shape=()) # Store a double precision delta
-        self.factor = 1.0
+        self.factor = 1
         self.energyFactor = 1.0
         self.rhsFactor = 1.0 #1e-10 does lower error
         self.hessianFactor = 1.0 #can't find anything that lowers rel error
-        self.zeroingFactor = 0.0
+        self.zeroingFactor = 1.0
         self.projectionThreshold = 1e-10
 
         #Particle Structures
@@ -447,71 +447,95 @@ class DFGMPMSolver:
     #3D EigenDecomposition Algorithm from Wikipedia here: https://en.wikipedia.org/wiki/Eigenvalue_algorithm#3.C3.973_matrices
     @ti.func
     def eigenDecomposition3D(self, M):
-        e = ti.Vector([0.0, 0.0, 0.0])
+        values = ti.Vector([0.0, 0.0, 0.0])
         v1 = ti.Vector([0.0, 0.0, 0.0])
         v2 = ti.Vector([0.0, 0.0, 0.0])
         v3 = ti.Vector([0.0, 0.0, 0.0])
 
-        I = ti.Matrix.identity(float, 3)
+        a = M[0,0]
+        b = M[1,1]
+        c = M[2,2]
+        d = M[1,0]
+        e = M[2,1]
+        f = M[2,0]
 
-        m11 = M[0,0]
-        m12 = M[0,1]
-        m13 = M[0,2]
-        m21 = M[1,0]
-        m22 = M[1,1]
-        m23 = M[1,2]
-        m31 = M[2,0]
-        m32 = M[2,1]
-        m33 = M[2,2]
+        x1 = a**2 + b**2 + c**2 - (a*b) - (a*c) - (b*c) + 3*(d**2 + f**2 + e**2)
+        x2 = -1*(2*a - b - c) * (2*b - a - c) * (2*c - a - b)
+        x2 += 9 * (((2*c - a - b) * d**2) + ((2*b - a - c) * f**2) + ((2*a - b - c) * e**2))
+        x2 -= 54 * (d*e*f)
 
-        p1 = m12**2 + m13**2 + m23**2
-        if p1 == 0:
-            #M is diagonal
-            e[0] = m11
-            e[1] = m22
-            e[2] = m33
-        else:
-            q = (m11 + m22 + m33) / 3.0
-            p2 = (m11 - q)**2 + (m22 - q)**2 + (m33 - q)**2 + (2 * math.pi)
-            p = (p2 / 6.0)**(0.5)
-            B = (1.0 / p) * (M - q * I)
-            r = B.determinant() / 2.0
+        phi = math.pi / 2.0
+        if x2 > 0:
+            phi = ti.atan2(ti.sqrt(4 * x1**3 - x2**2), x2) #atan2(y,x) need to feed numerator and denominator
+        elif x2 < 0:
+            phi = ti.atan2(ti.sqrt(4 * x1**3 - x2**2), x2) + math.pi
 
-            #In exact solution -1 <= r <= 1, but error can cause outside this range so we will fix this
-            phi = 0.0
-            if r <= -1:
-                phi = math.pi / 3.0
-            elif r >= 1:
-                phi = 0.0
-            else:
-                phi = ti.acos(r) / 3.0 #acos wants input between -1 and 1 so only can do this as an else case
-
-            #Enforce eigenvalues to satisfy e0 >= e1 >= e2
-            e[0] = q + 2.0 * p * ti.cos(phi)
-            e[2] = q + 2.0 * p * ti.cos(phi + (2*math.pi/3.0))
-            e[1] = 3.0 * q - e[0] - e[2]
-
-        #And now we must compute the eigenvectors
-        #TODO:3D these eigenvectors are wrong lmao
-        M1 = M - (e[0] * I)
-        M2 = M - (e[1] * I)
-        M1M1 = M1 * M1
-        M1M2 = M1 * M2
-
-        v3[0] = M1M1[0,0]
-        v3[1] = M1M1[1,0]
-        v3[2] = M1M1[2,0]
-        v3.normalized()
-
-        v1[0] = M1M2[0,1]
-        v1[1] = M1M2[1,1]
-        v1[2] = M1M2[2,1]
-        v1.normalized()
-
-        v2 = (v1.cross(v3)).normalized()
-        #v3 = (v1.cross(v2)).normalized()
+        values[0] = (a + b + c - (2 * ti.sqrt(x1) * ti.cos(phi / 3.0))) / 3.0
+        values[1] = (a + b + c + (2 * ti.sqrt(x1) * ti.cos((phi - math.pi)/ 3.0))) / 3.0
+        values[2] = (a + b + c + (2 * ti.sqrt(x1) * ti.cos((phi + math.pi)/ 3.0))) / 3.0
         
-        return e, v1, v2, v3
+        # I = ti.Matrix.identity(float, 3)
+
+        # m11 = M[0,0]
+        # m12 = M[0,1]
+        # m13 = M[0,2]
+        # m21 = M[1,0]
+        # m22 = M[1,1]
+        # m23 = M[1,2]
+        # m31 = M[2,0]
+        # m32 = M[2,1]
+        # m33 = M[2,2]
+
+        # p1 = m12**2 + m13**2 + m23**2
+        # if p1 == 0:
+        #     #M is diagonal
+        #     values[0] = m11
+        #     values[1] = m22
+        #     values[2] = m33
+        # else:
+        #     q = (m11 + m22 + m33) / 3.0
+        #     p2 = (m11 - q)**2 + (m22 - q)**2 + (m33 - q)**2 + (2 * math.pi)
+        #     p = (p2 / 6.0)**(0.5)
+        #     B = (1.0 / p) * (M - q * I)
+        #     r = B.determinant() / 2.0
+
+        #     #In exact solution -1 <= r <= 1, but error can cause outside this range so we will fix this
+        #     phi = 0.0
+        #     if r <= -1:
+        #         phi = math.pi / 3.0
+        #     elif r >= 1:
+        #         phi = 0.0
+        #     else:
+        #         phi = ti.acos(r) / 3.0 #acos wants input between -1 and 1 so only can do this as an else case
+
+        #     #Enforce eigenvalues to satisfy e0 >= e1 >= e2
+        #     values[0] = q + 2.0 * p * ti.cos(phi)
+        #     values[2] = q + 2.0 * p * ti.cos(phi + (2*math.pi/3.0))
+        #     values[1] = 3.0 * q - values[0] - values[2]
+
+        #And now we must compute the eigenvectors, I used this routine for computing the eigenvectors: https://hal.archives-ouvertes.fr/hal-01501221/document
+        m1 = ((d * (c - values[0])) - (e*f)) / ((f*(b - values[0])) - (d*e))
+        m2 = ((d * (c - values[1])) - (e*f)) / ((f*(b - values[1])) - (d*e))
+        m3 = ((d * (c - values[2])) - (e*f)) / ((f*(b - values[2])) - (d*e))
+
+        #TODO: make sure we aren't dividing by zero, there are four distinct expressions that might be 0: f = 0, and all three denoms of m1, m2, m3
+
+        v1[0] = (values[0] - c - (e*m1)) / f
+        v1[1] = m1
+        v1[2] = 1.0
+        v1 = v1.normalized()
+
+        v2[0] = (values[1] - c - (e*m2)) / f
+        v2[1] = m2
+        v2[2] = 1.0
+        v2 = v2.normalized()
+
+        v3[0] = (values[2] - c - (e*m3)) / f
+        v3[1] = m3
+        v3[2] = 1.0
+        v3 = v3.normalized()
+        
+        return values, v1, v2, v3
 
     @ti.kernel
     def testEigenDecomp3D(self):
@@ -1870,7 +1894,7 @@ class DFGMPMSolver:
     def implicitNewton(self):
         # Numerial test of gradient and hessian
         #if not self.firstFrame:
-        self.testGradient()
+        #self.testGradient()
         
         printProgress = True
                 
@@ -1908,7 +1932,7 @@ class DFGMPMSolver:
                 sdof = self.separableNodes[None] if self.useDFG else 0
                 rnorm = np.linalg.norm(self.rhs.to_numpy()[0:(ndof + sdof)*self.dim])
                 if rnorm < 1e-8:
-                    if printProgress: print("[Newton] Newton finished in", iter, "iteration(s) with residual", rnorm)
+                    if printProgress: print("###[Newton] Newton finished in", iter, "iteration(s) with residual", rnorm)
                     break
 
             self.BuildMatrix(True, False) # Compute H
@@ -1922,7 +1946,7 @@ class DFGMPMSolver:
             ddvnorm = np.linalg.norm(self.data_x.to_numpy()[0:(ndof + sdof)*self.dim], np.inf) #NOTE: IPC convergence criterion
             #print("ddvnorm", ddvnorm)
             if ddvnorm < 1e-3:
-                if printProgress: print("[Newton] Newton finished in", iter, "iteration(s) with residual", ddvnorm)
+                if printProgress: print("###[Newton] Newton finished in", iter, "iteration(s) with residual", ddvnorm)
                 break
 
             #Line Search: what alpha gives the best reduction in energy?
@@ -3024,6 +3048,7 @@ class DFGMPMSolver:
             if not self.useDFG: print("[Simulation] Implicit Single Field MPM")
             if self.useImplicitContact: print("[Simulation] with Implicit Contact using chat =", self.chat)
             if not self.useImplicitContact: print("[Simulation] with Explicit Contact")
+            print("[Simulation] Factor:", self.factor)
         self.reset(self.vertices, self.particleCounts, self.initialVelocity, self.pMasses, self.pVolumes, self.EList, self.nuList, self.damageList) #init
         self.reset2(self.prescoredDamageList) #second reset function because we can't pass more than 8 args to a kernel
         
