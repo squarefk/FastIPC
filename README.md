@@ -21,7 +21,7 @@ g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfm
 
 2. Build SuiteSparse from source (with MKL linking flags)
 ```
-sudo apt install libomp-dev
+sudo apt install libomp-dev libmpc-dev
 # Add `export LIBRARY_PATH=/opt/intel/oneapi/mkl/latest/lib/intel64:$LIBRARY_PATH` into ~/.zshrc
 
 git clone https://github.com/DrTimothyAldenDavis/SuiteSparse.git
