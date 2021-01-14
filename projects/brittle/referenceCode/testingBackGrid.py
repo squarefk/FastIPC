@@ -7,7 +7,7 @@ ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 
 #Sparse Grids
 #---Params
-dim = 3
+dim = 2
 dx = 0.003
 rp = (3*(dx**2))**0.5
 invDx = 1.0 / 0.003
@@ -40,8 +40,11 @@ block_component(gridNumParticles) #keep track of how many particles are at each 
 
 backGrid = ti.field(int)              #background grid to map grid cells to a list of particles they contain
 backGridIndeces = ti.ijk if dim == 2 else ti.ijkl
+backGridIndeces2 = ti.ij if dim == 2 else ti.ijk
+backGridIndeces3 = ti.k if dim == 2 else ti.l
 backGridShape = (nGrid, nGrid, maxPPC) if dim == 2 else (nGrid, nGrid, nGrid, maxPPC)
-ti.root.dense(backGridIndeces, backGridShape).place(backGrid)      #backGrid is nGrid x nGrid x maxPPC
+#ti.root.dense(backGridIndeces, backGridShape).place(backGrid)      #backGrid is nGrid x nGrid x maxPPC
+ti.root.pointer(backGridIndeces2, nGrid).dense(backGridIndeces3, maxPPC).place(backGrid)
 
 #Particle Structures
 x = ti.Vector.field(dim, dtype=float) # position

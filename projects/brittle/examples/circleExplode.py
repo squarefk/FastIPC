@@ -5,12 +5,12 @@ from common.utils.particleSampling import *
 from common.utils.cfl import *
 from projects.brittle.DFGMPMSolver import *
 
-ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+#ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+ti.init(default_fp=ti.f64, arch=ti.cpu)  #CPU, parallel
 #ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10.0
-outputPath = "../output/circleExplode2D/brittle.ply"
-outputPath2 = "../output/circleExplode2D/brittle_nodes.ply"
+outputPath = "../output/circleExplode2D/"
 fps = 240
 endFrame = 3 * fps
 
@@ -56,7 +56,7 @@ dt = 0.9 * maxDt
 useDFG = True
 verbose = False
 useAPIC = False
-symplectic = False
+symplectic = True
 if not symplectic: dt = 1e-3
 frictionCoefficient = 0.0
 flipPicRatio = 0.9 #want to blend in more PIC for stiffness -> lower
@@ -65,7 +65,7 @@ if(len(sys.argv) == 6):
     outputPath = sys.argv[4]
     outputPath2 = sys.argv[5]
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic)
 
 #Add Damage Model
 percentStretch = 7.5e-4 #7e-4 < p < 1e-3

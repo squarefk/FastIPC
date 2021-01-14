@@ -2,6 +2,7 @@ import taichi as ti
 import numpy as np
 import math
 from common.utils.timer import *
+from common.utils.logger import *
 from projects.mpm.basic.fixed_corotated import *
 from projects.mpm.basic.sparse_matrix import SparseMatrix, CGSolver
 #import scipy.sparse.linalg
@@ -25,7 +26,7 @@ class DFGMPMSolver:
     }
 
     #define constructor here
-    def __init__(self, endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG = True, frictionCoefficient = 0.0, verbose = False, useAPIC = False, flipPicRatio = 0.0, symplectic = True, prescoredDamageList = []):
+    def __init__(self, endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, surfaceThreshold, useDFG = True, frictionCoefficient = 0.0, verbose = False, useAPIC = False, flipPicRatio = 0.0, symplectic = True, prescoredDamageList = []):
         
         #Simulation Parameters
         self.endFrame = endFrame
@@ -43,7 +44,6 @@ class DFGMPMSolver:
         self.cfl = cfl
         self.ppc = ppc
         self.outputPath = outputPath
-        self.outputPath2 = outputPath2
         self.vertices = vertices
         self.particleCounts = np.array(particleCounts)
         self.initialVelocity = np.array(initialVelocity)
@@ -58,7 +58,6 @@ class DFGMPMSolver:
         self.invDx = 1.0 / dx
         self.nGrid = ti.ceil(self.invDx)
         self.gravMag = gravity
-        self.useFrictionalContact = True #not sure there's any reason not to use this at this point!
         self.useDFG = useDFG #determine whether we should be using partitioning or not (turn off to use explicit MPM)
         self.verbose = verbose
         self.useAPIC = useAPIC
@@ -69,7 +68,7 @@ class DFGMPMSolver:
         self.activeNodes = ti.field(dtype=int, shape=()) #track current active nodes
         self.separableNodes = ti.field(dtype=int, shape=()) #track current separable nodes
         self.symplectic = symplectic
-        self.useImplicitContact = True
+        self.useImplicitContact = False
         self.gravity = ti.Vector.field(self.dim, dtype=float, shape=())
         self.prescoredDamage = False if len(prescoredDamageList) == 0 else True
         self.prescoredDamageList = np.array(prescoredDamageList)
@@ -123,7 +122,7 @@ class DFGMPMSolver:
         self.chat = 0.001
         self.constraintsViolated = ti.field(dtype=int, shape=())
         self.delta = ti.field(dtype=float, shape=()) # Store a double precision delta
-        self.factor = 1
+        self.factor = 1e-9
         self.energyFactor = 1.0
         self.rhsFactor = 1.0 #1e-10 does lower error
         self.hessianFactor = 1.0 #can't find anything that lowers rel error
@@ -218,8 +217,6 @@ class DFGMPMSolver:
         self.separable = ti.field(dtype=int)
         #---Neighbor Search Structures
         self.gridNumParticles = ti.field(dtype=int)      #track number of particles in each cell using cell index
-        self.maxPPC = 2**10
-        #self.backGrid_sparse = ti.Vector.field(self.maxPPC, dtype=int)
         #---Barrier Function Structures
         self.gridViYi1 = ti.field(dtype=float)
         self.gridViYi2 = ti.field(dtype=float)
@@ -283,12 +280,9 @@ class DFGMPMSolver:
         #---Structures---
         self.backGrid = ti.field(int)              #background grid to map grid cells to a list of particles they contain
         #Shape the neighbor fields
-        backGridIndeces = ti.ijk if self.dim == 2 else ti.ijkl
-        backGridShape = (self.nGrid, self.nGrid, self.maxPPC) if self.dim == 2 else (self.nGrid, self.nGrid, self.nGrid, self.maxPPC)
-        ti.root.dense(backGridIndeces, backGridShape).place(self.backGrid)      #backGrid is nGrid x nGrid x maxPPC
-        #gridShape2 = (self.nGrid, self.nGrid) if self.dim == 2 else (self.nGrid, self.nGrid, self.nGrid)
-        #ti.root.dense(self.indices, gridShape2).place(self.gridNumParticles) 
-        #self.gridShape.dense(ti.k, self.maxPPC).place(self.backGrid) 
+        backGridIndeces2 = ti.ij if self.dim == 2 else ti.ijk
+        backGridIndeces3 = ti.k if self.dim == 2 else ti.l
+        ti.root.pointer(backGridIndeces2, self.nGrid).dense(backGridIndeces3, self.maxPPC).place(self.backGrid) #backGrid is nGrid x nGrid x nGrid x maxPPC (in 3D)
         #NOTE: backgrid uses nGrid x nGrid even though dx != rp, but rp is ALWAYs larger than dx so it's okay!
         
         #Shape and Place Particle Structures
@@ -330,6 +324,12 @@ class DFGMPMSolver:
 
     def stencil_range(self):
         return ti.ndrange(*((3, ) * self.dim))
+
+    def stencil_range2(self):
+        result = ti.ndrange((-1,2),(-1,2))
+        if ti.static(self.dim == 3):
+            result = ti.ndrange((-1,2),(-1,2), (-1,2))
+        return result
 
     @ti.kernel
     def build_pid(self):
@@ -459,52 +459,61 @@ class DFGMPMSolver:
         e = M[2,1]
         f = M[2,0]
 
-        x1 = a**2 + b**2 + c**2 - (a*b) - (a*c) - (b*c) + 3*(d**2 + f**2 + e**2)
-        x2 = -1*(2*a - b - c) * (2*b - a - c) * (2*c - a - b)
-        x2 += 9 * (((2*c - a - b) * d**2) + ((2*b - a - c) * f**2) + ((2*a - b - c) * e**2))
-        x2 -= 54 * (d*e*f)
+        #First check if we have a diagonal matrix
+        if d**2 + e**2 + f**2 == 0.0:
+            values[0] = a
+            values[1] = b
+            values[2] = c
+            v1 = ti.Vector([1.0, 0.0, 0.0])
+            v2 = ti.Vector([0.0, 1.0, 0.0])
+            v3 = ti.Vector([0.0, 0.0, 1.0])
+        else:
+            x1 = a**2 + b**2 + c**2 - (a*b) - (a*c) - (b*c) + 3*(d**2 + f**2 + e**2)
+            x2 = -1*(2*a - b - c) * (2*b - a - c) * (2*c - a - b)
+            x2 += 9 * (((2*c - a - b) * d**2) + ((2*b - a - c) * f**2) + ((2*a - b - c) * e**2))
+            x2 -= 54 * (d*e*f)
 
-        phi = math.pi / 2.0
-        if x2 > 0:
-            phi = ti.atan2(ti.sqrt(4 * x1**3 - x2**2), x2) #atan2(y,x) need to feed numerator and denominator
-            #print("x2 > 0")
-        elif x2 < 0:
-            phi = ti.atan2(ti.sqrt(4 * x1**3 - x2**2), x2) #NOTE: don't add the pi here bc use atan2, already in the proper quadrant 
-            #print("x2 < 0")
+            phi = math.pi / 2.0
+            if x2 > 0:
+                phi = ti.atan2(ti.sqrt(4 * x1**3 - x2**2), x2) #atan2(y,x) need to feed numerator and denominator
+                #print("x2 > 0")
+            elif x2 < 0:
+                phi = ti.atan2(ti.sqrt(4 * x1**3 - x2**2), x2) #NOTE: don't add the pi here bc use atan2, already in the proper quadrant 
+                #print("x2 < 0")
 
-        values[0] = (a + b + c - (2 * ti.sqrt(x1) * ti.cos(phi / 3.0))) / 3.0
-        values[1] = (a + b + c + (2 * ti.sqrt(x1) * ti.cos((phi - math.pi)/ 3.0))) / 3.0
-        values[2] = (a + b + c + (2 * ti.sqrt(x1) * ti.cos((phi + math.pi)/ 3.0))) / 3.0
+            values[0] = (a + b + c - (2 * ti.sqrt(x1) * ti.cos(phi / 3.0))) / 3.0
+            values[1] = (a + b + c + (2 * ti.sqrt(x1) * ti.cos((phi - math.pi)/ 3.0))) / 3.0
+            values[2] = (a + b + c + (2 * ti.sqrt(x1) * ti.cos((phi + math.pi)/ 3.0))) / 3.0
 
-        #Make sure we aren't dividing by zero, there are four distinct expressions that might be 0: f = 0, and all three denoms of m1, m2, m3
-        if f == 0:
-            print("[EigenDecomp] ERROR: f == 0")
-        if ((f*(b - values[0])) - (d*e)) == 0:
-            print("[EigenDecomp] ERROR: ((f*(b - values[0])) - (d*e)) == 0")
-        if ((f*(b - values[1])) - (d*e)) == 0:
-            print("[EigenDecomp] ERROR: ((f*(b - values[1])) - (d*e)) == 0")
-        if ((f*(b - values[2])) - (d*e)) == 0:
-            print("[EigenDecomp] ERROR: ((f*(b - values[2])) - (d*e)) == 0")
+            #Make sure we aren't dividing by zero, there are four distinct expressions that might be 0: f = 0, and all three denoms of m1, m2, m3
+            if f == 0:
+                print("[EigenDecomp] ERROR: f == 0")
+            if ((f*(b - values[0])) - (d*e)) == 0:
+                print("[EigenDecomp] ERROR: ((f*(b - values[0])) - (d*e)) == 0")
+            if ((f*(b - values[1])) - (d*e)) == 0:
+                print("[EigenDecomp] ERROR: ((f*(b - values[1])) - (d*e)) == 0")
+            if ((f*(b - values[2])) - (d*e)) == 0:
+                print("[EigenDecomp] ERROR: ((f*(b - values[2])) - (d*e)) == 0")
 
-        #And now we must compute the eigenvectors
-        m1 = ((d * (c - values[0])) - (e*f)) / ((f*(b - values[0])) - (d*e))
-        m2 = ((d * (c - values[1])) - (e*f)) / ((f*(b - values[1])) - (d*e))
-        m3 = ((d * (c - values[2])) - (e*f)) / ((f*(b - values[2])) - (d*e))
+            #And now we must compute the eigenvectors
+            m1 = ((d * (c - values[0])) - (e*f)) / ((f*(b - values[0])) - (d*e))
+            m2 = ((d * (c - values[1])) - (e*f)) / ((f*(b - values[1])) - (d*e))
+            m3 = ((d * (c - values[2])) - (e*f)) / ((f*(b - values[2])) - (d*e))
 
-        v1[0] = (values[0] - c - (e*m1)) / f
-        v1[1] = m1
-        v1[2] = 1.0
-        v1 = v1.normalized()
+            v1[0] = (values[0] - c - (e*m1)) / f
+            v1[1] = m1
+            v1[2] = 1.0
+            v1 = v1.normalized()
 
-        v2[0] = (values[1] - c - (e*m2)) / f
-        v2[1] = m2
-        v2[2] = 1.0
-        v2 = v2.normalized()
+            v2[0] = (values[1] - c - (e*m2)) / f
+            v2[1] = m2
+            v2[2] = 1.0
+            v2 = v2.normalized()
 
-        v3[0] = (values[2] - c - (e*m3)) / f
-        v3[1] = m3
-        v3[2] = 1.0
-        v3 = v3.normalized()
+            v3[0] = (values[2] - c - (e*m3)) / f
+            v3[1] = m3
+            v3[2] = 1.0
+            v3 = v3.normalized()
         
         #Reorder so that our eigenvalues are in descending order, simple bubble sort bc n=3 lol
         sorted = False
@@ -567,8 +576,11 @@ class DFGMPMSolver:
         return int(x/self.rp)
 
     @ti.func
-    def isInGrid(self, x): #TODO:3D
-        return 0 <= x[0] and x[0] < self.nGrid and 0 <= x[1] and x[1] < self.nGrid
+    def isInGrid(self, x):
+        result = 0 <= x[0] and x[0] < self.nGrid and 0 <= x[1] and x[1] < self.nGrid
+        if ti.static(self.dim == 3):
+            result = 0 <= x[0] and x[0] < self.nGrid and 0 <= x[1] and x[1] < self.nGrid and 0 <= x[2] and x[2] < self.nGrid
+        return result
 
     ##########
 
@@ -659,7 +671,7 @@ class DFGMPMSolver:
             pos = self.x[p_i]
             cell = self.backGridIdx(pos)
             nb_i = 0
-            for offs in ti.static(ti.grouped(ti.ndrange((-1,2),(-1,2)))):
+            for offs in ti.static(ti.grouped(self.stencil_range2())):
                 cellToCheck = cell + offs
                 if self.isInGrid(cellToCheck):
                     for j in range(self.gridNumParticles[cellToCheck]): #iterate over all particles in this cell
@@ -742,9 +754,9 @@ class DFGMPMSolver:
         for I in ti.grouped(self.pid):
             p = self.pid[I]
             pos = self.x[p]
-            DandS = ti.Vector([0.0, 0.0]) #hold D and S in here (no temporary atomic scalar variables in taichi...)
-            nablaD = ti.Vector([0.0, 0.0])
-            nablaS = ti.Vector([0.0, 0.0])
+            DandS = ti.Vector.zero(float, 2)   #hold D and S in here (no temporary atomic scalar variables in taichi...)
+            nablaD = ti.Vector.zero(float, self.dim)
+            nablaS = ti.Vector.zero(float, self.dim)
             for i in range(self.particleNumNeighbors[p]): #iterate over neighbors of particle p
 
                 xp_i = self.particleNeighbors[p, i] #index of curr neighbor
@@ -993,8 +1005,14 @@ class DFGMPMSolver:
                 
                 #Get cauchy stress and its eigenvalues and eigenvectors, then construct sigmaPlus
                 kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, self.mu[p], self.la[p]) #FCR elasticity             
-                e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors #TODO:3D
-                sigmaPlus = (self.macaulay(e[0]) * v1.outer_product(v1)) + (self.macaulay(e[1]) * v2.outer_product(v2))
+                
+                sigmaPlus = ti.Matrix.identity(float, self.dim)
+                if ti.static(self.dim == 2):
+                    e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
+                    sigmaPlus = (self.macaulay(e[0]) * v1.outer_product(v1)) + (self.macaulay(e[1]) * v2.outer_product(v2))
+                else:
+                    e, v1, v2, v3 = self.eigenDecomposition3D(kirchoff / J) #use my eigendecomposition, comes out as four 3D vectors 
+                    sigmaPlus = (self.macaulay(e[0]) * v1.outer_product(v1)) + (self.macaulay(e[1]) * v2.outer_product(v2)) + (self.macaulay(e[2]) * v3.outer_product(v3))
 
                 #Compute Phi
                 A = ti.Matrix.identity(float, self.dim) #set up structural tensor for later use
@@ -1045,8 +1063,12 @@ class DFGMPMSolver:
             kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, mu, la)
 
             #NOTE Grab the sigmaMax here so we can learn how to better threshold the stress for damage
-            e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
-            self.sigmaMax[p] = e[0] if e[0] > e[1] else e[1] #TODO:3D
+            if ti.static(self.dim == 2):
+                e, v1, v2 = self.eigenDecomposition2D(kirchoff / J) #use my eigendecomposition, comes out as three 2D vectors
+                self.sigmaMax[p] = e[0] if e[0] > e[1] else e[1]
+            else:
+                e, v1, v2, v3 = self.eigenDecomposition3D(kirchoff / J) #use my eigendecomposition, comes out as four 3D vectors
+                self.sigmaMax[p] = e[0] #always the max eigenvalue in 3D
 
             #Compute E for ViYi barrier stiffness and volumetric term
             E = (mu*(3*la + 2*mu)) / (la + mu) #recompute E for this particle
@@ -1214,9 +1236,11 @@ class DFGMPMSolver:
 
                 if self.symplectic or not self.useImplicitContact: #only compute these contact forces for explicit sim
 
+                    #TODO:3D Tangent Components of Friction
+
                     #initialize to hold contact force for each field 
-                    f_c1 = ti.Vector([0.0, 0.0])
-                    f_c2 = ti.Vector([0.0, 0.0])
+                    f_c1 = ti.Vector.zero(float, self.dim)
+                    f_c2 = ti.Vector.zero(float, self.dim)
 
                     #Compute these for each field regardless of separable or not
                     fNormal1 = (m_1 / self.dt) * (v_cm - v_1).dot(n_cm1)
@@ -1238,8 +1262,8 @@ class DFGMPMSolver:
                     fTanSign1 = 1.0 if fTanMag1 > 0 else 0.0 #L2 norm is always >= 0
                     fTanSign2 = 1.0 if fTanMag2 > 0 else 0.0
 
-                    tanDirection1 = ti.Vector([0.0, 0.0]) if fTanSign1 == 0.0 else fTanComp1.normalized() #prevent nan directions
-                    tanDirection2 = ti.Vector([0.0, 0.0]) if fTanSign2 == 0.0 else fTanComp2.normalized()        
+                    tanDirection1 = ti.Vector.zero(float, self.dim) if fTanSign1 == 0.0 else fTanComp1.normalized() #prevent nan directions
+                    tanDirection2 = ti.Vector.zero(float, self.dim) if fTanSign2 == 0.0 else fTanComp2.normalized()        
 
                     if (v_cm - v_1).dot(n_cm1) + (v_cm - v_2).dot(n_cm2) < 0:
                         tanMin1 = self.fricCoeff * abs(fNormal1) if self.fricCoeff * abs(fNormal1) < abs(fTanMag1) else abs(fTanMag1)
@@ -1256,7 +1280,7 @@ class DFGMPMSolver:
         #Add Friction Forces
         for I in ti.grouped(self.grid_m1):    
             if self.separable[I] == 1:
-                if(self.useFrictionalContact and self.symplectic):
+                if(self.symplectic or not self.useImplicitContact):
                     self.grid_v1[I] += (self.grid_fct1[I] / self.grid_m1[I]) * self.dt # use field 1 force to update field 1 particles (for green nodes, ie separable contact)
                     self.grid_v2[I] += (self.grid_fct2[I] / self.grid_m2[I]) * self.dt # use field 2 force to update field 2 particles
     
@@ -2648,31 +2672,42 @@ class DFGMPMSolver:
             if self.useRankineDamage:
                 with Timer("Update Damage"): #NOTE: make sure to do this before we compute the damage gradients!
                     self.updateDamage()
-                    print("E")
+            print("E")
             with Timer("Compute Particle DGs"):
                 self.computeParticleDG()
+            print("F")
             with Timer("Compute Grid DGs"):
                 self.computeGridDG()
+            print("G")
             with Timer("Mass P2G"):
                 self.massP2G()
+            print("H")
             with Timer("Compute Separability"):
                 self.computeSeparability()
+            print("I")
             if self.useAnisoMPMDamage:
                 with Timer("Damage P2G"):
                     self.damageP2G()
+                print("J")
                 with Timer("Compute Laplacians"):
                     self.computeLaplacians()
+                print("K")
                 with Timer("Update AnisoMPM Damage"):
                     self.updateAnisoMPMDamage()
+                print("L")
         
         with Timer("Momentum P2G and Forces"):
             self.momentumP2GandComputeForces()
+        print("M")
         with Timer("Momentum To Velocity"):
             self.momentumToVelocity()
+        print("N")
         with Timer("Add Grid Forces"):
             self.addGridForces()
+        print("O")
         with Timer("Add Gravity"):
             self.addGravity()
+        print("P")
 
         if self.useImpulse:
             if self.elapsedTime >= self.impulseStartTime and self.elapsedTime < (self.impulseStartTime + self.impulseDuration):
@@ -2682,8 +2717,10 @@ class DFGMPMSolver:
         if self.useDFG:
             with Timer("Frictional Contact"):
                 self.computeContactForces()
+            print("Q")
             with Timer("Add Contact Forces"):
                 self.addContactForces()
+            print("R")
 
         with Timer("Collision Objects"):
             for i in range(self.collisionObjectCount):
@@ -2693,8 +2730,11 @@ class DFGMPMSolver:
                 self.collisionVelocities[i] = ti.Vector(vel)
                 self.updateCollisionObjects(i)
                 self.collisionCallbacks[i](i)
+        print("S")
+
         with Timer("G2P"):
             self.G2P()
+        print("T")
 
         self.elapsedTime += self.dt #update elapsed time
 
@@ -2774,7 +2814,7 @@ class DFGMPMSolver:
                 self.computeContactForces()
 
         with Timer("Newton Solve"):
-            self.implicitNewton()
+            self.implicitNewton() #directly updates grid_v1 and grid_v2
 
         #IF EXPLICIT CONTACT: add this on top of the vn+1 we just computed for each field
         if self.useDFG and not self.useImplicitContact:
@@ -2831,8 +2871,12 @@ class DFGMPMSolver:
                             stretchJ = stretch**self.dim
                             U, sig, V = ti.svd(stretchF)
                             stretchKirchoff = self.kirchoff_FCR(stretchF, U@V.transpose(), stretchJ, self.mu[idx], self.la[idx])
-                            e, v1, v2 = self.eigenDecomposition2D(stretchKirchoff / stretchJ) #TODO:3D
-                            stretchedSigma = e[0] if e[0] > e[1] else e[1] #TODO:3D
+                            if ti.static(self.dim == 2):
+                                e, v1, v2 = self.eigenDecomposition2D(stretchKirchoff / stretchJ)
+                                stretchedSigma = e[0] if e[0] > e[1] else e[1]
+                            else:
+                                e, v1, v2, v3 = self.eigenDecomposition3D(stretchKirchoff / stretchJ)
+                                stretchedSigma = e[0] #max in 3D
                             self.sigmaC[idx] = stretchedSigma
                         else:
                             self.sigmaC[idx] = self.sigmaCRef
@@ -2845,8 +2889,12 @@ class DFGMPMSolver:
                             stretchJ = stretch**self.dim
                             U, sig, V = ti.svd(stretchF)
                             stretchKirchoff = self.kirchoff_FCR(stretchF, U@V.transpose(), stretchJ, self.mu[idx], self.la[idx])
-                            e, v1, v2 = self.eigenDecomposition2D(stretchKirchoff / stretchJ) #TODO:3D
-                            stretchedSigma = e[0] if e[0] > e[1] else e[1] #TODO:3D
+                            if ti.static(self.dim == 2):
+                                e, v1, v2 = self.eigenDecomposition2D(stretchKirchoff / stretchJ)
+                                stretchedSigma = e[0] if e[0] > e[1] else e[1]
+                            else:
+                                e, v1, v2, v3 = self.eigenDecomposition3D(stretchKirchoff / stretchJ)
+                                stretchedSigma = e[0] #max in 3D
                             self.sigmaF[idx] = stretchedSigma 
                         else:
                             self.sigmaF[idx] = self.sigmaFRef #if we don't have a percentStretch we instead use sigmaFRef (which we should have)
@@ -2940,9 +2988,9 @@ class DFGMPMSolver:
         writer.add_vertex_channel("sp", "int", np_sp) #add surface tracking
         writer.add_vertex_channel("useDamage", "int", np_useDamage)
         if(s == -1):
-            writer.export_frame(frame, self.outputPath)
+            writer.export_frame(frame, self.outputPath + "brittle_p.ply")
         else:
-            writer.export_frame(frame * self.numSubsteps + s, self.outputPath)
+            writer.export_frame(frame * self.numSubsteps + s, self.outputPath + "brittle_p.ply")
 
         if ti.static(self.dim == 2) and self.activeNodes[None] != 0:
             gridX = np.zeros((self.activeNodes[None], 2), dtype=float) #format as 1d array of nodal positions
@@ -3019,9 +3067,9 @@ class DFGMPMSolver:
             writer2.add_vertex_channel("m1", "double", gridMasses[:,0])
             writer2.add_vertex_channel("m2", "double", gridMasses[:,1])
             if(s == -1):
-                writer2.export_frame(frame, self.outputPath2)
+                writer2.export_frame(frame, self.outputPath + "brittle_i.ply")
             else:
-                writer2.export_frame(frame * self.numSubsteps + s, self.outputPath2)
+                writer2.export_frame(frame * self.numSubsteps + s, self.outputPath + "brittle_i.ply")
         
         if(s == -1):
             print('####################[Simulation]: Finished writing frame ', frame, '...')
@@ -3030,64 +3078,65 @@ class DFGMPMSolver:
 
     def simulate(self):
         
-        #Printing Dialogue
-        print("[Simulation] Particle Count: ", self.numParticles)
-        print("[Simulation] Grid Dx: ", self.dx)
-        if self.symplectic: 
-            print("[Simulation] Explicit Time Step: ", self.dt)
-            if self.useDFG: print("[Simulation] Explicit DFGMPM")
-            if not self.useDFG: print("[Simulation] Explicit Single Field MPM")
-        else:
-            print("[Simulation] Implicit MaxDt: ", self.maxDt)
-            if self.useDFG: print("[Simulation] Implicit DFGMPM")
-            if not self.useDFG: print("[Simulation] Implicit Single Field MPM")
-            if self.useImplicitContact: print("[Simulation] with Implicit Contact using chat =", self.chat)
-            if not self.useImplicitContact: print("[Simulation] with Explicit Contact")
-            print("[Simulation] Factor:", self.factor)
-        self.reset(self.vertices, self.particleCounts, self.initialVelocity, self.pMasses, self.pVolumes, self.EList, self.nuList, self.damageList) #init
-        self.reset2(self.prescoredDamageList) #second reset function because we can't pass more than 8 args to a kernel
-        
-        #Time Stepping
-        for frame in range(self.endFrame):
-            with Timer("Compute Frame"):
-                frameFinished = False
-                frameTime = 0.0
-                currSubstep = 0
-                if(self.verbose == False): 
-                    with Timer("Visualization"):
-                        self.writeData(frame, -1) #NOTE: activate to write frames only
-                while not frameFinished:
-                    if(self.verbose): 
+        with Logger(self.outputPath + "log.txt"):
+            #Printing Dialogue
+            print("[Simulation] Particle Count: ", self.numParticles)
+            print("[Simulation] Grid Dx: ", self.dx)
+            if self.symplectic: 
+                print("[Simulation] Explicit Time Step: ", self.dt)
+                if self.useDFG: print("[Simulation] Explicit DFGMPM")
+                if not self.useDFG: print("[Simulation] Explicit Single Field MPM")
+            else:
+                print("[Simulation] Implicit MaxDt: ", self.maxDt)
+                if self.useDFG: print("[Simulation] Implicit DFGMPM")
+                if not self.useDFG: print("[Simulation] Implicit Single Field MPM")
+                if self.useImplicitContact: print("[Simulation] with Implicit Contact using chat =", self.chat)
+                if not self.useImplicitContact: print("[Simulation] with Explicit Contact")
+                print("[Simulation] Factor:", self.factor)
+            self.reset(self.vertices, self.particleCounts, self.initialVelocity, self.pMasses, self.pVolumes, self.EList, self.nuList, self.damageList) #init
+            self.reset2(self.prescoredDamageList) #second reset function because we can't pass more than 8 args to a kernel
+            
+            #Time Stepping
+            for frame in range(self.endFrame):
+                with Timer("Compute Frame"):
+                    frameFinished = False
+                    frameTime = 0.0
+                    currSubstep = 0
+                    if(self.verbose == False): 
                         with Timer("Visualization"):
-                            self.writeData(frame, currSubstep) #NOTE: activate to write every substep
-                    with Timer("Compute Substep"):
-                        if not self.symplectic and self.cfl > 0.0:
-                            #If implicit, compute dt based on max velocity
-                            maxV = self.getMaxVelocity()
-                            computedDt = self.dt
-                            if maxV > 0.0: 
-                                computedDt = self.cfl * self.dx / (2.0 * maxV) #HOT style dynamic dt
-                            self.dt = ti.max(self.minDt, ti.min(self.maxDt, computedDt))
-                            print("[Implicit] Max Velocity: ", maxV, "Current Dt: ", self.dt)
-                        elif self.symplectic:
-                            self.dt = self.maxDt #reset dt (even after making it smaller to finish the substep)
+                            self.writeData(frame, -1) #NOTE: activate to write frames only
+                    while not frameFinished:
+                        if(self.verbose): 
+                            with Timer("Visualization"):
+                                self.writeData(frame, currSubstep) #NOTE: activate to write every substep
+                        with Timer("Compute Substep"):
+                            if not self.symplectic and self.cfl > 0.0:
+                                #If implicit, compute dt based on max velocity
+                                maxV = self.getMaxVelocity()
+                                computedDt = self.dt
+                                if maxV > 0.0: 
+                                    computedDt = self.cfl * self.dx / (2.0 * maxV) #HOT style dynamic dt
+                                self.dt = ti.max(self.minDt, ti.min(self.maxDt, computedDt))
+                                print("[Implicit] Max Velocity: ", maxV, "Current Dt: ", self.dt)
+                            elif self.symplectic:
+                                self.dt = self.maxDt #reset dt (even after making it smaller to finish the substep)
 
-                        #Make sure we don't go beyond frameDt
-                        if self.frameDt - frameTime < self.dt * 1.001:
-                            frameFinished = True
-                            self.dt = self.frameDt - frameTime
-                        elif self.frameDt - frameTime < 2*self.dt:
-                            self.dt = (self.frameDt - frameTime) / 2.0
+                            #Make sure we don't go beyond frameDt
+                            if self.frameDt - frameTime < self.dt * 1.001:
+                                frameFinished = True
+                                self.dt = self.frameDt - frameTime
+                            elif self.frameDt - frameTime < 2*self.dt:
+                                self.dt = (self.frameDt - frameTime) / 2.0
 
-                        #Simulation substeps
-                        if self.symplectic: 
-                            self.substepExplicit()
-                        else:
-                            self.substepImplicit()
+                            #Simulation substeps
+                            if self.symplectic: 
+                                self.substepExplicit()
+                            else:
+                                self.substepImplicit()
 
-                        currSubstep += 1
-                        frameTime += self.dt
+                            currSubstep += 1
+                            frameTime += self.dt
 
-                        print("[Simulation] Finished computing substep", currSubstep, "of frame", frame+1, "with dt", self.dt)
-                if self.firstFrame: self.firstFrame = False       
-        Timer_Print()
+                            print("[Simulation] Finished computing substep", currSubstep, "of frame", frame+1, "with dt", self.dt)
+                    if self.firstFrame: self.firstFrame = False       
+            Timer_Print()

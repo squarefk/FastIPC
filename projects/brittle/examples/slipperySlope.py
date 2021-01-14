@@ -6,12 +6,12 @@ from projects.brittle.DFGMPMSolver import *
 from projects.brittle.DFGMPMSolverWithPredefinedFields import *
 import math
 
-ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+#ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
+ti.init(default_fp=ti.f64, arch=ti.cpu)  #CPU, parallel
 #ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10
-outputPath = "../output/slipperySlope2D/brittle.ply"
-outputPath2 = "../output/slipperySlope2D/brittle_nodes.ply"
+outputPath = "../output/slipperySlope2D/"
 fps = 24
 endFrame = fps * 5
 ppc = 9
@@ -65,7 +65,7 @@ particleVolumes = [pVol, pVol2]
 
 if not symplectic: dt = 1e-3
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic)
 
 #Collision Objects
 groundCenter = (0, 0.05)

@@ -9,8 +9,7 @@ from projects.brittle.DFGMPMSolver import *
 ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10.0
-outputPath = "../output/singlePointFreefall3D/brittle.ply"
-outputPath2 = "../output/singlePointFreefall3D/brittle_nodes.ply"
+outputPath = "../output/singlePointFreefall3D/"
 fps = 30
 endFrame = 3 * fps
 
@@ -53,7 +52,7 @@ dt = 1e-3 #1e-4 is stable for explicit
 useDFG = True
 verbose = False
 useAPIC = False
-symplectic = False
+symplectic = True
 frictionCoefficient = 0.0
 flipPicRatio = 0.9 #want to blend in more PIC for stiffness -> lower
 
@@ -61,7 +60,7 @@ if(len(sys.argv) == 6):
     outputPath = sys.argv[4]
     outputPath2 = sys.argv[5]
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic)
 
 #Add Damage Model
 percentStretch = 7.5e-4 #7e-4 < p < 1e-3
@@ -85,7 +84,7 @@ if useDFG == True:
     solver.addAnisoMPMDamage(damageList, eta, dMin, percentStretch = p, zeta = zeta)
 
 #Add Impulse
-c = (0.5, 0.5)
+c = (0.5, 0.5, 0.5)
 strength = -1e4
 startTime = 0.0
 duration = 3.0 / float(fps)
@@ -120,5 +119,5 @@ groundNormal = (-1, 0, 0)
 surface = solver.surfaceSticky
 solver.addHalfSpace(groundCenter, groundNormal, surface, wallFriction)
 
-solver.testEigenDecomp3D()
-#solver.simulate()
+#solver.testEigenDecomp3D()
+solver.simulate()

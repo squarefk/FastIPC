@@ -14,11 +14,7 @@ useOld = False
 #General Sim Params
 gravity = 0.0
 
-outputPath = "../output/bulletShoot2D/NEWbrittle.ply"
-outputPath2 = "../output/bulletShoot2D/NEWbrittle_nodes.ply"
-if useOld:
-    outputPath = "../output/bulletShoot2D/OLDbrittle.ply"
-    outputPath2 = "../output/bulletShoot2D/OLDbrittle_nodes.ply"
+outputPath = "../output/bulletShoot2D/"
 
 fps = 120
 endFrame = 1 * fps
@@ -95,7 +91,7 @@ if(len(sys.argv) == 6):
     outputPath = sys.argv[4]
     outputPath2 = sys.argv[5]
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 if useOld:
     solver = DFGMPMSolverOLD(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 

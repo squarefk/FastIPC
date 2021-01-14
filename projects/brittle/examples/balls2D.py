@@ -8,8 +8,7 @@ import math
 ti.init(default_fp=ti.f64, arch=ti.gpu) # Try to run on GPU    #GPU, parallel
 
 gravity = -10.0
-outputPath = "../output/balls2D/brittle.ply"
-outputPath2 = "../output/balls2D/brittle_nodes.ply"
+outputPath = "../output/balls2D/"
 fps = 24
 endFrame = fps * 10
 rho = 10
@@ -138,7 +137,7 @@ for i in range(23):
     EList.append(E)
     nuList.append(nu)
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio)
 
 #Collision Objects
 groundCenter = (0, 0.05)

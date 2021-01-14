@@ -10,8 +10,7 @@ from projects.brittle.DFGMPMSolver import *
 ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10.0
-outputPath = "../output/wabisabi/brittle.ply"
-outputPath2 = "../output/wabisabi/brittle_nodes.ply"
+outputPath = "../output/wabisabi/"
 fps = 30
 endFrame = 3 * fps
 
@@ -70,7 +69,7 @@ if(len(sys.argv) == 6):
 # print("Type of dx:", type(dx))
 # print("Type of cfl:", type(cfl))
 
-solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic)
 
 wallFriction = 0.1
 
