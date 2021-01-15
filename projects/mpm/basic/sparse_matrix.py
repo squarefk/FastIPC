@@ -355,7 +355,8 @@ class SparseMatrix:
 
 @ti.data_oriented
 class CGSolver:
-    def __init__(self, max_row_num=1000000):
+    def __init__(self, max_row_num=1000000, dim=2):
+        self.dim = dim
         self.N = ti.field(ti.i32, shape=())
         self.stride = 1
         self.r = ti.field(real, shape=max_row_num)  # residual
@@ -363,13 +364,19 @@ class CGSolver:
         self.x = ti.field(real, shape=max_row_num)  # solution
         self.p = ti.field(real, shape=max_row_num)
         self.A_diag = ti.field(real, shape=max_row_num)
+        self.A_blocks = ti.Matrix.field(self.dim*2, self.dim*2, real, shape=max_row_num) #Hold [A B; B^T C] of separable nodes, this is (dim*2) x (dim*2)
         self.Ap = ti.field(real, shape=max_row_num)
         self.alpha = ti.field(real, shape=())
         self.beta = ti.field(real, shape=())
 
         self.boundary = ti.field(real, shape=max_row_num)
 
-    def compute(self, A, stride=2):
+        #For Implicit DFGMPM
+        self.useBlockDiagonalPreconditioner = False
+        self.sdof = 0
+        self.ndof = 0
+
+    def compute(self, A, stride=2, useBDP = False, sdof2ndof = [], sdof = 0):
         '''
             Set A (a Sparse Matrix) as the system left-hand-side
         '''
@@ -380,6 +387,12 @@ class CGSolver:
         self.stride = stride
         self.boundary.fill(0)
         self.setDiagonal()
+        self.useBlockDiagonalPreconditioner = useBDP
+        self.sdof = sdof
+        self.sdof2ndof = sdof2ndof
+        if useBDP:    
+            self.setBlocks()
+            self.ndof = (self.N[None] / self.stride) - sdof
 
     ############ functions ############
     @ti.kernel
@@ -436,9 +449,39 @@ class CGSolver:
                 self.A_diag[I] = 1.0
 
     @ti.kernel
+    def setBlocks(self):
+        for i2 in range(self.sdof):
+            #for each separable node construct the 2*stride x 2*stride matrix, [A B; B^T C]
+            i1 = self.sdof2ndof[i2]
+            for i in ti.static(range(self.stride)):
+                for j in ti.static(range(self.stride)):
+                    self.A_blocks[i2][i, j] = self.A[(i1*self.stride) + i, (i1*self.stride) + j]                                #A
+                    self.A_blocks[i2][i, j + self.stride] = self.A[(i1*self.stride) + i, (i2*self.stride) + j]                  #B
+                    self.A_blocks[i2][i + self.stride, j] = self.A[(i2*self.stride) + i, (i1*self.stride) + j]                  #B^T
+                    self.A_blocks[i2][i + self.stride, j + self.stride] = self.A[(i2*self.stride) + i, (i2*self.stride) + j]    #C
+            #Now we must invert this block, taichi allows 4x4 inversion thankfully so we can test 2D #TODO:3D
+            self.A_blocks[i2] = self.A_blocks[i2].inverse() #Construct [G H; H^T J]
+
+    @ti.kernel
     def precondition(self):  # q = M^-1 r
         for I in range(self.N[None]):
             self.q[I] = self.r[I] / self.A_diag[I]
+
+        if ti.static(self.useBlockDiagonalPreconditioner):
+            #NOTE: we grab chunk from q not r because we also want the diagonal conditioning!
+            #For each separable node do q = P_B * r
+            for i2 in range(self.sdof):
+                i1 = self.sdof2ndof[i2]
+                rChunk = ti.Vector.zero(real, 2*self.stride) #have to grab the right parts of q to process
+                for d in ti.static(range(self.stride)):
+                    rChunk[d] = self.r[(i1 * self.stride) + d]
+                    rChunk[d + self.stride] = self.r[((i1+i2) * self.stride) + d]
+                #Now multiply our conditioning matrix times the residual chunk
+                out = self.A_blocks[i2] @ rChunk
+                #Map these results to q
+                for d in ti.static(range(self.stride)):
+                    self.q[(i1 * self.stride) + d] = out[d]
+                    self.q[((i1+i2) * self.stride) + d] = out[d + self.stride]
 
     @ti.kernel
     def setBoundary(self, b: ti.template()):
@@ -479,7 +522,7 @@ class CGSolver:
                 if verbose:
                     print("CG terminates at", cnt, "; residual =",
                           residual_preconditioned_norm)
-                return
+                return cnt
             self.computAp(self.p)
             self.project(self.Ap)
             self.alpha[None] = zTr / self.dotProduct(self.Ap, self.p)
@@ -499,3 +542,5 @@ class CGSolver:
         if verbose:
             print("ConjugateGradient max iterations reached, iter =",
                   max_iterations, "; residual =", residual_preconditioned_norm)
+            
+        return max_iterations

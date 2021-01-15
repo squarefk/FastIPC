@@ -13,7 +13,7 @@ ti.init(default_fp=ti.f64, arch=ti.cpu)  #CPU, parallel
 gravity = -10
 outputPath = "../output/slipperySlope2D/"
 fps = 24
-endFrame = fps * 5
+endFrame = 10#fps * 5
 ppc = 9
 rho = 10
 E, nu = 50000.0, 0.2 # Young's modulus and Poisson's ratio

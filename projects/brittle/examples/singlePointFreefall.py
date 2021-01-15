@@ -9,10 +9,9 @@ from projects.brittle.DFGMPMSolver import *
 ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 
 gravity = -10.0
-outputPath = "../output/singlePointFreefall2D/brittle.ply"
-outputPath2 = "../output/singlePointFreefall2D/brittle_nodes.ply"
+outputPath = "../output/singlePointFreefall2D/"
 fps = 30
-endFrame = 3 * fps
+endFrame = 1#3 * fps
 
 E = 1e4 #1e5
 nu = 0.15
@@ -70,7 +69,7 @@ for i in range(vertexCount):
         damage = 1.0
     prescoredDamageList.append(damage)
         
-solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, outputPath2, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic, prescoredDamageList)
+solver = DFGMPMSolver(endFrame, fps, dt, dx, EList, nuList, gravity, cfl, ppc, vertices, particleCounts, particleMasses, particleVolumes, initialVelocity, outputPath, surfaceThreshold, useDFG, frictionCoefficient, verbose, useAPIC, flipPicRatio, symplectic, prescoredDamageList)
 
 #Add Damage Model
 percentStretch = 7.5e-4 #7e-4 < p < 1e-3

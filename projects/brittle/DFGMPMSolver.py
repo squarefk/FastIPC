@@ -3,6 +3,7 @@ import numpy as np
 import math
 from common.utils.timer import *
 from common.utils.logger import *
+import matplotlib.pyplot as plt
 from projects.mpm.basic.fixed_corotated import *
 from projects.mpm.basic.sparse_matrix import SparseMatrix, CGSolver
 #import scipy.sparse.linalg
@@ -38,6 +39,7 @@ class DFGMPMSolver:
         self.minDt = 1e-6
         self.elapsedTime = 0.0 #keep a concept of elapsed time
         self.numSubsteps = int(self.frameDt // dt)
+        self.currSubstep = 0
         self.dim = len(vertices[0])
         if self.dim != 2 and self.dim != 3:
             raise ValueError('ERROR: Dimension must be 2 or 3')
@@ -68,7 +70,7 @@ class DFGMPMSolver:
         self.activeNodes = ti.field(dtype=int, shape=()) #track current active nodes
         self.separableNodes = ti.field(dtype=int, shape=()) #track current separable nodes
         self.symplectic = symplectic
-        self.useImplicitContact = False
+        self.useImplicitContact = True
         self.gravity = ti.Vector.field(self.dim, dtype=float, shape=())
         self.prescoredDamage = False if len(prescoredDamageList) == 0 else True
         self.prescoredDamageList = np.array(prescoredDamageList)
@@ -122,7 +124,7 @@ class DFGMPMSolver:
         self.chat = 0.001
         self.constraintsViolated = ti.field(dtype=int, shape=())
         self.delta = ti.field(dtype=float, shape=()) # Store a double precision delta
-        self.factor = 1e-9
+        self.factor = 1.0
         self.energyFactor = 1.0
         self.rhsFactor = 1.0 #1e-10 does lower error
         self.hessianFactor = 1.0 #can't find anything that lowers rel error
@@ -316,7 +318,12 @@ class DFGMPMSolver:
         self.matrix = SparseMatrix()
         self.matrix1 = SparseMatrix() # for test Gradient only
         self.matrix2 = SparseMatrix() # for test Gradient only
-        self.cgsolver = CGSolver()
+        self.cgsolver = CGSolver(dim=self.dim)
+
+        #Additional Implicit Barrier Fields
+        self.sdof2ndof = ti.field(ti.i32, shape=MAX_LINEAR)
+        self.avgCGIters = ti.field(float, shape=MAX_LINEAR)     #avg CG iters per substep
+        self.newtonIters = ti.field(float, shape=MAX_LINEAR) #newton iter per substep
 
     ##########
 
@@ -1759,6 +1766,15 @@ class DFGMPMSolver:
                     self.entryCol[dof2*nNbr + midNbr] = dof2
                     self.entryVal[dof2*nNbr + midNbr] += self.factor * m11
 
+    @ti.kernel
+    def constructMapping(self):
+        sdof = self.separableNodes[None] if self.useDFG else 0
+        for I in ti.grouped(self.grid_m1):
+            if self.separable[I] == 1:
+                i1 = self.grid_idx[I]
+                i2 = self.grid_sep_idx[I]
+                self.sdof2ndof[i2] = i1
+
     #Set up and solve the linear system using PCG and Sparse Matrix
     def SolveLinearSystem(self):
         ndof = self.activeNodes[None]
@@ -1776,9 +1792,17 @@ class DFGMPMSolver:
 
         #print(self.matrix.toFullMatrix())
 
-        self.cgsolver.compute(self.matrix, stride = self.dim)
+        #NOTE: Need to pass useBDP and sdof -> ndof mapping to compute
+        if self.useImplicitContact:
+            self.sdof2ndof.fill(0)
+            self.constructMapping()
+            self.cgsolver.compute(self.matrix, stride = self.dim, useBDP = False, sdof2ndof = self.sdof2ndof, sdof = sdof)
+        else:
+            self.cgsolver.compute(self.matrix, stride = self.dim)
         self.cgsolver.setBoundary(self.boundary) #TODO:Slip and Moving Boundaries
-        self.cgsolver.solve(self.rhs, True) #second param is whether to print CG convergence updates
+        iters = self.cgsolver.solve(self.rhs, True) #second param is whether to print CG convergence updates
+
+        self.avgCGIters[self.currSubstep] += iters
 
         for i in range((ndof + sdof) * self.dim):
             self.data_x[i] = -self.cgsolver.x[i]
@@ -1952,6 +1976,7 @@ class DFGMPMSolver:
                 rnorm = np.linalg.norm(self.rhs.to_numpy()[0:(ndof + sdof)*self.dim])
                 if rnorm < 1e-8:
                     if printProgress: print("###[Newton] Newton finished in", iter, "iteration(s) with residual", rnorm)
+                    self.newtonIters[self.currSubstep] = 0 #didn't even do CG!
                     break
 
             self.BuildMatrix(True, False) # Compute H
@@ -1965,7 +1990,8 @@ class DFGMPMSolver:
             ddvnorm = np.linalg.norm(self.data_x.to_numpy()[0:(ndof + sdof)*self.dim], np.inf) #NOTE: IPC convergence criterion
             #print("ddvnorm", ddvnorm)
             if ddvnorm < 1e-3:
-                if printProgress: print("###[Newton] Newton finished in", iter, "iteration(s) with residual", ddvnorm)
+                if printProgress: print("###[Newton] Newton finished in", iter + 1, "iteration(s) with residual", ddvnorm)
+                self.newtonIters[self.currSubstep] = iter + 1
                 break
 
             #Line Search: what alpha gives the best reduction in energy?
@@ -1990,7 +2016,7 @@ class DFGMPMSolver:
                     break
                 alpha /= 2              #split alpha in half each time
             if alpha == 1/2**15:
-                print("[Line Search] ERROR: Check the direction!")
+                print("[Line Search] ERROR: Check the direction! Ended at iter:", iter)
                 alpha = 0.0
                 break
             #print("[Line Search] Finished with Alpha:", alpha, ", E:", E)
@@ -2000,6 +2026,7 @@ class DFGMPMSolver:
 
         if iter == max_iter_newton - 1:
             if printProgress: print("[Newton] Max iteration reached! Current iter:", max_iter_newton-1, "with residual:", rnorm)
+            self.newtonIters[self.currSubstep] = max_iter_newton - 1
         
         self.implicitUpdate()
         self.RestoreStrain()
@@ -3076,6 +3103,32 @@ class DFGMPMSolver:
         else:
             print('####################[Simulation]: Finished writing substep ', s, 'of frame ', frame, '...')
 
+    def plotSolverDiagnostics(self, filepath):
+        substeps = self.currSubstep - 1
+        cgIters = []
+        newtonIters = []
+        step = []
+        for i in range(substeps):
+            step.append(i)
+            cgIters.append(self.avgCGIters[i] / self.newtonIters[i]) #divide to get the average
+            newtonIters.append(self.newtonIters[i])
+        plt.figure()
+        plt.subplot(211)
+        plt.plot(step, cgIters, 'k', step, cgIters, 'bo')
+        plt.xlabel('Substep')
+        plt.ylabel('Avg CG Iters')
+        plt.title('Avg CG Iters per Substep')
+        plt.subplots_adjust(hspace = 0.6)
+
+        plt.subplot(212)
+        plt.plot(step, newtonIters, 'k', step, newtonIters, 'bo')
+        plt.xlabel('Substep')
+        plt.ylabel('Newton Iters')
+        plt.title('Newton Iters per Substep')
+        
+        plt.savefig(filepath)
+        plt.show()
+    
     def simulate(self):
         
         with Logger(self.outputPath + "log.txt"):
@@ -3135,8 +3188,10 @@ class DFGMPMSolver:
                                 self.substepImplicit()
 
                             currSubstep += 1
+                            self.currSubstep = currSubstep
                             frameTime += self.dt
 
                             print("[Simulation] Finished computing substep", currSubstep, "of frame", frame+1, "with dt", self.dt)
-                    if self.firstFrame: self.firstFrame = False       
+                    if self.firstFrame: self.firstFrame = False    
+            self.plotSolverDiagnostics(self.outputPath + 'solverDiagnostics_withoutBDP.png')  
             Timer_Print()
