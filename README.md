@@ -23,7 +23,8 @@ g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfm
 ```
 sudo apt install libomp-dev libmpc-dev
 
-## Add the following line into ~/.zshrc
+## Add the following lines into ~/.zshrc
+export PATH=/snap/clion/current/bin/cmake/linux/bin:$PATH
 export LIBRARY_PATH=/opt/intel/oneapi/mkl/2021.1.1/lib/intel64:$LIBRARY_PATH
 export LD_LIBRARY_PATH=/opt/intel/oneapi/mkl/2021.1.1/lib/intel64:$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/2021.1.1/linux/compiler/lib/intel64_lin:$LD_LIBRARY_PATH
