@@ -22,7 +22,12 @@ g++ wrapper.cpp EVCTCD/CTCD.cpp -o a.so -fPIC -O2 -shared -std=c++1z -mavx2 -mfm
 2. Build SuiteSparse from source (with MKL linking flags)
 ```
 sudo apt install libomp-dev libmpc-dev
-# Add `export LIBRARY_PATH=/opt/intel/oneapi/mkl/2021.1.1/lib/intel64:$LIBRARY_PATH` into ~/.zshrc
+
+## Add the following line into ~/.zshrc
+export LIBRARY_PATH=/opt/intel/oneapi/mkl/2021.1.1/lib/intel64:$LIBRARY_PATH
+export LD_LIBRARY_PATH=/opt/intel/oneapi/mkl/2021.1.1/lib/intel64:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/2021.1.1/linux/compiler/lib/intel64_lin:$LD_LIBRARY_PATH
+export LD_PRELOAD=/opt/intel/oneapi/mkl/2021.1.1/lib/intel64/libmkl_def.so.1:/opt/intel/oneapi/mkl/2021.1.1/lib/intel64/libmkl_avx2.so.1:/opt/intel/oneapi/mkl/2021.1.1/lib/intel64/libmkl_core.so:/opt/intel/oneapi/mkl/2021.1.1/lib/intel64/libmkl_intel_lp64.so:/opt/intel/oneapi/mkl/2021.1.1/lib/intel64/libmkl_intel_thread.so:/opt/intel/oneapi/compiler/2021.1.1/linux/compiler/lib/intel64_lin/libiomp5.so
 
 git clone https://github.com/DrTimothyAldenDavis/SuiteSparse.git
 cd SuiteSparse
@@ -34,12 +39,6 @@ vim SuiteSparse_config/SuiteSparse_config.mk
 make library BLAS='-lmkl_intel_lp64 -lmkl_core -lmkl_intel_thread -lpthread -lm -lmkl_blacs_intelmpi_lp64 -liomp5' LAPACK='-lmkl_scalapack_lp64' -j 12
 sudo cp -r lib /usr/local
 sudo cp -r include /usr/local
-
-## Add the following line into ~/.zshrc
-export LD_LIBRARY_PATH=/opt/intel/oneapi/mkl/2021.1.1/lib/intel64:$LD_LIBRARY_PATH
-
-## This is out-of-date for oneAPI, Add the following line into ~/.zshrc
-export LD_PRELOAD=/opt/intel/mkl/lib/intel64/libmkl_def.so:/opt/intel/mkl/lib/intel64/libmkl_avx2.so:/opt/intel/mkl/lib/intel64/libmkl_core.so:/opt/intel/mkl/lib/intel64/libmkl_intel_lp64.so:/opt/intel/mkl/lib/intel64/libmkl_intel_thread.so:/opt/intel/lib/intel64_lin/libiomp5.so
 ```
 
 3. Same as step 2 in the previous section 
