@@ -509,7 +509,7 @@ class CGSolver:
 
     def solve(self,
               b,
-              verbose=False,
+              verbose=True,
               max_iterations=5000,
               terminate_residual=1e-9):
         '''

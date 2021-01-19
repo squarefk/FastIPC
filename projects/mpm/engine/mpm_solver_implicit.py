@@ -798,7 +798,7 @@ class MPMSolverImplicit:
         '''
         ndof = self.num_active_grid[None]
         for i in range(ndof):
-            if self.boundary[i] == 1:
+            if self.boundary[i] == 1 or self.boundary[i] == 2:
                 for d in ti.static(range(self.dim)):
                     self.dv[i*self.dim+d] = 0
             else:
@@ -849,7 +849,7 @@ class MPMSolverImplicit:
         return result
 
 
-    def implicit_newton(self, dt, verbose=False, max_iterations=150, terminate_residual=1e-3, cg_max_iterations=500, cg_terminate_residual=1e-4):
+    def implicit_newton(self, dt, verbose=True, max_iterations=150, terminate_residual=1e-3, cg_max_iterations=500, cg_terminate_residual=1e-4):
         # perform one full newton
         # # Numerial test of gradient and hessian
         # if self.frame >= 0:
