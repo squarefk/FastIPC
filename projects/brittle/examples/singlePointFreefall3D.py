@@ -83,14 +83,6 @@ if useDFG == True:
     #solver.addRankineDamage(damageList, percentStretch, Gf, dMin)
     solver.addAnisoMPMDamage(damageList, eta, dMin, percentStretch = p, zeta = zeta)
 
-#Add Impulse
-c = (0.5, 0.5, 0.5)
-strength = -1e4
-startTime = 0.0
-duration = 3.0 / float(fps)
-if useDFG == True:
-    solver.addImpulse(c, strength, startTime, duration)
-
 useWeibull = False
 vRef = vol
 m = 10 #m6 with p 2.1e-5 gives red scatter throughout ring but no breaks, m3 has less damage happening, m8 has a break but weird behavior, m15 too red

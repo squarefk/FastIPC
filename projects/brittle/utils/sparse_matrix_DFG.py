@@ -1,9 +1,8 @@
-""" Sparse matrix (CSR) class and linear solver"""
+""" Sparse matrix (CSR) class and linear solver modified to accomodate Damage Field Gradient Partitioning with Barriers for Contact"""
 import taichi as ti
 import numpy as np
 
 real = ti.float64
-
 
 @ti.data_oriented
 class SparseMatrix:
@@ -59,7 +58,7 @@ class SparseMatrix:
         self.outerIndex.fill(0)
         self.innerNonZeros.fill(0)
         for i in range(self.rows[None]):
-            self.outerIndex[i] = i * self.defualt_none_zero_width
+            self.outerIndex[i] = i * self.cols[None]
         n = data_row.shape[0]
         for i in range(n):
             row, col, val = data_row[i], data_col[i], data_val[i]
@@ -368,9 +367,8 @@ class CGSolver:
         self.Ap = ti.field(real, shape=max_row_num)
         self.alpha = ti.field(real, shape=())
         self.beta = ti.field(real, shape=())
-        
-        self.boundary = ti.field(ti.i32, shape=max_row_num)
-        self.boundary_normal = ti.field(real, shape=max_row_num)
+
+        self.boundary = ti.field(real, shape=max_row_num)
 
         #For Implicit DFGMPM
         self.useBlockDiagonalPreconditioner = False
@@ -387,6 +385,7 @@ class CGSolver:
         self.N[None] = A.rows[None]
         self.stride = stride
         self.boundary.fill(0)
+        self.setDiagonal()
         self.useBlockDiagonalPreconditioner = useBDP
         self.sdof = sdof
         self.sdof2ndof = sdof2ndof
@@ -489,23 +488,12 @@ class CGSolver:
             self.boundary[I] = b[I]
 
     @ti.kernel
-    def setBoundaryNormal(self, b_n: ti.template()):
-        for I in range(self.N[None]):
-            self.boundary_normal[I] = b_n[I]
-
-    @ti.kernel
     def project(self, r: ti.template()):
         dim = self.stride
         for I in range(self.N[None] // dim):
-            if self.boundary[I] == 1: # sticky
+            if self.boundary[I] == 1:
                 for d in range(dim):
                     r[I * dim + d] = 0
-            if self.boundary[I] == 2: # slip
-                dot = 0.0
-                for d in range(dim):
-                    dot += r[I * dim + d] * self.boundary_normal[I * dim + d]
-                for d in range(dim):
-                    r[I * dim + d] -= dot * self.boundary_normal[I * dim + d]
 
     def solve(self,
               b,
@@ -515,7 +503,6 @@ class CGSolver:
         '''
             Diagonal preconditioned Conjugate Gradient method
         '''
-        self.setDiagonal()
         # self.r.fill(0)
         self.p.fill(0)
         self.q.fill(0)
@@ -525,7 +512,6 @@ class CGSolver:
         self.copyVector(self.r, b)
         self.project(self.r)
         self.precondition()
-        self.project(self.q)
         self.update_p()
 
         zTr = self.dotProduct(self.r, self.q)
@@ -544,7 +530,6 @@ class CGSolver:
             self.update_residual()
 
             self.precondition()
-            self.project(self.q)
 
             zTrk_last = zTr
             zTr = self.dotProduct(self.q, self.r)

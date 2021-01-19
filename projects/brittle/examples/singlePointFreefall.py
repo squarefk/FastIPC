@@ -11,7 +11,7 @@ ti.init(default_fp=ti.f64, arch=ti.cpu, cpu_max_num_threads=1)  #CPU, sequential
 gravity = -10.0
 outputPath = "../output/singlePointFreefall2D/"
 fps = 30
-endFrame = 1#3 * fps
+endFrame = 2#3 * fps
 
 E = 1e4 #1e5
 nu = 0.15
