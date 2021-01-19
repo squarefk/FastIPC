@@ -38,6 +38,8 @@ class MPMSolverImplicit:
             max_num_particles = 2**27,
             max_num_dof = 5000000):
         self.dim = len(res)
+        self.max_num_particles = max_num_particles
+        self.max_num_dof = max_num_dof
 
 
         #### Set MPM simulation parameters
@@ -886,6 +888,10 @@ class MPMSolverImplicit:
 
             # Exiting Newton
             ndof = self.num_active_grid[None]
+            if ndof*self.dim > self.max_num_dof:
+                print(
+                    f'Error! active dof number {ndof:d}*{self.dim:d} is larger than max allowed {self.max_num_dof:d}. Adjust your max_MPM_dof_num')
+                exit()
             # rnorm = np.linalg.norm(self.rhs.to_numpy()[0:ndof*self.dim])
             # print("norm", rnorm)
             # scaledNorm = self.computeScaledNorm()
@@ -1078,6 +1084,12 @@ class MPMSolverImplicit:
         self.g2p(dt)
 
     def step(self, frame_dt, print_stat=False):
+        # error report
+        np=self.n_particles[None]
+        if np>self.max_num_particles:
+            print(f'Error! Active MPM particle number {np:d} is larger than max allowed {self.max_num_particles:d}. Adjust your max_num_particles')
+            exit()
+
         frame_done = False
         frame_time = 0.0
         # self.simulation_info()
