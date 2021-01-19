@@ -1,5 +1,6 @@
 import taichi as ti
 import numpy as np
+import pickle
 import time
 # from common.physics.fixed_corotated import *
 # from common.math.math_tools import *
@@ -28,6 +29,11 @@ def linear_offset3D(offset):
 
 @ti.data_oriented
 class MPMSolverImplicit:
+
+    # surface boundary condition    
+    surface_sticky = 1 # Stick to the boundary
+    surface_slip = 2 # Slippy boundary
+    surface_separate = 3 # Slippy and free to separate
 
     grid_size = 4096
 
@@ -170,6 +176,7 @@ class MPMSolverImplicit:
         self.rhs = ti.field(real, shape=max_num_dof)
 
         self.boundary = ti.field(ti.i32, shape=max_num_dof)
+        self.boundary_normal = ti.field(real, shape=max_num_dof)
 
         self.result = ti.field(real, shape=max_num_dof) # for debug purpose only
 
@@ -706,6 +713,7 @@ class MPMSolverImplicit:
 
         self.cgsolver.compute(self.matrix,stride=d)
         self.cgsolver.setBoundary(self.boundary)
+        self.cgsolver.setBoundaryNormal(self.boundary_normal)
         self.cgsolver.solve(self.rhs, verbose=verbose, max_iterations=max_iterations, terminate_residual=terminate_residual)
 
         # for i in range(ndof*d):
@@ -841,7 +849,7 @@ class MPMSolverImplicit:
         return result
 
 
-    def implicit_newton(self, dt, verbose=True, max_iterations=150, terminate_residual=1e-3, cg_max_iterations=500, cg_terminate_residual=1e-4):
+    def implicit_newton(self, dt, verbose=False, max_iterations=150, terminate_residual=1e-3, cg_max_iterations=500, cg_terminate_residual=1e-4):
         # perform one full newton
         # # Numerial test of gradient and hessian
         # if self.frame >= 0:
@@ -1260,9 +1268,7 @@ class MPMSolverImplicit:
 
     ########### Analytic Collision Objects ###########
   
-    def add_surface_collider(self,
-                             point,
-                             normal):
+    def add_analytic_surface(self, point, normal, surface = surface_sticky, friction = 0.0):
         point = list(point)
         # normalize normal
         normal_scale = 1.0 / math.sqrt(sum(x**2 for x in normal))
@@ -1290,11 +1296,27 @@ class MPMSolverImplicit:
             for I in ti.grouped(self.grid_m):
                 offset = I * self.dx - ti.Vector(point)
                 n = ti.Vector(normal)
-                if offset.dot(n) < 0:
-                    # self.grid_dv[I] = ti.Vector.zero(real, self.dim)
-                    self.grid_v[I] = ti.Vector.zero(real, self.dim)
+                if self.grid_m[I] > 0 and offset.dot(n) < 0:
                     gid = self.grid_idx[I]
-                    self.boundary[gid] = 1
+                    self.boundary[gid] = surface
+                    for d in ti.static(range(self.dim)):
+                        self.boundary_normal[gid * self.dim + d] = n[d]
+                    if ti.static(surface == self.surface_sticky):
+                        self.grid_v[I] = ti.Vector.zero(real, self.dim)
+                    else:
+                        v = self.grid_v[I]
+                        normal_component = n.dot(v)
+                        if ti.static(surface == self.surface_slip):
+                            # Project out all normal component
+                            v = v - n * normal_component
+                        else:
+                            # Project out only inward normal component
+                            v = v - n * min(normal_component, 0)
+                        if normal_component < 0 and v.norm() > 1e-30:
+                            # apply friction here
+                            v = v.normalized() * max(0, v.norm() + normal_component * friction)
+                        self.grid_v[I] = v
+                    # print("b",self.grid_v[I])
 
         self.grid_collidable_objects.append(collide) 
 
@@ -1303,7 +1325,7 @@ class MPMSolverImplicit:
     def test(self):
         pass
 
-    def add_analytic_box(self, min_corner, max_corner, rotation = (0.0, 0.0, 0.0, 1.0)):
+    def add_analytic_box(self, min_corner, max_corner, rotation = (0.0, 0.0, 0.0, 1.0), surface = surface_sticky, friction = 0.0):
 
         min_corner = ti.Vector(min_corner)
         max_corner = ti.Vector(max_corner)
@@ -1322,8 +1344,7 @@ class MPMSolverImplicit:
 
 
         @ti.func
-        def signedDistance(x):
-            xx = R.transpose() @ (x - b)
+        def signedDistance(xx):
             d = ti.Vector.zero(real, self.dim)
             dd = -100000.0
             for p in ti.static(range(self.dim)):
@@ -1335,6 +1356,17 @@ class MPMSolverImplicit:
                 dd = 0.0
             return dd + d.norm()
 
+        @ti.func
+        def signedDistanceDerivative(x):
+            eps = 1e-5
+            n = ti.Vector.zero(real, self.dim)
+            dx = signedDistance(x)
+            for p in ti.static(range(self.dim)):
+                xh = x
+                xh[p] += eps
+                dxh = signedDistance(xh)
+                n[p] = (dxh - dx) / eps
+            return n
 
 
         @ti.func
@@ -1352,11 +1384,31 @@ class MPMSolverImplicit:
         def gridCollision(dt: real):
             for I in ti.grouped(self.grid_m):
                 x = I * self.dx
-                if signedDistance(x) < 0:
-                    self.grid_v[I] = ti.Vector.zero(real, self.dim)
+                xx = R.transpose() @ (x - b)
+                if self.grid_m[I] > 0 and signedDistance(xx) < 0:
                     gid = self.grid_idx[I]
-                    self.boundary[gid] = 1
-            
+                    self.boundary[gid] = surface
+                    n = signedDistanceDerivative(xx)
+                    n = R @ n
+                    n = n / n.norm()
+                    for d in ti.static(range(self.dim)):
+                        self.boundary_normal[gid * self.dim + d] = n[d]
+                    if ti.static(surface == self.surface_sticky):
+                        self.grid_v[I] = ti.Vector.zero(real, self.dim)
+                    else:
+                        v = self.grid_v[I]
+                        normal_component = n.dot(v)
+                        if ti.static(surface == self.surface_slip):
+                            # Project out all normal component
+                            v = v - n * normal_component
+                        else:
+                            # Project out only inward normal component
+                            v = v - n * min(normal_component, 0)
+                        if normal_component < 0 and v.norm() > 1e-30:
+                            # apply friction here
+                            v = v.normalized() * max(0, v.norm() + normal_component * friction)
+                        self.grid_v[I] = v
+
         # self.analytic_collision.append(particleCollision)
         self.grid_collidable_objects.append(gridCollision)
 
