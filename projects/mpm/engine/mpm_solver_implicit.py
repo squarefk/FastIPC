@@ -34,7 +34,9 @@ class MPMSolverImplicit:
     def __init__(
             self,
             res,
-            size=1):
+            size=1,
+            max_num_particles = 2**27,
+            max_num_dof = 5000000):
         self.dim = len(res)
 
 
@@ -54,7 +56,6 @@ class MPMSolverImplicit:
         self.time = ti.field(real, shape=()) # record simulation time
 
         #### Declare taichi fields for simulation data
-        max_num_particles = 2**27
         self.gravity = ti.Vector.field(self.dim, dtype=real, shape=())
         self.pid = ti.field(ti.i32)
 
@@ -141,18 +142,17 @@ class MPMSolverImplicit:
         particle2grid.place(self.p_cached_w, self.p_cached_dw, self.p_cached_idx) 
 
         # Sparse Matrix for Newton iteration
-        MAX_LINEAR = 5000000
         # self.data_rhs = ti.field(real, shape=n_particles * dim)
-        self.data_row = ti.field(ti.i32, shape=MAX_LINEAR)
-        self.data_col = ti.field(ti.i32, shape=MAX_LINEAR)
-        self.data_val = ti.field(real, shape=MAX_LINEAR)
-        self.data_x = ti.field(real, shape=MAX_LINEAR)
-        self.entryCol = ti.field(ti.i32, shape=MAX_LINEAR)
-        self.entryVal = ti.Matrix.field(self.dim, self.dim, real, shape=MAX_LINEAR)
+        self.data_row = ti.field(ti.i32, shape=max_num_dof)
+        self.data_col = ti.field(ti.i32, shape=max_num_dof)
+        self.data_val = ti.field(real, shape=max_num_dof)
+        self.data_x = ti.field(real, shape=max_num_dof)
+        self.entryCol = ti.field(ti.i32, shape=max_num_dof)
+        self.entryVal = ti.Matrix.field(self.dim, self.dim, real, shape=max_num_dof)
 
-        self.nodeCNTol = ti.field(real, shape=MAX_LINEAR)
+        self.nodeCNTol = ti.field(real, shape=max_num_dof)
 
-        self.dof2idx = ti.Vector.field(self.dim, ti.i32, shape=MAX_LINEAR)
+        self.dof2idx = ti.Vector.field(self.dim, ti.i32, shape=max_num_dof)
         self.num_entry = ti.field(ti.i32, shape=())
 
         # Young's modulus and Poisson's ratio
@@ -162,14 +162,14 @@ class MPMSolverImplicit:
 
         # variables in newton optimization
         self.total_E = ti.field(real, shape=())
-        self.dv = ti.field(real, shape=MAX_LINEAR)
-        self.ddv = ti.field(real, shape=MAX_LINEAR)
-        self.DV = ti.field(real, shape=MAX_LINEAR)
-        self.rhs = ti.field(real, shape=MAX_LINEAR)
+        self.dv = ti.field(real, shape=max_num_dof)
+        self.ddv = ti.field(real, shape=max_num_dof)
+        self.DV = ti.field(real, shape=max_num_dof)
+        self.rhs = ti.field(real, shape=max_num_dof)
 
-        self.boundary = ti.field(ti.i32, shape=MAX_LINEAR)
+        self.boundary = ti.field(ti.i32, shape=max_num_dof)
 
-        self.result = ti.field(real, shape=MAX_LINEAR) # for debug purpose only
+        self.result = ti.field(real, shape=max_num_dof) # for debug purpose only
 
         self.matrix = SparseMatrix()
         self.matrix1 = SparseMatrix() # for test Gradient only
