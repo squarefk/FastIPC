@@ -47,6 +47,15 @@ class MPMSolverImplicit:
         self.max_num_particles = max_num_particles
         self.max_num_dof = max_num_dof
 
+        def up_to_2_pow_n(x: int):
+            r = np.log(x) / np.log(2)
+            f = int(r)
+            i = f if r == float(f) else f + 1
+            return int(2**i)
+
+        self.max_num_dof = up_to_2_pow_n(self.max_num_dof)
+        self.max_num_particles = up_to_2_pow_n(self.max_num_particles)
+
 
         #### Set MPM simulation parameters
         self.res = res
@@ -180,7 +189,11 @@ class MPMSolverImplicit:
 
         self.result = ti.field(real, shape=max_num_dof) # for debug purpose only
 
-        self.matrix = SparseMatrix()
+        # control the rows, nonezero bandwidth, and tot none zeros
+        nonezero_width = up_to_2_pow_n(5**self.dim * self.dim)
+        max_tot_none_zeros = up_to_2_pow_n(self.max_num_dof * nonezero_width)
+
+        self.matrix = SparseMatrix(max_row_num=self.max_num_dof, defualt_none_zero_width=nonezero_width, max_tot_none_zeros=max_tot_none_zeros)
         self.matrix1 = SparseMatrix() # for test Gradient only
         self.matrix2 = SparseMatrix() # for test Gradient only
         self.cgsolver = CGSolver()
