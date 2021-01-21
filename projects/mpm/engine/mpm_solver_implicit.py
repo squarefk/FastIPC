@@ -159,17 +159,21 @@ class MPMSolverImplicit:
         particle2grid.place(self.p_cached_w, self.p_cached_dw, self.p_cached_idx) 
 
         # Sparse Matrix for Newton iteration
+        # control the rows, nonezero bandwidth, and tot none zeros
+        nonezero_width = up_to_2_pow_n(5**self.dim * self.dim)
+        max_tot_none_zeros = up_to_2_pow_n(self.max_num_dof * nonezero_width)
+
         # self.data_rhs = ti.field(real, shape=n_particles * dim)
-        self.data_row = ti.field(ti.i32, shape=max_num_dof)
-        self.data_col = ti.field(ti.i32, shape=max_num_dof)
-        self.data_val = ti.field(real, shape=max_num_dof)
-        self.data_x = ti.field(real, shape=max_num_dof)
-        self.entryCol = ti.field(ti.i32, shape=max_num_dof)
-        self.entryVal = ti.Matrix.field(self.dim, self.dim, real, shape=max_num_dof)
+        self.data_row = ti.field(ti.i32, shape=max_tot_none_zeros)
+        self.data_col = ti.field(ti.i32, shape=max_tot_none_zeros)
+        self.data_val = ti.field(real, shape=max_tot_none_zeros)
+        self.data_x = ti.field(real, shape=self.max_num_dof)
+        self.entryCol = ti.field(ti.i32, shape=max_tot_none_zeros)
+        self.entryVal = ti.Matrix.field(self.dim, self.dim, real, shape=max_tot_none_zeros)
 
-        self.nodeCNTol = ti.field(real, shape=max_num_dof)
+        self.nodeCNTol = ti.field(real, shape=self.max_num_dof)
 
-        self.dof2idx = ti.Vector.field(self.dim, ti.i32, shape=max_num_dof)
+        self.dof2idx = ti.Vector.field(self.dim, ti.i32, shape=self.max_num_dof)
         self.num_entry = ti.field(ti.i32, shape=())
 
         # Young's modulus and Poisson's ratio
@@ -179,19 +183,15 @@ class MPMSolverImplicit:
 
         # variables in newton optimization
         self.total_E = ti.field(real, shape=())
-        self.dv = ti.field(real, shape=max_num_dof)
-        self.ddv = ti.field(real, shape=max_num_dof)
-        self.DV = ti.field(real, shape=max_num_dof)
-        self.rhs = ti.field(real, shape=max_num_dof)
+        self.dv = ti.field(real, shape=self.max_num_dof)
+        self.ddv = ti.field(real, shape=self.max_num_dof)
+        self.DV = ti.field(real, shape=self.max_num_dof)
+        self.rhs = ti.field(real, shape=self.max_num_dof)
 
-        self.boundary = ti.field(ti.i32, shape=max_num_dof)
-        self.boundary_normal = ti.field(real, shape=max_num_dof)
+        self.boundary = ti.field(ti.i32, shape=self.max_num_dof)
+        self.boundary_normal = ti.field(real, shape=self.max_num_dof)
 
-        self.result = ti.field(real, shape=max_num_dof) # for debug purpose only
-
-        # control the rows, nonezero bandwidth, and tot none zeros
-        nonezero_width = up_to_2_pow_n(5**self.dim * self.dim)
-        max_tot_none_zeros = up_to_2_pow_n(self.max_num_dof * nonezero_width)
+        self.result = ti.field(real, shape=self.max_num_dof) # for debug purpose only
 
         self.matrix = SparseMatrix(max_row_num=self.max_num_dof, defualt_none_zero_width=nonezero_width, max_tot_none_zeros=max_tot_none_zeros)
         self.matrix1 = SparseMatrix() # for test Gradient only
@@ -900,10 +900,10 @@ class MPMSolverImplicit:
                     break
 
             self.BuildMatrix(dt, True, True) # Compute H
-            self.data_col.fill(0)
-            self.data_row.fill(0)
-            self.data_val.fill(0)
-            self.build_T()
+            # self.data_col.fill(0)
+            # self.data_row.fill(0)
+            # self.data_val.fill(0)
+            # self.build_T()
 
             self.SolveLinearSystem(dt, verbose=verbose, max_iterations=cg_max_iterations, terminate_residual=cg_terminate_residual)  # solve dx = H^(-1)g
 
