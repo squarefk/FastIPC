@@ -13,15 +13,14 @@ class SparseMatrix:
     def __init__(self,
                  shape_=None,
                  max_row_num=1000000,
-                 defualt_none_zero_width=1000):
+                 defualt_none_zero_width=1000,
+                 max_tot_none_zeros=1000000 * 1000):
         self.max_row_num = max_row_num
         self.defualt_none_zero_width = defualt_none_zero_width
         self.rows = ti.field(ti.i32, shape=())  # num of rows
         self.cols = ti.field(ti.i32, shape=())  # num of columns
-        self.coef_value = ti.field(real,
-                                   shape=max_row_num * defualt_none_zero_width)
-        self.col_index = ti.field(ti.i32,
-                                  shape=max_row_num * defualt_none_zero_width)
+        self.coef_value = ti.field(real, shape=max_tot_none_zeros)
+        self.col_index = ti.field(ti.i32, shape=max_tot_none_zeros)
         self.outerIndex = ti.field(ti.i32, shape=max_row_num)
         self.innerNonZeros = ti.field(ti.i32, shape=max_row_num)
         # For computation storage only
@@ -111,10 +110,10 @@ class SparseMatrix:
         self.innerNonZeros.from_numpy(np.array([1, 3, 1, 3, 3]))
 
     def prepareColandVal(self, num, d=2):
-        self.initShape(d*num, d*num, self.defualt_none_zero_width)
+        self.initShape(d * num, d * num, self.defualt_none_zero_width)
 
     @ti.kernel
-    def initShape(self, row:ti.i32, col:ti.i32, rowsize:ti.i32):
+    def initShape(self, row: ti.i32, col: ti.i32, rowsize: ti.i32):
         self.rows[None] = row
         self.cols[None] = col
         for i in range(self.rows[None]):
@@ -191,7 +190,8 @@ class SparseMatrix:
 
     @ti.kernel
     def setFromColandValDFG(self, entryCol: ti.template(),
-                            entryVal: ti.template(), num: ti.i32, nNbr: ti.i32):
+                            entryVal: ti.template(), num: ti.i32,
+                            nNbr: ti.i32):
         for i in range(num):
             num_entry = 0
             start_idx = self.outerIndex[2 * i]
@@ -217,7 +217,8 @@ class SparseMatrix:
 
     @ti.kernel
     def setFromColandVal3DFG(self, entryCol: ti.template(),
-                             entryVal: ti.template(), num: ti.i32, nNbr: ti.i32):
+                             entryVal: ti.template(), num: ti.i32,
+                             nNbr: ti.i32):
         for i in range(num):
             num_entry = 0
             start_idx = self.outerIndex[3 * i]
@@ -364,11 +365,13 @@ class CGSolver:
         self.x = ti.field(real, shape=max_row_num)  # solution
         self.p = ti.field(real, shape=max_row_num)
         self.A_diag = ti.field(real, shape=max_row_num)
-        self.A_blocks = ti.Matrix.field(4, 4, real, shape=max_row_num) #Hold [A B; B^T C] of separable nodes, this is (dim*2) x (dim*2) TODO: this throws errors for 6x6 blocks
+        self.A_blocks = ti.Matrix.field(
+            4, 4, real, shape=max_row_num
+        )  #Hold [A B; B^T C] of separable nodes, this is (dim*2) x (dim*2) TODO: this throws errors for 6x6 blocks
         self.Ap = ti.field(real, shape=max_row_num)
         self.alpha = ti.field(real, shape=())
         self.beta = ti.field(real, shape=())
-        
+
         self.boundary = ti.field(ti.i32, shape=max_row_num)
         self.boundary_normal = ti.field(real, shape=max_row_num)
 
@@ -377,7 +380,7 @@ class CGSolver:
         self.sdof = 0
         self.ndof = 0
 
-    def compute(self, A, stride=2, useBDP = False, sdof2ndof = [], sdof = 0):
+    def compute(self, A, stride=2, useBDP=False, sdof2ndof=[], sdof=0):
         '''
             Set A (a Sparse Matrix) as the system left-hand-side
         '''
@@ -390,7 +393,7 @@ class CGSolver:
         self.useBlockDiagonalPreconditioner = useBDP
         self.sdof = sdof
         self.sdof2ndof = sdof2ndof
-        if useBDP:    
+        if useBDP:
             self.setBlocks()
             self.ndof = (self.N[None] / self.stride) - sdof
 
@@ -442,7 +445,7 @@ class CGSolver:
     @ti.kernel
     def setDiagonal(self):
         for I in range(self.N[None]):
-            val = self.A[I,I]
+            val = self.A[I, I]
             if ti.abs(val) > 1e-10:
                 self.A_diag[I] = val
             else:
@@ -455,12 +458,21 @@ class CGSolver:
             i1 = self.sdof2ndof[i2]
             for i in ti.static(range(self.stride)):
                 for j in ti.static(range(self.stride)):
-                    self.A_blocks[i2][i, j] = self.A[(i1*self.stride) + i, (i1*self.stride) + j]                                #A
-                    self.A_blocks[i2][i, j + self.stride] = self.A[(i1*self.stride) + i, (i2*self.stride) + j]                  #B
-                    self.A_blocks[i2][i + self.stride, j] = self.A[(i2*self.stride) + i, (i1*self.stride) + j]                  #B^T
-                    self.A_blocks[i2][i + self.stride, j + self.stride] = self.A[(i2*self.stride) + i, (i2*self.stride) + j]    #C
+                    self.A_blocks[i2][i,
+                                      j] = self.A[(i1 * self.stride) + i,
+                                                  (i1 * self.stride) + j]  #A
+                    self.A_blocks[i2][i, j + self.stride] = self.A[
+                        (i1 * self.stride) + i, (i2 * self.stride) + j]  #B
+                    self.A_blocks[i2][i + self.stride,
+                                      j] = self.A[(i2 * self.stride) + i,
+                                                  (i1 * self.stride) + j]  #B^T
+                    self.A_blocks[i2][i + self.stride,
+                                      j + self.stride] = self.A[
+                                          (i2 * self.stride) + i,
+                                          (i2 * self.stride) + j]  #C
             #Now we must invert this block, taichi allows 4x4 inversion thankfully so we can test 2D #TODO:3D
-            self.A_blocks[i2] = self.A_blocks[i2].inverse() #Construct [G H; H^T J]
+            self.A_blocks[i2] = self.A_blocks[i2].inverse(
+            )  #Construct [G H; H^T J]
 
     @ti.kernel
     def precondition(self):  # q = M^-1 r
@@ -472,16 +484,20 @@ class CGSolver:
             #For each separable node do q = P_B * r
             for i2 in range(self.sdof):
                 i1 = self.sdof2ndof[i2]
-                rChunk = ti.Vector.zero(real, 2*self.stride) #have to grab the right parts of q to process
+                rChunk = ti.Vector.zero(
+                    real, 2 *
+                    self.stride)  #have to grab the right parts of q to process
                 for d in ti.static(range(self.stride)):
                     rChunk[d] = self.r[(i1 * self.stride) + d]
-                    rChunk[d + self.stride] = self.r[((i1+i2) * self.stride) + d]
+                    rChunk[d +
+                           self.stride] = self.r[((i1 + i2) * self.stride) + d]
                 #Now multiply our conditioning matrix times the residual chunk
                 out = self.A_blocks[i2] @ rChunk
                 #Map these results to q
                 for d in ti.static(range(self.stride)):
                     self.q[(i1 * self.stride) + d] = out[d]
-                    self.q[((i1+i2) * self.stride) + d] = out[d + self.stride]
+                    self.q[((i1 + i2) * self.stride) + d] = out[d +
+                                                                self.stride]
 
     @ti.kernel
     def setBoundary(self, b: ti.template()):
@@ -497,10 +513,10 @@ class CGSolver:
     def project(self, r: ti.template()):
         dim = self.stride
         for I in range(self.N[None] // dim):
-            if self.boundary[I] == 1: # sticky
+            if self.boundary[I] == 1:  # sticky
                 for d in range(dim):
                     r[I * dim + d] = 0
-            if self.boundary[I] == 2: # slip
+            if self.boundary[I] == 2:  # slip
                 dot = 0.0
                 for d in range(dim):
                     dot += r[I * dim + d] * self.boundary_normal[I * dim + d]
@@ -556,5 +572,5 @@ class CGSolver:
         if verbose:
             print("ConjugateGradient max iterations reached, iter =",
                   max_iterations, "; residual =", residual_preconditioned_norm)
-            
+
         return max_iterations
