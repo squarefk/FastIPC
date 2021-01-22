@@ -42,7 +42,7 @@ class MPMSolverImplicit:
             res,
             size=1,
             max_num_particles = 2**27,
-            max_num_dof = 5000000):
+            max_num_dof = 2**23):
         self.dim = len(res)
         self.max_num_particles = max_num_particles
         self.max_num_dof = max_num_dof
@@ -53,8 +53,8 @@ class MPMSolverImplicit:
             i = f if r == float(f) else f + 1
             return int(2**i)
 
-        self.max_num_dof = up_to_2_pow_n(self.max_num_dof)
         self.max_num_particles = up_to_2_pow_n(self.max_num_particles)
+        self.max_num_dof = up_to_2_pow_n(self.max_num_dof)
 
 
         #### Set MPM simulation parameters
@@ -160,16 +160,17 @@ class MPMSolverImplicit:
 
         # Sparse Matrix for Newton iteration
         # control the rows, nonezero bandwidth, and tot none zeros
-        nonezero_width = up_to_2_pow_n(5**self.dim * self.dim)
-        max_tot_none_zeros = up_to_2_pow_n(self.max_num_dof * nonezero_width)
+        nonzero_width = up_to_2_pow_n(5**self.dim * self.dim)
 
         # self.data_rhs = ti.field(real, shape=n_particles * dim)
-        self.data_row = ti.field(ti.i32, shape=max_tot_none_zeros)
-        self.data_col = ti.field(ti.i32, shape=max_tot_none_zeros)
-        self.data_val = ti.field(real, shape=max_tot_none_zeros)
+        # self.data_row = ti.field(ti.i32, shape=max_tot_none_zeros)
+        # self.data_col = ti.field(ti.i32, shape=max_tot_none_zeros)
+        # self.data_val = ti.field(real, shape=max_tot_none_zeros)
         self.data_x = ti.field(real, shape=self.max_num_dof)
-        self.entryCol = ti.field(ti.i32, shape=max_tot_none_zeros)
-        self.entryVal = ti.Matrix.field(self.dim, self.dim, real, shape=max_tot_none_zeros)
+
+        self.entryCol = ti.field(ti.i32)
+        self.entryVal = ti.Matrix.field(self.dim, self.dim, real)
+        ti.root.dense(ti.i, self.max_num_dof).dense(ti.i, nonzero_width).place(self.entryCol, self.entryVal)
 
         self.nodeCNTol = ti.field(real, shape=self.max_num_dof)
 
@@ -193,9 +194,9 @@ class MPMSolverImplicit:
 
         self.result = ti.field(real, shape=self.max_num_dof) # for debug purpose only
 
-        self.matrix = SparseMatrix(max_row_num=self.max_num_dof, defualt_none_zero_width=nonezero_width, max_tot_none_zeros=max_tot_none_zeros)
-        self.matrix1 = SparseMatrix() # for test Gradient only
-        self.matrix2 = SparseMatrix() # for test Gradient only
+        self.matrix = SparseMatrix(max_row_num=self.max_num_dof, defualt_nonzero_width=nonzero_width)
+        # self.matrix1 = SparseMatrix() # for test Gradient only
+        # self.matrix2 = SparseMatrix() # for test Gradient only
         self.cgsolver = CGSolver()
 
         self.analytic_collision = []

@@ -12,15 +12,15 @@ class SparseMatrix:
     '''
     def __init__(self,
                  shape_=None,
-                 max_row_num=1000000,
-                 defualt_none_zero_width=1000,
-                 max_tot_none_zeros=1000000 * 1000):
+                 max_row_num=2**20,
+                 defualt_nonzero_width=2**10):
         self.max_row_num = max_row_num
-        self.defualt_none_zero_width = defualt_none_zero_width
+        self.defualt_nonzero_width = defualt_nonzero_width
         self.rows = ti.field(ti.i32, shape=())  # num of rows
         self.cols = ti.field(ti.i32, shape=())  # num of columns
-        self.coef_value = ti.field(real, shape=max_tot_none_zeros)
-        self.col_index = ti.field(ti.i32, shape=max_tot_none_zeros)
+        self.coef_value = ti.field(real)
+        self.col_index = ti.field(ti.i32)
+        ti.root.dense(ti.i,max_row_num).dense(ti.i,defualt_nonzero_width).place(self.coef_value, self.col_index)
         self.outerIndex = ti.field(ti.i32, shape=max_row_num)
         self.innerNonZeros = ti.field(ti.i32, shape=max_row_num)
         # For computation storage only
@@ -39,7 +39,7 @@ class SparseMatrix:
         self.outerIndex.fill(0)
         self.innerNonZeros.fill(0)
         for i in range(self.rows[None]):
-            self.outerIndex[i] = i * self.defualt_none_zero_width
+            self.outerIndex[i] = i * self.defualt_nonzero_width
         for i in range(self.rows[None]):
             idx = self.outerIndex[i]
             self.coef_value[idx] = 1.0
@@ -58,7 +58,7 @@ class SparseMatrix:
         self.outerIndex.fill(0)
         self.innerNonZeros.fill(0)
         for i in range(self.rows[None]):
-            self.outerIndex[i] = i * self.defualt_none_zero_width
+            self.outerIndex[i] = i * self.defualt_nonzero_width
         n = data_row.shape[0]
         for i in range(n):
             row, col, val = data_row[i], data_col[i], data_val[i]
@@ -110,7 +110,7 @@ class SparseMatrix:
         self.innerNonZeros.from_numpy(np.array([1, 3, 1, 3, 3]))
 
     def prepareColandVal(self, num, d=2):
-        self.initShape(d * num, d * num, self.defualt_none_zero_width)
+        self.initShape(d * num, d * num, self.defualt_nonzero_width)
 
     @ti.kernel
     def initShape(self, row: ti.i32, col: ti.i32, rowsize: ti.i32):
