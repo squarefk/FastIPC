@@ -13,6 +13,7 @@ import scipy.sparse
 import scipy.sparse.linalg
 from sksparse.cholmod import *
 from dihedral_angle import *
+from simplex_volume import *
 
 ##############################################################################
 testcase = int(sys.argv[1])
@@ -24,9 +25,9 @@ dim = 3
 codim = 2
 gravity = settings['gravity']
 thickness = 0.0003
-E = 3e9
+E = 1e9
 nu = 0.3
-base_bending_weight = 100 #E * thickness ** 3 / (24 * (1 - nu * nu))
+base_bending_weight = 10 # E * thickness ** 3 / (24 * (1 - nu * nu))
 quasi_static = True
 
 ##############################################################################
@@ -78,8 +79,15 @@ data_rhs_fd = ti.field(real, shape=n_particles * dim)
 data_row = ti.field(ti.i32, shape=MAX_LINEAR)
 data_col = ti.field(ti.i32, shape=MAX_LINEAR)
 data_val = ti.field(real, shape=MAX_LINEAR)
-data_sol = ti.field(real, shape=n_particles * dim)
 cnt = ti.field(ti.i32, shape=())
+
+hessianXx_row = ti.field(ti.i32, shape=MAX_LINEAR)
+hessianXx_col = ti.field(ti.i32, shape=MAX_LINEAR)
+hessianXx_val = ti.field(real, shape=MAX_LINEAR)
+cntXx = ti.field(ti.i32, shape=())
+
+data_sol = ti.field(real, shape=n_particles * dim)
+
 dfx = ti.field(ti.i32, shape=n_particles * dim)
 
 v_ = ti.Vector.field(dim, real, shape=4)
@@ -139,11 +147,11 @@ def compute_vol_and_m():
         la[i], mu[i] = compute_lame_parameters(i)
         
     for i in range(n_edges):
+        rest_e[i] = (x[edges[i, 0]] - x[edges[i, 1]]).norm()
         if edges[i, 3] < 0:
             rest_h[i] = 1 
             continue
         rest_angle[i] = 0.0
-        rest_e[i] = (x[edges[i, 0]] - x[edges[i, 1]]).norm()
         x0 = x[edges[i, 2]]
         x1 = x[edges[i, 0]]
         x2 = x[edges[i, 1]]
@@ -176,6 +184,13 @@ def move_nodes(current_time):
                 x(d)[i] = dirichlet_value[i, d]
     rest_angle.from_numpy(settings['rest_angle'](current_time))
 
+@ti.kernel
+def check_edge_error() -> real:
+    edge_error = 0
+    for e in range(n_edges):
+        l = (x[edges[e, 0]] - x[edges[e, 1]]).norm()
+        edge_error += ti.abs(l - rest_e[e]) / rest_e[e]
+    return edge_error
 
 @ti.kernel
 def compute_energy() -> real:
@@ -188,7 +203,7 @@ def compute_energy() -> real:
     for e in range(n_elements):
         F = compute_T(e) @ B[e]
         lnJ = 0.5 * ti.log(F.determinant())
-        mem = 0.5 * mu[e] * (F.trace() - 3 - 2 * lnJ) + 0.5 * la[e] * lnJ * lnJ
+        mem = 0.5 * mu[e] * (F.trace() - 2 - 2 * lnJ) + 0.5 * la[e] * lnJ * lnJ
         total_energy += mem * dt * dt * vol0[e]
     
     # bending
@@ -206,6 +221,7 @@ def compute_energy() -> real:
 
 @ti.kernel
 def compute_gradient():
+    # negtive gradient
     # inertia
     for i in range(n_particles):
         for d in ti.static(range(dim)):
@@ -255,7 +271,6 @@ def compute_gradient():
             data_rhs[3 * edges[e, 0] + d] -= grad[1 * 3 + d]
             data_rhs[3 * edges[e, 1] + d] -= grad[2 * 3 + d]
             data_rhs[3 * edges[e, 3] + d] -= grad[3 * 3 + d]
-
 
 
 def check_gradient():
@@ -404,6 +419,8 @@ def compute_hessian(pd: ti.int32):
                             vertices[e, 2] * 3, vertices[e, 2] * 3 + 1, vertices[e, 2] * 3 + 2])
         for i in ti.static(range(9)):
             for j in ti.static(range(9)):
+                if dfx[indMap[i]] or dfx[indMap[j]]:
+                    hessian[i, j] = 0
                 c = cnt[None] + e * 81 + i * 9 + j
                 data_row[c], data_col[c], data_val[c] = indMap[i], indMap[j], hessian[i, j]
     cnt[None] += 81 * n_elements
@@ -429,65 +446,133 @@ def compute_hessian(pd: ti.int32):
                             edges[e, 3] * 3, edges[e, 3] * 3 + 1, edges[e, 3] * 3 + 2])
         for i in ti.static(range(12)):
             for j in ti.static(range(12)):
+                if dfx[indMap[i]] or dfx[indMap[j]]:
+                    H[i, j] = 0
                 c = cnt[None] + e * 144 + i * 12 + j
                 data_row[c], data_col[c], data_val[c] = indMap[i], indMap[j], H[i, j]
     cnt[None] += 144 * n_edges
 
-
-def check_dihedral_hessian():
-
-    v_ = [np.zeros((3,)) for i in range(4)]
-    # v_[0] = np.array([0.75262147, 0.04616725, 0.35718292]) * 100
-    # v_[1] = np.array([ 0.30350396,  0.02673942, -0.21536361]) * 100
-    # v_[2] = np.array([ 0.2982288 ,  0.02565782, -0.2109859 ]) * 100
-    # v_[3] = np.array([ 0.27553913,  0.0213575 , -0.19673111]) * 100
-    v_[0] = np.array([0.,0.,0.]) * 100
-    v_[1] = np.array([1.,0.,0.]) * 100
-    v_[2] = np.array([0.,1.,0.]) * 100
-    v_[3] = np.array([0.,0.,0.]) * 100
-    # # v_[0] = mesh_particles[e1]
-    # # v_[1] = mesh_particles[e2]
-    # # v_[2] = mesh_particles[e3]
-    # # v_[3] = mesh_particles[e4]
-    hess, fhess = np.zeros((12, 12)), np.zeros((12, 12))
-    numpy_hessian(v_[0], v_[1], v_[2], v_[3], hess)
-    eps = 1e-6
-    for i in range(12):
-        for j in range(12):
-            v_[j // 3][j % 3] -= eps
-            grad0, grad1 = np.zeros((12)), np.zeros((12))
-            numpy_gradient(v_[0], v_[1], v_[2], v_[3], grad0)
-            v_[j // 3][j % 3] += 2 * eps
-            numpy_gradient(v_[0], v_[1], v_[2], v_[3], grad1)
-            v_[j // 3][j % 3] -= eps
-            fhess[i, j] = (grad1[i] - grad0[i]) / (2 * eps)
-    print(hess)
-    print(np.abs(hess - fhess).max())
-    input()
+@ti.kernel
+def compute_hessian_Xx():
+    cntXx[None] = 0
     
-    # for [e1, e2, e3, e4, t] in mesh_edges:
-    #     if e4 < 0: continue
-    #     v_ = [np.zeros((3,)) for i in range(4)]
-    #     v_[0] = mesh_particles[e2]
-    #     v_[1] = mesh_particles[e3]
-    #     v_[2] = mesh_particles[e1]
-    #     v_[3] = mesh_particles[e4]
-    #     hess, fhess = np.zeros((12, 12)), np.zeros((12, 12))
-    #     numpy_hessian(v_[0], v_[1], v_[2], v_[3], hess)
-    #     eps = 1e-6
-    #     for i in range(12):
-    #         for j in range(12):
-    #             v_[j // 3][j % 3] -= eps
-    #             grad0, grad1 = np.zeros((12)), np.zeros((12))
-    #             numpy_gradient(v_[0], v_[1], v_[2], v_[3], grad0)
-    #             v_[j // 3][j % 3] += 2 * eps
-    #             numpy_gradient(v_[0], v_[1], v_[2], v_[3], grad1)
-    #             v_[j // 3][j % 3] -= eps
-    #             fhess[i, j] = (grad1[i] - grad0[i]) / (2 * eps)
-                
-        # if(np.abs(hess - fhess).max() > 1):
-        #     print(v_)
-        #     input()
+    # membrane
+    for e in range(n_elements):
+        x1, x2, x3 = x[vertices[e, 0]], x[vertices[e, 1]], x[vertices[e, 2]]
+        X1, X2, X3 = x0[vertices[e, 0]], x0[vertices[e, 1]], x0[vertices[e, 2]]
+        IB = B[e]
+        A = compute_T(e)
+        IA = A.inverse()
+        lnJ = 0.5 * ti.log(A.determinant() * IB.determinant())
+        dv_div_dX = thickness * simplex_volume_gradient(X1, X2, X3)
+        de_div_dA = ti.Vector([0.,0.,0.,0.])
+        for i in ti.static(range(2)):
+            for j in ti.static(range(2)):
+                de_div_dA[j * dim + i] = ((0.5 * mu[e] * IB[i,j] + 0.5 * (-mu[e] + la[e] * lnJ) * IA[i,j]))
+        Z = ti.Vector([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        dA_div_dx = ti.Matrix.rows([Z, Z, Z, Z])
+        dB_div_dX = ti.Matrix.rows([Z, Z, Z, Z])
+        for i in ti.static(range(3)):
+            dA_div_dx[0, 3 + i] += 2.0 * (x2[i] - x1[i])
+            dA_div_dx[0, 0 + i] -= 2.0 * (x2[i] - x1[i])
+            dA_div_dx[1, 6 + i] += (x2[i] - x1[i])
+            dA_div_dx[1, 3 + i] += (x3[i] - x1[i])
+            dA_div_dx[1, 0 + i] += - (x2[i] - x1[i]) - (x3[i] - x1[i])
+            dA_div_dx[2, 6 + i] += (x2[i] - x1[i])
+            dA_div_dx[2, 3 + i] += (x3[i] - x1[i])
+            dA_div_dx[2, 0 + i] += - (x2[i] - x1[i]) - (x3[i] - x1[i])
+            dA_div_dx[3, 6 + i] += 2.0 * (x3[i] - x1[i])
+            dA_div_dx[3, 0 + i] -= 2.0 * (x3[i] - x1[i])
+
+            dB_div_dX[0, 3 + i] += 2.0 * (X2[i] - X1[i])
+            dB_div_dX[0, 0 + i] -= 2.0 * (X2[i] - X1[i])
+            dB_div_dX[1, 6 + i] += (X2[i] - X1[i])
+            dB_div_dX[1, 3 + i] += (X3[i] - X1[i])
+            dB_div_dX[1, 0 + i] += - (X2[i] - X1[i]) - (X3[i] - X1[i])
+            dB_div_dX[2, 6 + i] += (X2[i] - X1[i])
+            dB_div_dX[2, 3 + i] += (X3[i] - X1[i])
+            dB_div_dX[2, 0 + i] += - (X2[i] - X1[i]) - (X3[i] - X1[i])
+            dB_div_dX[3, 6 + i] += 2.0 * (X3[i] - X1[i])
+            dB_div_dX[3, 0 + i] -= 2.0 * (X3[i] - X1[i])
+            
+        de_div_dx = dA_div_dx.transpose() @ de_div_dA
+
+        # first term
+        hessian = dt * dt * dv_div_dX @ de_div_dx.transpose()
+
+        # second term
+        Z4 = ti.Vector([0.,0.,0.,0.])
+        dbinv_div_db = ti.Matrix.rows([Z4, Z4, Z4, Z4])
+        for m in ti.static(range(2)):
+            for n in ti.static(range(2)):
+                for i in ti.static(range(2)):
+                    for j in ti.static(range(2)): 
+                        dbinv_div_db[n * dim + m, j * dim + i] = - IB[m, i] * IB[j, n]
+        
+        d2e_divA_divB = 0.5 * mu[e] * dbinv_div_db
+        for m in ti.static(range(2)):
+            for n in ti.static(range(2)):
+                for i in ti.static(range(2)):
+                    for j in ti.static(range(2)):
+                        d2e_divA_divB[n * dim + m, j * dim + i] -= 0.25 * la[e] * IA[m, n] * IB[j, i]
+        hessian += dt * dt * vol0[e] * dB_div_dX @ d2e_divA_divB.transpose() @ dA_div_dx
+        
+        indMap = ti.Vector([vertices[e, 0] * 3, vertices[e, 0] * 3 + 1, vertices[e, 0] * 3 + 2,
+                            vertices[e, 1] * 3, vertices[e, 1] * 3 + 1, vertices[e, 1] * 3 + 2,
+                            vertices[e, 2] * 3, vertices[e, 2] * 3 + 1, vertices[e, 2] * 3 + 2])
+        for i in ti.static(range(9)):
+            for j in ti.static(range(9)):
+                if dfx[indMap[i]] or dfx[indMap[j]]:
+                    hessian[i, j] = 0
+                c = cntXx[None] + e * 81 + i * 9 + j
+                hessianXx_row[c], hessianXx_col[c], hessianXx_val[c] = indMap[i], indMap[j], hessian[i, j]
+    cntXx[None] += 81 * n_elements
+
+    # bending
+    for e in range(n_edges):
+        if edges[e, 3] < 0: continue
+        x0 = x[edges[e, 2]]
+        x1 = x[edges[e, 0]]
+        x2 = x[edges[e, 1]]
+        x3 = x[edges[e, 3]]
+
+        X0 = x0[edges[e, 2]]
+        X1 = x0[edges[e, 0]]
+        X2 = x0[edges[e, 1]]
+        X3 = x0[edges[e, 3]]
+
+        theta = dihedral_angle(x0, x1, x2, x3, edges[e, 4])
+        grad = dihedral_angle_gradient(x0, x1, x2, x3)
+
+        dA1_div_dX = simplex_volume_gradient(X0, X1, X2)
+        dA2_div_dX = simplex_volume_gradient(X0, X1, X3)
+
+        dAsum_div_dX = ti.Vector([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        for d in ti.static(range(3)):
+            dAsum_div_dX[dim * 0 + d] = dA1_div_dX[dim * 0 + d] + dA2_div_dX[dim * 0 + d]
+            dAsum_div_dX[dim * 1 + d] = dA1_div_dX[dim * 1 + d] + dA2_div_dX[dim * 1 + d]
+            dAsum_div_dX[dim * 2 + d] = dA1_div_dX[dim * 2 + d]
+            dAsum_div_dX[dim * 3 + d] = dA2_div_dX[dim * 2 + d]
+        
+        n = (X0 - X1).normalized()
+        dl_div_dX = ti.Vector([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        for d in ti.static(range(3)):
+            dl_div_dX[dim * 0 + d] = n[d]
+            dl_div_dX[dim * 1 + d] = - n[d]
+
+        H = weight[e] * dt * dt * 2 * (theta - rest_angle[e]) / rest_h[e] *  (2 * dl_div_dX - dAsum_div_dX / (3 * rest_h[e])) @ grad.transpose()
+        
+        indMap = ti.Vector([edges[e, 2] * 3, edges[e, 2] * 3 + 1, edges[e, 2] * 3 + 2,
+                            edges[e, 0] * 3, edges[e, 0] * 3 + 1, edges[e, 0] * 3 + 2,
+                            edges[e, 1] * 3, edges[e, 1] * 3 + 1, edges[e, 1] * 3 + 2,
+                            edges[e, 3] * 3, edges[e, 3] * 3 + 1, edges[e, 3] * 3 + 2])
+        for i in ti.static(range(12)):
+            for j in ti.static(range(12)):
+                if dfx[indMap[i]] or dfx[indMap[j]]:
+                    H[i, j] = 0
+                c = cntXx[None] + e * 144 + i * 12 + j
+                hessianXx_row[c], hessianXx_col[c], hessianXx_val[c] = indMap[i], indMap[j], H[i, j]
+    cntXx[None] += 144 * n_edges
 
 
 def check_hessian():
@@ -570,14 +655,14 @@ def solve_system(current_time):
     if cnt[None] >= MAX_LINEAR:
         print("FATAL ERROR: Array Too Small!")
     print("Total entries: ", cnt[None])
-    with Timer("DBC 0"):
+    # with Timer("DBC 0"):
         # dfx.from_numpy(D.astype(np.int32))
-        @ti.kernel
-        def DBC_set_zeros():
-            for i in range(cnt[None]):
-                if dfx[data_row[i]] or dfx[data_col[i]]:
-                    data_val[i] = 0
-        DBC_set_zeros()
+        # @ti.kernel
+        # def DBC_set_zeros():
+        #     for i in range(cnt[None]):
+        #         if dfx[data_row[i]] or dfx[data_col[i]]:
+        #             data_val[i] = 0
+        # DBC_set_zeros()
     with Timer("Taichi to numpy"):
         row, col, val = data_row.to_numpy()[:cnt[None]], data_col.to_numpy()[:cnt[None]], data_val.to_numpy()[:cnt[None]]
         rhs = data_rhs.to_numpy()
@@ -707,7 +792,7 @@ if __name__ == "__main__":
             v.from_numpy(v_)
         newton_iter_total = 0
         current_time = f_start * dt
-        for f in range(f_start, 10000):
+        for f in range(f_start, 120):
             with Timer("Time Step"):
                 print("==================== Frame: ", f, " ====================")
                 for step in range(sub_steps):
@@ -749,6 +834,7 @@ if __name__ == "__main__":
                     compute_v()
                     if quasi_static:
                         v.from_numpy(np.zeros((n_particles, 3)))
+                    print("Edge Error: ", check_edge_error())
                     current_time += dt
                     newton_iter_total += newton_iter
                 print("Avg Newton iter: ", newton_iter_total / (f + 1))

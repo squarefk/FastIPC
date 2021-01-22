@@ -157,11 +157,11 @@ def dihedral_angle_hessian(v2, v0, v1, v3):
 
 
 @ti.kernel
-def numpy_gradient(v2: ti.ext_arr(), v0: ti.ext_arr(), v1: ti.ext_arr(), v3: ti.ext_arr(), arr: ti.ext_arr()):
-    v2_ti = ti.Vector([v2[0], v2[1], v2[2]])
-    v0_ti = ti.Vector([v0[0], v0[1], v0[2]]) 
-    v1_ti = ti.Vector([v1[0], v1[1], v1[2]])    
-    v3_ti = ti.Vector([v3[0], v3[1], v3[2]])
+def dihedral_angle_gradient_numpy(v: ti.ext_arr(), arr: ti.ext_arr()):
+    v2_ti = ti.Vector([v[0], v[1], v[2]])
+    v0_ti = ti.Vector([v[3], v[4], v[5]]) 
+    v1_ti = ti.Vector([v[6], v[7], v[8]])    
+    v3_ti = ti.Vector([v[9], v[10], v[11]])
 
     grad = dihedral_angle_gradient(v2_ti, v0_ti, v1_ti, v3_ti)
 
@@ -169,11 +169,11 @@ def numpy_gradient(v2: ti.ext_arr(), v0: ti.ext_arr(), v1: ti.ext_arr(), v3: ti.
         arr[i] = grad[i]
 
 @ti.kernel
-def numpy_hessian(v2: ti.ext_arr(), v0: ti.ext_arr(), v1: ti.ext_arr(), v3: ti.ext_arr(), arr: ti.ext_arr()):
-    v2_ti = ti.Vector([v2[0], v2[1], v2[2]])
-    v0_ti = ti.Vector([v0[0], v0[1], v0[2]]) 
-    v1_ti = ti.Vector([v1[0], v1[1], v1[2]])    
-    v3_ti = ti.Vector([v3[0], v3[1], v3[2]])
+def dihedral_angle_hessian_numpy(v: ti.ext_arr(), arr: ti.ext_arr()):
+    v2_ti = ti.Vector([v[0], v[1], v[2]])
+    v0_ti = ti.Vector([v[3], v[4], v[5]]) 
+    v1_ti = ti.Vector([v[6], v[7], v[8]])    
+    v3_ti = ti.Vector([v[9], v[10], v[11]])
 
     hess = dihedral_angle_hessian(v2_ti, v0_ti, v1_ti, v3_ti)
 
