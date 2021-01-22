@@ -356,10 +356,11 @@ class SparseMatrix:
 
 @ti.data_oriented
 class CGSolver:
-    def __init__(self, max_row_num=1000000, dim=2):
+    def __init__(self, max_row_num=1000000, dim=2, preconditioner=1):
         self.dim = dim
         self.N = ti.field(ti.i32, shape=())
         self.stride = 1
+        self.preconditioner = preconditioner # 0: none 1: diagonal
         self.r = ti.field(real, shape=max_row_num)  # residual
         self.q = ti.field(real, shape=max_row_num)  # z
         self.x = ti.field(real, shape=max_row_num)  # solution
@@ -477,7 +478,10 @@ class CGSolver:
     @ti.kernel
     def precondition(self):  # q = M^-1 r
         for I in range(self.N[None]):
-            self.q[I] = self.r[I] / self.A_diag[I]
+            if ti.static(self.preconditioner == 0): # identity
+                self.q[I] = self.r[I]
+            if ti.static(self.preconditioner == 1): # diagonal
+                self.q[I] = self.r[I] / self.A_diag[I]
 
         if ti.static(self.useBlockDiagonalPreconditioner):
             #NOTE: we grab chunk from q not r because we also want the diagonal conditioning!
