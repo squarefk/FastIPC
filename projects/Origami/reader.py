@@ -235,7 +235,7 @@ def read():
         # settings["mesh_particles"] *= 0.1
         def dirichlet(t):
             x = settings['mesh_particles']
-            elem = settings['mesh_elements'][0]
+            elem = settings['mesh_elements'][20]
             fixed = np.array([False] * x.shape[0])
             fixed[elem[0]] = True
             fixed[elem[1]] = True
@@ -260,7 +260,7 @@ def read():
     elif testcase == 1004:
         init(3)
         settings['gravity'] = 0
-        parse_fold("input/simple_fold.fold")
+        parse_fold("input/debug.fold")
         def dirichlet(t):
             x = settings['mesh_particles']
             elem = settings['mesh_elements'][0]
@@ -290,6 +290,35 @@ def read():
         init(3)
         settings['gravity'] = 0
         parse_fold("input/wing_cp.fold")
+        def dirichlet(t):
+            x = settings['mesh_particles']
+            elem = settings['mesh_elements'][0]
+            fixed = np.array([False] * x.shape[0])
+            fixed[elem[0]] = True
+            fixed[elem[1]] = True
+            fixed[elem[2]] = True
+            return fixed, x.copy()
+
+        def rest_angle(t):
+            types = settings['mesh_edges'][:, 4]
+            if t < 4:
+                rest_angle = np.pi / 4 * t * types
+            else:
+                rest_angle = np.pi * types
+            return rest_angle
+            # return np.zeros_like(types)
+
+        settings['dirichlet'] = dirichlet
+        settings['rest_angle'] = rest_angle
+        adjust_camera()
+        # settings['mesh_scale'] *= 0.1
+        # settings['mesh_offset'] += [0.35, 0.5, 0.5]
+        return settings
+
+    elif testcase == 1006:
+        init(3)
+        settings['gravity'] = 0
+        parse_fold("input/huffmanWaterbomb.fold")
         def dirichlet(t):
             x = settings['mesh_particles']
             elem = settings['mesh_elements'][0]

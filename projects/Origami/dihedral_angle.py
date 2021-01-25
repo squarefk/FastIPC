@@ -1,5 +1,6 @@
 import taichi as ti
 import numpy as np
+from diff_test import *
 
 @ti.func
 def dihedral_angle(v0, v1, v2, v3, crease_type):
@@ -157,6 +158,14 @@ def dihedral_angle_hessian(v2, v0, v1, v3):
 
 
 @ti.kernel
+def dihedral_angle_numpy(v: ti.ext_arr()) -> ti.f64:
+    v2_ti = ti.Vector([v[0], v[1], v[2]])
+    v0_ti = ti.Vector([v[3], v[4], v[5]]) 
+    v1_ti = ti.Vector([v[6], v[7], v[8]])    
+    v3_ti = ti.Vector([v[9], v[10], v[11]])
+    return dihedral_angle(v2_ti, v0_ti, v1_ti, v3_ti, 0)
+
+@ti.kernel
 def dihedral_angle_gradient_numpy(v: ti.ext_arr(), arr: ti.ext_arr()):
     v2_ti = ti.Vector([v[0], v[1], v[2]])
     v0_ti = ti.Vector([v[3], v[4], v[5]]) 
@@ -167,6 +176,7 @@ def dihedral_angle_gradient_numpy(v: ti.ext_arr(), arr: ti.ext_arr()):
 
     for i in ti.static(range(12)):
         arr[i] = grad[i]
+
 
 @ti.kernel
 def dihedral_angle_hessian_numpy(v: ti.ext_arr(), arr: ti.ext_arr()):
@@ -180,3 +190,9 @@ def dihedral_angle_hessian_numpy(v: ti.ext_arr(), arr: ti.ext_arr()):
     for i in ti.static(range(12)):
         for j in ti.static(range(12)):
             arr[i, j] = hess[i, j]
+
+
+if __name__ == '__main__':
+    v = np.random.random((12)).astype(np.float64) * 10
+    check_jacobian(v, dihedral_angle_gradient_numpy, dihedral_angle_hessian_numpy, v.size, eps=1e-3)
+    check_gradient(v, dihedral_angle_numpy, dihedral_angle_gradient_numpy)
