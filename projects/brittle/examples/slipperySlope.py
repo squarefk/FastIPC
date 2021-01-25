@@ -56,7 +56,7 @@ useDFG = True
 frictionCoefficient = 0.1
 verbose = False
 useAPIC = True
-symplectic = True
+symplectic = False
 flipPicRatio = 0.0
 
 initialVelocity = [[0.0,0.0], [0.0,0.0]]

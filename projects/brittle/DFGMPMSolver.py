@@ -70,12 +70,15 @@ class DFGMPMSolver:
         self.useDamage = False
         self.activeNodes = ti.field(dtype=int, shape=()) #track current active nodes
         self.separableNodes = ti.field(dtype=int, shape=()) #track current separable nodes
-        self.symplectic = symplectic
-        self.useImplicitContact = True
         self.gravity = ti.Vector.field(self.dim, dtype=float, shape=())
         self.prescoredDamage = False if len(prescoredDamageList) == 0 else True
         self.prescoredDamageList = np.array(prescoredDamageList)
         
+        #Implicit Variables
+        self.symplectic = symplectic
+        self.useImplicitContact = True
+        self.useBDP = True
+
         #Collision Variables
         self.collisionCallbacks = [] #hold function callbacks for post processing velocity
         self.transformCallbacks = [] #hold callbacks for moving our boundaries
@@ -466,6 +469,12 @@ class DFGMPMSolver:
         d = M[1,0]
         e = M[2,1]
         f = M[2,0]
+
+        #Now let's threshold d, e, and f to make sure they are not just numerical error
+        epsilon = 1e-9
+        if d < epsilon: d = 0.0
+        if e < epsilon: e = 0.0
+        if f < epsilon: f = 0.0
 
         #First check if we have a diagonal matrix
         if d**2 + e**2 + f**2 == 0.0:
@@ -1012,7 +1021,7 @@ class DFGMPMSolver:
                 Dc = dp - (self.l0**2 * self.damageLaplacians[p])
                 
                 #Get cauchy stress and its eigenvalues and eigenvectors, then construct sigmaPlus
-                kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, self.mu[p], self.la[p]) #FCR elasticity             
+                kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, self.mu[p], self.la[p]) #FCR elasticity
                 
                 sigmaPlus = ti.Matrix.identity(float, self.dim)
                 if ti.static(self.dim == 2):
@@ -1069,6 +1078,8 @@ class DFGMPMSolver:
             la = self.la[p]
             #Compute Kirchoff Stress
             kirchoff = self.kirchoff_FCR(self.F[p], U@V.transpose(), J, mu, la)
+
+            print("F:", self.F[p], "kirchoff:", kirchoff*1e10)
 
             #NOTE Grab the sigmaMax here so we can learn how to better threshold the stress for damage
             if ti.static(self.dim == 2):
@@ -1845,7 +1856,7 @@ class DFGMPMSolver:
         if self.useImplicitContact:
             self.sdof2ndof.fill(0)
             self.constructMapping()
-            self.cgsolver.compute(self.matrix, stride = self.dim, useBDP = False, sdof2ndof = self.sdof2ndof, sdof = sdof)
+            self.cgsolver.compute(self.matrix, stride = self.dim, useBDP = self.useBDP, sdof2ndof = self.sdof2ndof, sdof = sdof)
         else:
             self.cgsolver.compute(self.matrix, stride = self.dim)
         self.cgsolver.setBoundary(self.boundary) #TODO:Slip and Moving Boundaries

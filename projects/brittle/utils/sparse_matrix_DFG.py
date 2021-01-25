@@ -367,6 +367,7 @@ class CGSolver:
         self.Ap = ti.field(real, shape=max_row_num)
         self.alpha = ti.field(real, shape=())
         self.beta = ti.field(real, shape=())
+        self.qInf = ti.field(real, shape=())
 
         self.boundary = ti.field(real, shape=max_row_num)
 
@@ -495,6 +496,12 @@ class CGSolver:
                 for d in range(dim):
                     r[I * dim + d] = 0
 
+    @ti.kernel
+    def computeQInf(self):
+        self.qInf[None] = 0.0
+        for I in range(self.N[None]):
+            ti.atomic_max(self.qInf[None], ti.abs(self.q[I]))
+
     def solve(self,
               b,
               verbose=True,
@@ -517,7 +524,11 @@ class CGSolver:
         zTr = self.dotProduct(self.r, self.q)
         residual_preconditioned_norm = ti.sqrt(zTr)
         for cnt in range(max_iterations):
-            if residual_preconditioned_norm < terminate_residual:
+            #NOTE old termination condition = if residual_preconditioned_norm < terminate_residual:
+            
+            #Always compute infinity norm of q before we try to use it
+            self.computeQInf()
+            if self.qInf[None] < 1e-4:
                 if verbose:
                     print("CG terminates at", cnt, "; residual =",
                           residual_preconditioned_norm)
