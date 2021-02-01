@@ -159,9 +159,8 @@ def adjust_camera():
         settings['mesh_offset'] = - ((upper + lower) * 0.5) * settings['mesh_scale']
 
 
-def read():
+def read(testcase):
     ################################################### GENERAL ##################################################
-    testcase = int(sys.argv[1])
     # settings['start_frame'] = int(sys.argv[2])
     # settings['dt'] = float(sys.argv[3])
     # settings['E'] = float(sys.argv[4])
@@ -265,17 +264,7 @@ def read():
         fixed[elem[1]] = True
         fixed[elem[2]] = True
 
-        def rest_angle(t):
-            types = settings['mesh_edges'][:, 4]
-            if t < 4:
-                rest_angle = np.pi / 4 * t * types
-            else:
-                rest_angle = np.pi * types
-            return rest_angle
-            # return np.zeros_like(types)
-
         settings['dirichlet'] = fixed
-        settings['rest_angle'] = rest_angle
         adjust_camera()
         # settings['mesh_scale'] *= 0.1
         # settings['mesh_offset'] += [0.35, 0.5, 0.5]
