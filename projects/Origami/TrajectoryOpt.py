@@ -4,6 +4,7 @@ from StaticShell import StaticShell
 from logger import *
 from timer import *
 import taichi as ti
+import scipy.io
 
 class TrajectoryOpt:
 
@@ -12,8 +13,12 @@ class TrajectoryOpt:
         settings = read(test_case)
         settings['directory'] = directory
         self.simulator = StaticShell(settings=settings)
-        self.trajectory = None
         self.design_variable = self.simulator.X.to_numpy().flatten()
+        data = scipy.io.loadmat('input/wing_tips.mat')
+        self.target_inner_trajectory = data['left']
+        self.target_outer_trajectory = data['right']
+        self.four_vertices = settings['four_vertices']
+
     
     def forward(self):
         self.simulator.X.from_numpy(self.design_variable.view().reshape([self.simulator.n_particles, 3]))
@@ -35,6 +40,9 @@ class TrajectoryOpt:
     def gradient(self, x):
         self.design_variable[:] = x # copy x into design variable
         pass
+
+    def constraint(self, x):
+        
             
 
 if __name__ == "__main__":
@@ -49,5 +57,6 @@ if __name__ == "__main__":
 
     with Logger(directory + f'log.txt'):
         opt = TrajectoryOpt(directory)
-        opt.forward()
+        # opt.forward()
+        opt.simulator.output_X(0)
     

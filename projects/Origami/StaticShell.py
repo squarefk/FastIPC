@@ -93,6 +93,7 @@ class StaticShell:
             self.dfx.from_numpy(D.astype(np.int32))
             self.directory = settings['directory']
             self.construct_indMap()
+            self.face_colors = settings["mesh_face_colors"]
         
         self.set_target_angle(0.0)
         self.set_bending_weight(10.0)
@@ -562,21 +563,35 @@ class StaticShell:
     
     def output_x(self, f):
         particle_pos = self.x.to_numpy()
-        vertices_ = self.vertices.to_numpy()
         meshio.write_points_cells(
             self.directory + f'objs/world_{f:06d}.obj',
-            particle_pos,
+            self.x.to_numpy(),
             [("triangle", self.vertices.to_numpy())]
         )
 
     def output_X(self, f):
-        particle_pos = self.X.to_numpy()
-        vertices_ = self.vertices.to_numpy()
-        meshio.write_points_cells(
-            self.directory + f'objs/material_{f:06d}.obj',
-            particle_pos,
-            [("triangle", self.vertices.to_numpy())]
-        )
+        pos = self.X.to_numpy()
+        vertices = self.vertices.to_numpy()
+        edges = self.edges.to_numpy()
+        s =  f"ply\nformat ascii 1.0\n"
+        s += f"element vertex {len(pos)}\n"
+        s += f"property float x\nproperty float y\nproperty float z\n"
+        s += f"element face {len(vertices)}\n"
+        s += f"property list uchar int vertex_index\n"
+        s += f"property uchar red\nproperty uchar green\nproperty uchar blue\n"
+        s += f"end_header\n"
+        for i in range(self.n_particles):
+            s += f"{pos[i, 0]} {pos[i, 1]} {pos[i, 2]}\n"
+        for i in range(self.n_elements):
+            if self.face_colors[i] == -1:
+                color = [217, 106, 106]
+            else:
+                color = [66, 135, 245]
+            s += f"3 {vertices[i, 0]} {vertices[i, 1]} {vertices[i, 2]} {color[0]} {color[1]} {color[2]}\n"
+        
+        with open(self.directory + f'objs/material_{f:06d}.ply', 'w') as f:
+            f.write(s)
+
 
     def advance(self):
         with Timer("Advance"):

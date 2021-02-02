@@ -1,4 +1,3 @@
-import taichi as ti
 import numpy as np
 
 def finite_gradient(x, f, eps = 1e-6):
