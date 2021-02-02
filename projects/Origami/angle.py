@@ -17,7 +17,7 @@ def compute_mHat(xp, xe0, xe1):
     mHat /= np.linalg.norm(mHat)
     return mHat
 
-def angel_gradient(v0, v1, v2):
+def angle_gradient(v0, v1, v2):
     n1 = (v1 - v0)
     n2 = (v2 - v0)
     da_dv1 = compute_mHat(v2, v0, v1) / np.linalg.norm(n1)
@@ -27,16 +27,18 @@ def angel_gradient(v0, v1, v2):
 
 if __name__ == "__main__":
     def f(x):
-        v0 = x[0:2]
-        v1 = x[2:4]
-        v2 = x[4:6]
+        v0 = x[0:3]
+        v1 = x[3:6]
+        v2 = x[6:9]
         return angle(v0, v1, v2)
     def g(x):
-        v0 = x[0:2]
-        v1 = x[2:4]
-        v2 = x[4:6]
-        return angel_gradient(v0, v1, v2)
+        v0 = x[0:3]
+        v1 = x[3:6]
+        v2 = x[6:9]
+        return angle_gradient(v0, v1, v2)
 
-    x = np.random.random((6,))
-    print(g(x))
-    print(finite_gradient(x, f))
+    x = np.random.random((9,))
+    check_gradient(x, f, g)
+    check_gradient(x, f, g)
+    check_gradient(x, f, g)
+    check_gradient(x, f, g)
