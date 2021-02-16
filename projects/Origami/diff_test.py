@@ -1,6 +1,6 @@
 import numpy as np
 
-def finite_gradient(x, f, eps = 1e-6):
+def finite_gradient(x, f, eps = 1e-4):
     grad = np.zeros_like(x)
     xx = x.copy()
     for d in range(x.size):
@@ -12,7 +12,7 @@ def finite_gradient(x, f, eps = 1e-6):
         grad[d] /= (2 * eps)
     return grad
 
-def check_gradient(x, f, g, eps = 1e-6, pass_ratio = 1e-3):
+def check_gradient(x, f, g, eps = 1e-4, pass_ratio = 1e-3):
     dx = 2 * eps * (np.random.random(x.shape) - 0.5).astype(np.float64)
     x0 = x - dx
     x1 = x + dx
@@ -37,7 +37,8 @@ def check_jacobian(x, f, g, f_dim, eps = 1e-4, pass_ratio = 1e-3):
     try:
         f0 = f(x0)
         f1 = f(x1)
-    except:
+    except Exception as e:
+        print(e)
         f0, f1 = np.zeros((f_dim, )), np.zeros((f_dim, ))
         f(x0, f0)
         f(x1, f1)
@@ -45,7 +46,8 @@ def check_jacobian(x, f, g, f_dim, eps = 1e-4, pass_ratio = 1e-3):
     try:
         g0 = g(x0)
         g1 = g(x1)
-    except:
+    except Exception as e:
+        print(e)
         g0, g1 = np.zeros((f_dim, x.size)), np.zeros((f_dim, x.size))
         g(x0, g0)
         g(x1, g1)

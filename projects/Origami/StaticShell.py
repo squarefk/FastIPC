@@ -13,6 +13,7 @@ import scipy.sparse.linalg
 from sksparse.cholmod import *
 from dihedral_angle import *
 from simplex_volume import *
+import scipy.io
 
 real = ti.f64
 
@@ -36,10 +37,12 @@ class StaticShell:
     edge_indMap = ti.field(ti.int32)
 
     thickness = 0.0003
-    base_bending_weight = 10
     E = 1e9
     nu = 0.3
     density = 800.
+    paper_bending_weight = E * thickness ** 3 / (24 * (1 - nu * nu))
+    base_bending_weight = 1
+
 
     newton_tol = 1e-3
 
@@ -562,12 +565,27 @@ class StaticShell:
                 self.x(d)[i] = self.xPrev(d)[i] + self.data_sol[i * self.dim + d] * alpha
     
     def output_x(self, f):
-        particle_pos = self.x.to_numpy()
-        meshio.write_points_cells(
-            self.directory + f'objs/world_{f:06d}.obj',
-            self.x.to_numpy(),
-            [("triangle", self.vertices.to_numpy())]
-        )
+        pos = self.x.to_numpy()
+        vertices = self.vertices.to_numpy()
+        edges = self.edges.to_numpy()
+        s =  f"ply\nformat ascii 1.0\n"
+        s += f"element vertex {len(pos)}\n"
+        s += f"property float x\nproperty float y\nproperty float z\n"
+        s += f"element face {len(vertices)}\n"
+        s += f"property list uchar int vertex_index\n"
+        s += f"property uchar red\nproperty uchar green\nproperty uchar blue\n"
+        s += f"end_header\n"
+        for i in range(self.n_particles):
+            s += f"{pos[i, 0]} {pos[i, 1]} {pos[i, 2]}\n"
+        for i in range(self.n_elements):
+            if self.face_colors[i] == -1:
+                color = [217, 106, 106]
+            else:
+                color = [66, 135, 245]
+            s += f"3 {vertices[i, 0]} {vertices[i, 1]} {vertices[i, 2]} {color[0]} {color[1]} {color[2]}\n"
+        
+        with open(self.directory + f'objs/world_{f:06d}.ply', 'w') as f:
+            f.write(s)
 
     def output_X(self, f):
         pos = self.X.to_numpy()
@@ -591,8 +609,15 @@ class StaticShell:
         
         with open(self.directory + f'objs/material_{f:06d}.ply', 'w') as f:
             f.write(s)
-
-
+        
+    def save_state(self, f):
+        scipy.io.savemat(self.directory + f'caches/state_{f:06d}.mat', mdict={'x': self.x.to_numpy(), 'rest_angle': self.rest_angle.to_numpy()})
+    
+    def load_state(self, f):
+        data = scipy.io.loadmat(self.directory + f'caches/state_{f:06d}.mat')
+        self.x.from_numpy(data['x'])
+        self.rest_angle.from_numpy(data['rest_angle'][0])
+    
     def advance(self):
         with Timer("Advance"):
             newton_iter = 0
@@ -635,7 +660,6 @@ class StaticShell:
         dLdy = -selected_rows.dot(sol)
         dLdX += dLdy
         return dLdX
-            
 
     
 if __name__ == "__main__":

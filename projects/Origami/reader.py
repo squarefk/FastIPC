@@ -6,16 +6,6 @@ from scipy.spatial.transform import Rotation
 import os, sys
 import json
 
-def read_msh(filename):
-    f = open(filename, 'r')
-    lines = f.readlines()
-    raw_particles = lines[lines.index('$Nodes\n') + 3:lines.index('$EndNodes\n')]
-    raw_elements = lines[lines.index('$Elements\n') + 3:lines.index('$EndElements\n')]
-    mesh_particles = np.array(list(map(lambda x: list(map(float, x[:-1].split(' ')[1:])), raw_particles)))
-    mesh_elements = np.array(list(map(lambda x: list(map(int, x[:-1].split(' ')[1:])), raw_elements))) - 1
-    return mesh_particles, mesh_elements
-
-
 settings = {}
 
 def color_faces(elements, edges):
@@ -93,7 +83,6 @@ def parse_fold(filename):
     settings["mesh_elements"] = np.array(data["faces_vertices"], dtype=np.int32)
     settings["mesh_edges"] = np.array(mesh_edges, dtype=np.int32)
     settings["mesh_face_colors"] = np.array(color_faces(settings["mesh_elements"], settings["mesh_edges"]), dtype=np.int32)
-    # settings["mesh_edges"] = settings["mesh_edges"][settings["mesh_edges"][:, 3] >= 0]
 
 def init(dim):
     settings['dim'] = dim
@@ -105,88 +94,6 @@ def init(dim):
         # [v0, v1, v2, v3, t] where (v0 v1) is the edge, v2 v3 are two vertices beside the edge. 
         # v0 v1 v2 are in the counter-clockwise order.
         # t is crease type: 0 - inner/boundary edges; 1 - M; -1 - V
-
-
-def add_object(filename, translation=None, rotation=None, scale=None):
-    translation = np.zeros(settings['dim']) if translation is None else np.array(translation)
-    if settings['dim'] == 2:
-        rotation = 0. if rotation is None else rotation
-    else:
-        rotation = np.zeros(settings['dim'] * 2 - 3) if rotation is None else np.array(rotation)
-    scale = np.ones(settings['dim']) if scale is None else np.array(scale)
-    if filename == 'cube':
-        n = 10
-        if settings['dim'] == 3:
-            new_particles = np.zeros((n**3, 3), dtype=np.float32)
-            for i in range(n):
-                for j in range(n):
-                    for k in range(n):
-                        new_particles[i * n * n + j * n + k, 0] = i * 0.1
-                        new_particles[i * n * n + j * n + k, 1] = j * 0.1
-                        new_particles[i * n * n + j * n + k, 2] = k * 0.1
-            new_elements = np.zeros(((n - 1)**3 * 6, 4), dtype=np.int32)
-            for i in range(n - 1):
-                for j in range(n - 1):
-                    for k in range(n - 1):
-                        f = np.array([(i + 0) * n * n + (j + 0) * n + k + 0,
-                                    (i + 1) * n * n + (j + 0) * n + k + 0,
-                                    (i + 1) * n * n + (j + 0) * n + k + 1,
-                                    (i + 0) * n * n + (j + 0) * n + k + 1,
-                                    (i + 0) * n * n + (j + 1) * n + k + 0,
-                                    (i + 1) * n * n + (j + 1) * n + k + 0,
-                                    (i + 1) * n * n + (j + 1) * n + k + 1,
-                                    (i + 0) * n * n + (j + 1) * n + k + 1])
-                        new_elements[i * (n - 1) * (n - 1) * 6 + j * (n - 1) * 6 + k * 6 + 0, :] = np.array([f[0], f[4], f[6], f[5]], dtype=np.int32)
-                        new_elements[i * (n - 1) * (n - 1) * 6 + j * (n - 1) * 6 + k * 6 + 1, :] = np.array([f[3], f[6], f[2], f[0]], dtype=np.int32)
-                        new_elements[i * (n - 1) * (n - 1) * 6 + j * (n - 1) * 6 + k * 6 + 2, :] = np.array([f[0], f[4], f[7], f[6]], dtype=np.int32)
-                        new_elements[i * (n - 1) * (n - 1) * 6 + j * (n - 1) * 6 + k * 6 + 3, :] = np.array([f[3], f[6], f[0], f[7]], dtype=np.int32)
-                        new_elements[i * (n - 1) * (n - 1) * 6 + j * (n - 1) * 6 + k * 6 + 4, :] = np.array([f[2], f[0], f[6], f[1]], dtype=np.int32)
-                        new_elements[i * (n - 1) * (n - 1) * 6 + j * (n - 1) * 6 + k * 6 + 5, :] = np.array([f[6], f[0], f[5], f[1]], dtype=np.int32)
-        else:
-            print("Not implemented!!")
-
-    elif filename[-4:] == '.msh':
-        new_particles, new_elements = read_msh(filename)
-    else:
-        mesh = meshio.read(filename)
-        new_particles = mesh.points[:, :settings['dim']]
-        new_elements = mesh.cells[0].data
-    if settings['dim'] == 2:
-        rotation *= np.pi / 180.
-        rotation_matrix = np.array([[np.cos(rotation), -np.sin(rotation)],
-                                    [np.sin(rotation), np.cos(rotation)]])
-    else:
-        rotation *= np.pi / 180.
-        rotation_matrix = Rotation.from_rotvec(rotation).as_matrix()
-    n_particles = len(new_particles)
-    for i in range(n_particles):
-        p = new_particles[i, :]
-        new_particles[i, :] = rotation_matrix @ (p * scale) + translation
-    old_particles = settings['mesh_particles']
-    old_elements = settings['mesh_elements']
-    settings['mesh_particles'] = np.vstack((old_particles, new_particles))
-    settings['mesh_elements'] = np.vstack((old_elements, new_elements + len(old_particles)))
-
-
-def set_size(absolute_scale):
-    mesh_particles = settings['mesh_particles']
-    lower = np.amin(mesh_particles, axis=0)
-    upper = np.amax(mesh_particles, axis=0)
-    relative_scale = (upper - lower).max()
-    settings['mesh_particles'] = mesh_particles / relative_scale * absolute_scale
-
-
-def adjust_camera():
-    mesh_particles = settings['mesh_particles']
-    dim = settings['dim']
-    lower = np.amin(mesh_particles, axis=0)
-    upper = np.amax(mesh_particles, axis=0)
-    if dim == 2:
-        settings['mesh_scale'] = 0.8 / (upper - lower).max()
-        settings['mesh_offset'] = [0.5, 0.5] - ((upper + lower) * 0.5) * settings['mesh_scale']
-    else:
-        settings['mesh_scale'] = 1.6 / (upper - lower).max()
-        settings['mesh_offset'] = - ((upper + lower) * 0.5) * settings['mesh_scale']
 
 
 def read(testcase):
@@ -223,7 +130,6 @@ def read(testcase):
 
         settings['dirichlet'] = dirichlet
         settings['rest_angle'] = rest_angle
-        adjust_camera()
         # settings['mesh_scale'] *= 0.1
         # settings['mesh_offset'] += [0.35, 0.5]
         return settings
@@ -250,7 +156,6 @@ def read(testcase):
 
         settings['dirichlet'] = fixed
         settings['rest_angle'] = rest_angle
-        adjust_camera()
         # settings['mesh_scale'] *= 0.1
         # settings['mesh_offset'] += [0.35, 0.5, 0.5]
         return settings
@@ -277,7 +182,6 @@ def read(testcase):
 
         settings['dirichlet'] = fixed
         settings['rest_angle'] = rest_angle
-        adjust_camera()
         # settings['mesh_scale'] *= 0.1
         # settings['mesh_offset'] += [0.35, 0.5]
         return settings
@@ -311,7 +215,24 @@ def read(testcase):
         fixed[elem[2]] = True
         settings['dirichlet'] = fixed
         four_vertices = [[21, 17, 23, 19, 15], [19, 14, 21, 18, 20], [20, 13, 19, 22, 10]]
-        settings['four_vertices'] = four_vertices
+        settings['four_vertices'] = np.array(four_vertices, dtype=np.int32)
+        return settings
+    
+    elif testcase == 1007:
+        init(3)
+        settings['gravity'] = 0
+        parse_fold("input/wing_clean.fold")
+        x = settings['mesh_particles']
+        fixed = np.array([False] * x.shape[0])
+        fixed[0] = True
+        fixed[1] = True
+        fixed[11] = True
+        fixed[14] = True
+        settings['dirichlet'] = fixed
+        four_vertices = [[14, 9, 11, 1, 12], [12, 8, 14, 2, 13], [13, 7, 12, 3, 4]]
+        settings['four_vertices'] = np.array(four_vertices, dtype=np.int32)
+        settings['inner_vertex'] = 5
+        settings['outer_vertex'] = 4
         return settings
 
     # debug

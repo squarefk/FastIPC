@@ -116,7 +116,7 @@ def icp(A, B, target_A, target_B, init_pose=None, max_iterations=100, tolerance=
     # calculate final transformation
     T,_,_ = best_fit_transform(src_bk[0:3,:].T, src[0:3,:].T)
 
-    return T, distances
+    return T, indices1, indices2
 
 if __name__ == '__main__':
     import scipy.io
