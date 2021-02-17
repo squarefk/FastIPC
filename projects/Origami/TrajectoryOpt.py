@@ -36,17 +36,14 @@ class TrajectoryOpt:
         self.target_outer_pos = []
 
         self.n_segments = 100
-
-        self.forward()
-        self.update_icp()
         self.simulator.output_X(0)
     
     def shrink_y(self, x_vec):
-        ''' x_vec is a 1D vector of (3*n, )'''
+        ''' x_vec is a 1D vector of (xxx, 3*n)'''
         return x_vec.reshape([self.simulator.n_particles, 3])[:, [0, 2]].flatten()
 
     def extend_y(self, x_vec):
-        ''' x_vec is a 1D vector of (2*n, )'''
+        ''' x_vec is a 1D vector of (xxx, 2*n)'''
         result = np.zeros([self.simulator.n_particles, 3])
         result[:, [0, 2]] = x_vec.reshape([self.simulator.n_particles, 2])
         return result.flatten()
@@ -131,7 +128,7 @@ class TrajectoryOpt:
     def constraint_jac(self, x):
         print("[Opt] evaluate constraint jacobian")
         x_vec = self.extend_y(x).reshape((self.simulator.n_particles, 3))
-        result = np.zeros((len(self.four_vertices), 3 * self.simulator.n_particles))
+        result = np.zeros((len(self.four_vertices), 2 * self.simulator.n_particles))
         for i in range(len(self.four_vertices)):
             v0 = x_vec[self.four_vertices[i, 0]]
             v1 = x_vec[self.four_vertices[i, 1]]
@@ -140,25 +137,25 @@ class TrajectoryOpt:
             v4 = x_vec[self.four_vertices[i, 4]]
             
             da0 = angle_gradient(v0, v1, v2)
-            result[i, self.four_vertices[i, 0]*3: self.four_vertices[i, 0]*3+3] += da0[0:3]
-            result[i, self.four_vertices[i, 1]*3: self.four_vertices[i, 1]*3+3] += da0[3:6]
-            result[i, self.four_vertices[i, 2]*3: self.four_vertices[i, 2]*3+3] += da0[6:9]
+            result[i, self.four_vertices[i, 0]*2: self.four_vertices[i, 0]*2+2] += da0[[0, 2]]
+            result[i, self.four_vertices[i, 1]*2: self.four_vertices[i, 1]*2+2] += da0[[3, 5]]
+            result[i, self.four_vertices[i, 2]*2: self.four_vertices[i, 2]*2+2] += da0[[6, 8]]
             
             da1 = angle_gradient(v0, v2, v3)
-            result[i, self.four_vertices[i, 0]*3: self.four_vertices[i, 0]*3+3] -= da1[0:3]
-            result[i, self.four_vertices[i, 2]*3: self.four_vertices[i, 2]*3+3] -= da1[3:6]
-            result[i, self.four_vertices[i, 3]*3: self.four_vertices[i, 3]*3+3] -= da1[6:9]
+            result[i, self.four_vertices[i, 0]*2: self.four_vertices[i, 0]*2+2] -= da1[[0, 2]]
+            result[i, self.four_vertices[i, 2]*2: self.four_vertices[i, 2]*2+2] -= da1[[3, 5]]
+            result[i, self.four_vertices[i, 3]*2: self.four_vertices[i, 3]*2+2] -= da1[[6, 8]]
 
             da2 = angle_gradient(v0, v3, v4)
-            result[i, self.four_vertices[i, 0]*3: self.four_vertices[i, 0]*3+3] += da2[0:3]
-            result[i, self.four_vertices[i, 3]*3: self.four_vertices[i, 3]*3+3] += da2[3:6]
-            result[i, self.four_vertices[i, 4]*3: self.four_vertices[i, 4]*3+3] += da2[6:9]
+            result[i, self.four_vertices[i, 0]*2: self.four_vertices[i, 0]*2+2] += da2[[0, 2]]
+            result[i, self.four_vertices[i, 3]*2: self.four_vertices[i, 3]*2+2] += da2[[3, 5]]
+            result[i, self.four_vertices[i, 4]*2: self.four_vertices[i, 4]*2+2] += da2[[6, 8]]
 
             da3 = angle_gradient(v0, v4, v1)
-            result[i, self.four_vertices[i, 0]*3: self.four_vertices[i, 0]*3+3] -= da3[0:3]
-            result[i, self.four_vertices[i, 4]*3: self.four_vertices[i, 4]*3+3] -= da3[3:6]
-            result[i, self.four_vertices[i, 1]*3: self.four_vertices[i, 1]*3+3] -= da3[6:9]
-        return self.shrink_y(result)
+            result[i, self.four_vertices[i, 0]*2: self.four_vertices[i, 0]*2+2] -= da3[[0, 2]]
+            result[i, self.four_vertices[i, 4]*2: self.four_vertices[i, 4]*2+2] -= da3[[3, 5]]
+            result[i, self.four_vertices[i, 1]*2: self.four_vertices[i, 1]*2+2] -= da3[[6, 8]]
+        return result
     
     def optimize(self):
         # https://docs.scipy.org/doc/scipy/reference/tutorial/optimize.html#tutorial-sqlsp
@@ -169,9 +166,9 @@ class TrajectoryOpt:
         def func(x):
             self.design_variable[:] = x
             self.forward()
-            return self.loss(x)
+            return self.loss()
         def gradient(x):
-            return self.gradient(x)
+            return self.gradient()
         
         current_it = 0
         def callback(x):
@@ -179,11 +176,14 @@ class TrajectoryOpt:
             self.simulator.X.from_numpy(x.reshape([self.simulator.n_particles, 3]))
             self.simulator.output_X(current_it)
         
+        self.forward()
+        self.update_icp()
+
         res = scipy.optimize.minimize(func, self.design_variable, method='SLSQP', jac=gradient,
-               constraints=[eq_cons], options={'ftol': 1e-9, 'disp': True}, maxls=0)
+               constraints=[eq_cons], options={'ftol': 1e-9, 'disp': True})
 
 
-    def diff_test(self):
+    def diff_test_objective(self):
         self.simulator.newton_tol = 1e-8
         self.n_segments = 10
         self.forward()
@@ -197,6 +197,21 @@ class TrajectoryOpt:
             self.forward()
             return self.gradient()
         check_gradient(self.design_variable, energy, gradient, eps=1e-4)
+    
+    
+    def diff_test_constraint(self):
+        min_edge_length = 10000000
+        X = self.simulator.X.to_numpy()
+        for edge in self.simulator.edges.to_numpy():
+            le = np.linalg.norm(X[edge[0]] - X[edge[1]])
+            min_edge_length = min(le, min_edge_length)
+        for sec in self.four_vertices:
+            direction = np.random.random(3)
+            direction[1] = 0
+            direction = 0.5 * min_edge_length * direction / np.linalg.norm(direction)
+            X[sec[0]] += direction
+        check_jacobian(self.shrink_y(X.flatten()), self.constraint_fun, self.constraint_jac, 3)
+
 
             
 
@@ -212,4 +227,5 @@ if __name__ == "__main__":
 
     with Logger(directory + f'log.txt'):
         opt = TrajectoryOpt(directory)
-        opt.diff_test()
+        # opt.optimize()
+        opt.diff_test_constraint()
