@@ -1,0 +1,3 @@
+source ~/activate_conda
+conda activate ml
+export PYTHONPATH=/home/xuan/code/FastIPC:$PYTHONPATH

@@ -229,10 +229,14 @@ def read(testcase):
         fixed[11] = True
         fixed[14] = True
         settings['dirichlet'] = fixed
-        four_vertices = [[14, 9, 11, 1, 12], [12, 8, 14, 2, 13], [13, 7, 12, 3, 4]]
+        four_vertices = [[14, 12, 9, 11, 1], [12, 14, 2, 13, 8], [13, 4, 7, 12, 3]]
         settings['four_vertices'] = np.array(four_vertices, dtype=np.int32)
         settings['inner_vertex'] = 5
         settings['outer_vertex'] = 4
+        with open("input/wing_clean_poly.fold") as f:
+            data = json.load(f)
+            settings['polygons'] = data["faces_vertices"]
+            settings['polygon_triangles'] = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9], [10, 11], [12, 13], [14, 15]]
         return settings
 
     # debug

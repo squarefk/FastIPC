@@ -9,6 +9,7 @@ from angle import angle, angle_gradient
 from diff_test import check_gradient, check_jacobian, finite_gradient
 from trajectory_icp import icp
 import scipy.optimize
+from scipy.spatial import Delaunay
 
 class TrajectoryOpt:
 
@@ -21,10 +22,13 @@ class TrajectoryOpt:
         data = scipy.io.loadmat('input/wing_tips.mat')
         self.target_inner_trajectory = data['inner']
         self.target_outer_trajectory = data['outer']
-        self.four_vertices = settings['four_vertices']
+        self.four_vertices = settings['four_vertices'] # [c, v1, v2, v3, v4] The last index is the end of the valley fold
 
         self.inner_vertex = settings['inner_vertex']
         self.outer_vertex = settings['outer_vertex']
+
+        self.polygons = settings['polygons']
+        self.polygon_triangles = settings['polygon_triangles']
 
         self.inner_trajectory = []
         self.outer_trajectory = []
@@ -38,6 +42,17 @@ class TrajectoryOpt:
         self.n_segments = 100
         self.simulator.output_X(0)
     
+    def triangulation(self, x):
+        x_stack = x.reshape((self.simulator.n_particles, 2))
+        elements = self.simulator.vertices.to_numpy()
+        for i, poly in enumerate(self.polygons):
+            points = x_stack[poly]
+            tri = Delaunay(points)
+            for j, tri_local in enumerate(tri.simplices):
+                elements[self.polygon_triangles[i][j]] = np.array([poly[tri_local[2]], poly[tri_local[1]], poly[tri_local[0]]])
+        self.simulator.vertices.from_numpy(elements)
+        self.simulator.reset()
+    
     def shrink_y(self, x_vec):
         ''' x_vec is a 1D vector of (xxx, 3*n)'''
         return x_vec.reshape([self.simulator.n_particles, 3])[:, [0, 2]].flatten()
@@ -47,6 +62,28 @@ class TrajectoryOpt:
         result = np.zeros([self.simulator.n_particles, 3])
         result[:, [0, 2]] = x_vec.reshape([self.simulator.n_particles, 2])
         return result.flatten()
+
+    def project_direction(self, x, direction):
+        x_stack = x.reshape((self.simulator.n_particles, 2))
+        direction_stack = direction.reshape((self.simulator.n_particles, 2))
+        new_direction = direction_stack.copy()
+        for i in range(len(self.four_vertices)):
+            v0 = x_stack[self.four_vertices[i, 0]] + direction_stack[self.four_vertices[i, 0]] # moved position
+            v1 = x_stack[self.four_vertices[i, 1]] + direction_stack[self.four_vertices[i, 1]]
+            v2 = x_stack[self.four_vertices[i, 2]] + direction_stack[self.four_vertices[i, 2]]
+            v3 = x_stack[self.four_vertices[i, 3]] + direction_stack[self.four_vertices[i, 3]]
+            v4 = x_stack[self.four_vertices[i, 4]]
+            d1 = (v1 - v0) / np.linalg.norm(v1 - v0)
+            d2 = (v2 - v0) / np.linalg.norm(v2 - v0)
+            d3 = (v3 - v0) / np.linalg.norm(v3 - v0)
+            alpha1 = np.arccos(d1.dot(d2))
+            alpha2 = np.arccos(d2.dot(d3))
+            alpha4 = np.pi - alpha2
+            d4_new = np.array([[np.cos(alpha4), -np.sin(alpha4)], [np.sin(alpha4), np.cos(alpha4)]]).dot(d1)
+            v4_new = (v4 - v0).dot(d4_new) * d4_new + v0
+            new_direction[self.four_vertices[i, 4]] = v4_new - v4
+        return new_direction.flatten()
+
     
     def forward(self):
         print("[Opt] forward pass")
@@ -78,15 +115,18 @@ class TrajectoryOpt:
         registered_inner = (np.dot(T[:3, :3], self.target_inner_trajectory.T) + T[:3, 3:4]).T
         registered_outer = (np.dot(T[:3, :3], self.target_outer_trajectory.T) + T[:3, 3:4]).T
         self.target_inner_pos = registered_inner[indices1]
-        self.target_inner_pos[0] = registered_inner[0]
-        self.target_inner_pos[-1] = registered_inner[-1]
+        # self.target_inner_pos[0] = registered_inner[0]
+        # self.target_inner_pos[-1] = registered_inner[-1]
         self.target_outer_pos = registered_outer[indices1]
-        self.target_outer_pos[0] = registered_outer[0]
-        self.target_outer_pos[-1] = registered_outer[-1]
+        # self.target_outer_pos[0] = registered_outer[0]
+        # self.target_outer_pos[-1] = registered_outer[-1]
 
-    def save_trajectory(self, filename):
-        scipy.io.savemat(filename, mdict={'inner': self.inner_trajectory, 'outer': self.outer_trajectory})
-
+    def save_trajectory(self, f):
+        scipy.io.savemat(self.simulator.directory + f'caches/opt_traj_{f:06d}.mat', mdict={'inner': self.inner_trajectory, 'outer': self.outer_trajectory, 'inner_target': self.target_inner_pos, 'outer_target': self.target_outer_pos})
+    
+    def save_state(self, f):
+        scipy.io.savemat(self.simulator.directory + f'caches/opt_state_{f:06d}.mat', mdict={'design_variable': self.design_variable})
+    
     def loss(self):
         print("[Opt] evaluate loss")
         trajectory_loss = 0.0
@@ -169,19 +209,32 @@ class TrajectoryOpt:
             return self.loss()
         def gradient(x):
             return self.gradient()
-        
-        current_it = 0
-        def callback(x):
-            current_it += 1
-            self.simulator.X.from_numpy(x.reshape([self.simulator.n_particles, 3]))
-            self.simulator.output_X(current_it)
-        
+
+        x = self.design_variable.copy()
+        # self.triangulation(x)
+        self.simulator.output_X(0)
         self.forward()
         self.update_icp()
+        self.save_state(0)
+        self.save_trajectory(0)
+        step_size = 1e-4
+        for i in range(1000):
+            # self.triangulation(x)
+            energy = func(x)
+            grad = gradient(x)
+            direction = - step_size * grad
+            new_direction = self.project_direction(x, direction)
+            x += new_direction
+            self.design_variable[:] = x
+            self.simulator.X.from_numpy(self.extend_y(x).reshape([self.simulator.n_particles, 3]))
+            self.simulator.output_X(i+1)
+            self.save_state(i+1)
+            self.save_trajectory(i+1)
+            print(f"[Optimization] Loss: {energy:.6f}")
 
-        res = scipy.optimize.minimize(func, self.design_variable, method='SLSQP', jac=gradient,
-               constraints=[eq_cons], options={'ftol': 1e-9, 'disp': True})
+    # def invert_loss(self):
 
+    # def invert_loss()
 
     def diff_test_objective(self):
         self.simulator.newton_tol = 1e-8
@@ -212,9 +265,7 @@ class TrajectoryOpt:
             X[sec[0]] += direction
         check_jacobian(self.shrink_y(X.flatten()), self.constraint_fun, self.constraint_jac, 3)
 
-
-            
-
+ 
 if __name__ == "__main__":
 
     real = ti.f64
@@ -227,5 +278,5 @@ if __name__ == "__main__":
 
     with Logger(directory + f'log.txt'):
         opt = TrajectoryOpt(directory)
-        # opt.optimize()
-        opt.diff_test_constraint()
+        opt.optimize()
+        # opt.diff_test_constraint()
