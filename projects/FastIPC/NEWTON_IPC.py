@@ -17,7 +17,7 @@ from sksparse.cholmod import *
 
 ##############################################################################
 testcase = int(sys.argv[1])
-settings = read(testcase)
+settings = read()
 mesh_particles = settings['mesh_particles']
 mesh_elements = settings['mesh_elements']
 dim = settings['dim']
@@ -927,7 +927,7 @@ if __name__ == "__main__":
         zero.fill(0)
         write_image(0)
         f_start = 0
-        if len(sys.argv) == 3:
+        if settings['start_frame'] > 0:
             f_start = int(sys.argv[2])
             [x_, v_] = pickle.load(open(directory + f'caches/{f_start:06d}.p', 'rb'))
             x.from_numpy(x_)

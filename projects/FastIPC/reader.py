@@ -163,8 +163,8 @@ def read():
         # mat twist
         init(3)
         settings['gravity'] = 0.
-        # add_object('input/mat150x150t40.msh')
-        add_object('input/mat20x20.vtk', scale=[1., 4., 1.])
+        add_object('input/mat150x150t40.msh')
+        # add_object('input/mat20x20.vtk', scale=[1., 4., 1.])
         settings['boundary'] = find_boundary(settings['mesh_elements'])
 
         def dirichlet_generator(t):
