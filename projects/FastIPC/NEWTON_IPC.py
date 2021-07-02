@@ -369,7 +369,7 @@ def compute_filter_2D_PE() -> real:
                 de0 = ti.Vector([data_sol[e0 * dim + 0], data_sol[e0 * dim + 1]])
                 de1 = ti.Vector([data_sol[e1 * dim + 0], data_sol[e1 * dim + 1]])
                 if moving_point_edge_ccd_broadphase(x[p], x[e0], x[e1], dp, de0, de1, dHat):
-                    alpha = min(alpha, point_edge_ccd(x[p], x[e0], x[e1], dp, de0, de1, 0.2))
+                    ti.atomic_min(alpha, point_edge_ccd(x[p], x[e0], x[e1], dp, de0, de1, 0.2))
     return alpha
 
 
@@ -401,7 +401,7 @@ def compute_filter_3D_PT() -> real:
                 if p != t0 and p != t1 and p != t2:
                     if moving_point_triangle_ccd_broadphase(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, dHat):
                         dist2 = PT_dist2(x[p], x[t0], x[t1], x[t2], PT_type(x[p], x[t0], x[t1], x[t2]))
-                        alpha = min(alpha, point_triangle_ccd(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, 0.2, dist2))
+                        ti.atomic_min(alpha, point_triangle_ccd(x[p], x[t0], x[t1], x[t2], dp, dt0, dt1, dt2, 0.2, dist2))
     return alpha
 
 
@@ -435,7 +435,7 @@ def compute_filter_3D_EE() -> real:
                 if i < j and a0 != b0 and a0 != b1 and a1 != b0 and a1 != b1:
                     if moving_edge_edge_ccd_broadphase(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, dHat):
                         dist2 = EE_dist2(x[a0], x[a1], x[b0], x[b1], EE_type(x[a0], x[a1], x[b0], x[b1]))
-                        alpha = min(alpha, edge_edge_ccd(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, 0.2, dist2))
+                        ti.atomic_min(alpha, edge_edge_ccd(x[a0], x[a1], x[b0], x[b1], da0, da1, db0, db1, 0.2, dist2))
     return alpha
 
 
@@ -448,7 +448,7 @@ def compute_filter_3D_inversion_free() -> real:
         db = ti.Vector([data_sol[b * dim + 0], data_sol[b * dim + 1], data_sol[b * dim + 2]])
         dc = ti.Vector([data_sol[c * dim + 0], data_sol[c * dim + 1], data_sol[c * dim + 2]])
         dd = ti.Vector([data_sol[d * dim + 0], data_sol[d * dim + 1], data_sol[d * dim + 2]])
-        alpha = min(alpha, get_smallest_positive_real_cubic_root(x[a], x[b], x[c], x[d], da, db, dc, dd, 0.2))
+        ti.atomic_min(alpha, get_smallest_positive_real_cubic_root(x[a], x[b], x[c], x[d], da, db, dc, dd, 0.2))
     return alpha
 
 
@@ -814,10 +814,27 @@ def output_residual() -> real:
 @ti.kernel
 def output_current_minimal_distance():
     d = 1999999999.0
-    for r in range(n_PP[None]):
-        d = min(d, PP_2D_E(x[PP[r, 0]], x[PP[r, 1]]))
-    for r in range(n_PE[None]):
-        d = min(d, PE_2D_E(x[PE[r, 0]], x[PE[r, 1]], x[PE[r, 2]]))
+    if ti.static(dim == 2):
+        for r in range(n_PP[None]):
+            ti.atomic_min(d, PP_2D_E(x[PP[r, 0]], x[PP[r, 1]]))
+        for r in range(n_PE[None]):
+            ti.atomic_min(d, PE_2D_E(x[PE[r, 0]], x[PE[r, 1]], x[PE[r, 2]]))
+    else:
+        for r in range(n_PP[None]):
+            ti.atomic_min(d, PP_3D_E(PP[r, 0], PP[r, 1]))
+        for r in range(n_PE[None]):
+            ti.atomic_min(d, PE_3D_E(PE[r, 0], PE[r, 1], PE[r, 2]))
+        for r in range(n_PT[None]):
+            ti.atomic_min(d, PT_3D_E(PT[r, 0], PT[r, 1], PT[r, 2], PT[r, 3]))
+        for r in range(n_EE[None]):
+            ti.atomic_min(d, EE_3D_E(EE[r, 0], EE[r, 1], EE[r, 2], EE[r, 3]))
+        for r in range(n_PPM[None]):
+            ti.atomic_min(d, PP_3D_E(PPM[r, 0], PPM[r, 2]))
+        for r in range(n_PEM[None]):
+            ti.atomic_min(d, PE_3D_E(PEM[r, 0], PEM[r, 2], PEM[r, 3]))
+        for r in range(n_EEM[None]):
+            ti.atomic_min(d, EE_3D_E(EEM[r, 0], EEM[r, 1], EEM[r, 2], EEM[r, 3]))
+
     print("Current minimal distance square", d)
 
 
@@ -921,7 +938,7 @@ if __name__ == "__main__":
         boundary_edges.from_numpy(boundary_edges_.astype(np.int32))
         boundary_triangles.from_numpy(boundary_triangles_.astype(np.int32))
         compute_restT_and_m()
-        kappa = compute_adaptive_kappa()
+        kappa = compute_adaptive_kappa() * 10
         spatial_hash_inv_dx = 1.0 / compute_mean_of_boundary_edges()
         save_x0()
         zero.fill(0)
@@ -944,6 +961,7 @@ if __name__ == "__main__":
                     print("-------------------- Newton Iteration: ", newton_iter, " --------------------")
                     with Timer("Build System"):
                         find_constraints()
+                        output_current_minimal_distance()
                         data_row.fill(0)
                         data_col.fill(0)
                         data_val.fill(0)
