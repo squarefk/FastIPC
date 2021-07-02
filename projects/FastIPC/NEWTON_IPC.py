@@ -821,19 +821,19 @@ def output_current_minimal_distance():
             ti.atomic_min(d, PE_2D_E(x[PE[r, 0]], x[PE[r, 1]], x[PE[r, 2]]))
     else:
         for r in range(n_PP[None]):
-            ti.atomic_min(d, PP_3D_E(PP[r, 0], PP[r, 1]))
+            ti.atomic_min(d, PP_3D_E(x[PP[r, 0]], x[PP[r, 1]]))
         for r in range(n_PE[None]):
-            ti.atomic_min(d, PE_3D_E(PE[r, 0], PE[r, 1], PE[r, 2]))
+            ti.atomic_min(d, PE_3D_E(x[PE[r, 0]], x[PE[r, 1]], x[PE[r, 2]]))
         for r in range(n_PT[None]):
-            ti.atomic_min(d, PT_3D_E(PT[r, 0], PT[r, 1], PT[r, 2], PT[r, 3]))
+            ti.atomic_min(d, PT_3D_E(x[PT[r, 0]], x[PT[r, 1]], x[PT[r, 2]], x[PT[r, 3]]))
         for r in range(n_EE[None]):
-            ti.atomic_min(d, EE_3D_E(EE[r, 0], EE[r, 1], EE[r, 2], EE[r, 3]))
+            ti.atomic_min(d, EE_3D_E(x[EE[r, 0]], x[EE[r, 1]], x[EE[r, 2]], x[EE[r, 3]]))
         for r in range(n_PPM[None]):
-            ti.atomic_min(d, PP_3D_E(PPM[r, 0], PPM[r, 2]))
+            ti.atomic_min(d, PP_3D_E(x[PPM[r, 0]], x[PPM[r, 2]]))
         for r in range(n_PEM[None]):
-            ti.atomic_min(d, PE_3D_E(PEM[r, 0], PEM[r, 2], PEM[r, 3]))
+            ti.atomic_min(d, PE_3D_E(x[PEM[r, 0]], x[PEM[r, 2]], x[PEM[r, 3]]))
         for r in range(n_EEM[None]):
-            ti.atomic_min(d, EE_3D_E(EEM[r, 0], EEM[r, 1], EEM[r, 2], EEM[r, 3]))
+            ti.atomic_min(d, EE_3D_E(x[EEM[r, 0]], x[EEM[r, 1]], x[EEM[r, 2]], x[EEM[r, 3]]))
 
     print("Current minimal distance square", d)
 
