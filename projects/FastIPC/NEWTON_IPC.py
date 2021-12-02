@@ -7,7 +7,6 @@ from common.utils.logger import *
 
 import sys, os, time, math
 import taichi as ti
-import taichi_three as t3
 import numpy as np
 import meshio
 import pickle
@@ -887,14 +886,15 @@ def check_collision():
 if dim == 2:
     gui = ti.GUI("IPC", (768, 768), background_color=0x112F41)
 else:
-    scene = t3.Scene()
-    model = t3.Model(f_n=n_boundary_triangles, vi_n=n_particles)
-    scene.add_model(model)
-    camera = t3.Camera((768, 768))
-    scene.add_camera(camera)
-    light = t3.Light([0.4, -1.5, 1.8])
-    scene.add_light(light)
-    gui = ti.GUI('IPC', camera.res)
+    pass
+    # scene = t3.Scene()
+    # model = t3.Model(f_n=n_boundary_triangles, vi_n=n_particles)
+    # scene.add_model(model)
+    # camera = t3.Camera((768, 768))
+    # scene.add_camera(camera)
+    # light = t3.Light([0.4, -1.5, 1.8])
+    # scene.add_light(light)
+    # gui = ti.GUI('IPC', camera.res)
 def write_image(f):
     particle_pos = x.to_numpy() * settings['mesh_scale'] + settings['mesh_offset']
     x_ = x.to_numpy()
@@ -915,12 +915,12 @@ def write_image(f):
                          color=0xFFB99F)
         gui.show(directory + f'images/{f:06d}.png')
     else:
-        model.vi.from_numpy(particle_pos.astype(np.float32))
-        model.faces.from_numpy(boundary_triangles_.astype(np.int32))
-        camera.from_mouse(gui)
-        scene.render()
-        gui.set_image(camera.img)
-        gui.show(directory + f'images/{f:06d}.png')
+        # model.vi.from_numpy(particle_pos.astype(np.float32))
+        # model.faces.from_numpy(boundary_triangles_.astype(np.int32))
+        # camera.from_mouse(gui)
+        # scene.render()
+        # gui.set_image(camera.img)
+        # gui.show(directory + f'images/{f:06d}.png')
         f = open(directory + f'objs/{f:06d}.obj', 'w')
         for i in range(n_particles):
             f.write('v %.6f %.6f %.6f\n' % (x_[i, 0], x_[i, 1], x_[i, 2]))
