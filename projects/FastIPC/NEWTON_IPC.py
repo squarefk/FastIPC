@@ -349,6 +349,8 @@ def find_constraints():
         xxs = [PP, PE, PT, EE, EEM, PPM, PEM]
         n_xxs = [n_PP, n_PE, n_PT, n_EE, n_EEM, n_PPM, n_PEM]
         for xx, n_xx in zip(xxs, n_xxs):
+            if n_xx[None] == 0:
+                continue
             tmp = np.unique(xx.to_numpy()[:n_xx[None], :], axis=0)
             n_xx[None] = len(tmp)
             xx.from_numpy(np.resize(tmp, (MAX_C, xx.shape[1])))
