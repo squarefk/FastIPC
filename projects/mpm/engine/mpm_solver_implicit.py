@@ -74,7 +74,6 @@ class MPMSolverImplicit:
 
         #### Declare taichi fields for simulation data
         self.gravity = ti.Vector.field(self.dim, dtype=real, shape=())
-        self.pid = ti.field(ti.i32)
 
         # position
         self.p_x = ti.Vector.field(self.dim, dtype=real)
@@ -109,8 +108,22 @@ class MPMSolverImplicit:
 
         offset = tuple(-self.grid_size // 2 for _ in range(self.dim))
         self.offset = offset
+        """
+        self.pid = ti.field(ti.i32)
+        # grid node momentum/velocity
+        self.grid_v = ti.Vector.field(self.dim, dtype=real)
+        self.grid_f = ti.Vector.field(self.dim, dtype=real)
+        self.grid_idx = ti.field(dtype=ti.i32)
+        self.grid_dv = ti.Vector.field(self.dim, dtype=real)
+        # grid node mass
+        self.grid_m = ti.field(dtype=real)
 
+        self.num_active_grid = ti.field(dtype=ti.i32, shape=())
 
+        grid_block_size = 128
+        self.grid = ti.root.pointer(indices, self.grid_size // grid_block_size) # 32
+        """
+        self.pid = ti.field(ti.i32)
         # grid node momentum/velocity
         self.grid_v = ti.Vector.field(self.dim, dtype=real)
         self.grid_f = ti.Vector.field(self.dim, dtype=real)
@@ -136,19 +149,28 @@ class MPMSolverImplicit:
             block.dense(indices, self.leaf_block_size).place(c, offset=offset) # 16 (-2048, 2048)
 
         block_component(self.grid_m)
-        for v in self.grid_v.entries:
-            block_component(v)
-        for dv in self.grid_dv.entries:
-            block_component(dv)
-        for f in self.grid_f.entries:
-            block_component(f)
+        #for v in self.grid_v.entries:
+            #block_component(v)
+        #for dv in self.grid_dv.entries:
+            #block_component(dv)
+        #for f in self.grid_f.entries:
+            #block_component(f)
+        for v in range(self.dim):
+            block_component(self.grid_v.get_scalar_field(v))
+        for dv in range(self.dim):
+            block_component(self.grid_dv.get_scalar_field(dv))
+        for f in range(self.dim):
+            block_component(self.grid_f.get_scalar_field(f))
+
         block_component(self.grid_idx)
             
+        block_offset = tuple(o // self.leaf_block_size
+                                 for o in self.offset)
 
-        block.dynamic(ti.indices(self.dim),
+        block.dynamic(ti.axes(self.dim),
                       1024 * 1024,
                       chunk_size=self.leaf_block_size**self.dim * 8).place(
-                          self.pid, offset=offset + (0, ))
+                          self.pid, offset=block_offset + (0, ))
 
         self.particle = ti.root.dynamic(ti.i, max_num_particles, 2**17) # 2**20 will trigger error in cuda + 3d
         self.particle.place(self.p_x, self.p_v, self.p_C, self.p_F, self.p_Fp,
@@ -205,25 +227,60 @@ class MPMSolverImplicit:
 
         self.delta = ti.field(real, shape=()) # Store a double precision delta
 
+    @ti.func
     def stencil_range(self):
         return ti.ndrange(*((3, ) * self.dim))
-
+    """
     @ti.kernel
     def build_pid(self):
-        ti.block_dim(64)
+        ti.loop_config(block_dim=64)
         for p in self.p_x:
             base = int(ti.floor(self.p_x[p] * self.inv_dx - 0.5))
-            ti.append(self.pid.parent(), base - ti.Vector(list(self.offset)),
+            ti.append(self.pid.parent(), base - ti.Vector(self.offset),
                       p)
+            #print(self.pid.parent())#for bugging
+    """
+    @ti.kernel
+    def build_pid(self):
+        """
+        grid has blocking (e.g. 4x4x4), we wish to put the particles from each block into a GPU block,
+        then used shared memory (ti.block_local) to accelerate
+        :param pid:
+        :param grid_m:
+        :param offset:
+        :return:
+        """
+        ti.loop_config(block_dim=64)
+        for p in self.p_x:
+            base = int(ti.floor(self.p_x[p] * self.inv_dx - 0.5)) \
+                   - ti.Vector(self.offset)
+            # Pid grandparent is `block`
+            base_pid = ti.rescale_index(self.grid_m, self.pid.parent(2), base)
+            #print("base is", base)
+            #print("base_pid is", base_pid)
+            #print("p is", p)
+            ti.append(self.pid.parent(), base_pid, p)
+            
+    #for bugging pid
+    @ti.kernel
+    def print_pid(self):
+        print("Grid Cell")
+        for I in ti.grouped(self.pid):  # Iterate over all grid indices in pid
+            print(f"Grid Cell: {I}")
+            print(self.pid[I])
+            #for i in range(len(self.pid[I])):  # Access the particles in the cell
+                #print(f"  Particle: {self.pid[I][i]}")
+
 
     @ti.kernel
     def p2g(self, dt: real):     
         ti.no_activate(self.particle)
-        ti.block_dim(256)
+        ti.loop_config(block_dim=256)#block_dim(256)
         # ti.block_local(*self.grid_v.entries)
         # ti.block_local(*self.grid_dv.entries) ##########
         # ti.block_local(self.grid_m)
         for I in ti.grouped(self.pid):
+            #print("I is", I)########
             p = self.pid[I]
             base = ti.floor(self.p_x[p] * self.inv_dx - 0.5).cast(int)
             for D in ti.static(range(self.dim)):
@@ -251,6 +308,7 @@ class MPMSolverImplicit:
                 oidx = self.offset2idx(offset)
                 self.p_cached_w[p, oidx] = weight
                 self.p_cached_dw[p, oidx] = dN
+                #print(self.grid_v[base + offset])#for test
                 
     @ti.func
     def applyPlasticity(self, dt):
@@ -282,7 +340,7 @@ class MPMSolverImplicit:
                 self.grid_v[I] = (1 / self.grid_m[I]
                                   ) * self.grid_v[I]  # Momentum to velocity
                 self.grid_dv[I] = self.grid_v[I]
-                idx = self.num_active_grid[None].atomic_add(1) # Avoid error in parallel computing
+                idx = ti.atomic_add(self.num_active_grid[None],1) # Avoid error in parallel computing
                 # print(idx)
                 self.grid_idx[I] = idx
                 self.dof2idx[idx] = I
@@ -569,6 +627,9 @@ class MPMSolverImplicit:
             F = self.p_F[p]
             la, mu = self.p_la[p], self.p_mu[p]
             U, sig, V = svd(F)
+            #############################
+            ########### 需要再改##########
+            #######################################
             psi = elasticity_energy(sig, la, mu)
             ee += self.p_vol[p] * psi
 
@@ -982,7 +1043,7 @@ class MPMSolverImplicit:
 
     @ti.kernel
     def g2p(self, dt: real):
-        ti.block_dim(256)
+        ti.loop_config(block_dim=256)#ti.block_dim(256)
         # ti.block_local(*self.grid_v.entries)
         # ti.block_local(*self.grid_dv.entries)
         ti.no_activate(self.particle)
@@ -1076,6 +1137,7 @@ class MPMSolverImplicit:
     def advanceOneStepExplicit(self, dt):
         self.grid.deactivate_all()
         self.build_pid()
+        #self.print_pid() #for bugging pid
         self.p2g(dt)
         self.grid_normalization()
 
@@ -1257,8 +1319,9 @@ class MPMSolverImplicit:
                 self.p_mu[idx] = self.mu_0
         self.n_particles[None] = self.n_particles[None] + new_particles
 
+    """
     @ti.kernel
-    def copy_dynamic_nd(self, np_x: ti.ext_arr(), input_x: ti.template()):
+    def copy_dynamic_nd(self, np_x: ti.template(), input_x: ti.template()):
         for i in self.p_x:
             for j in ti.static(range(self.dim)):
                 np_x[i, j] = input_x[i][j]
@@ -1272,6 +1335,24 @@ class MPMSolverImplicit:
         return {
             'position': np_x,
             'velocity': np_v,
+        }
+    """
+
+    @ti.kernel
+    def copy_dynamic_nd(self, np_x: ti.types.ndarray(), input_x: ti.template()):
+        for i in self.p_x:
+            for j in ti.static(range(self.dim)):
+                np_x[i, j] = input_x[i][j]
+
+    def particle_info(self):
+        np_x = ti.ndarray(dtype=ti.f64, shape=(self.n_particles[None], self.dim))
+        self.copy_dynamic_nd(np_x, self.p_x)
+        np_v = ti.ndarray(dtype=ti.f64, shape=(self.n_particles[None], self.dim))
+        self.copy_dynamic_nd(np_v, self.p_v)
+
+        return {
+            'position': np_x.to_numpy(),
+            'velocity': np_v.to_numpy(),
         }
 
     def simulation_info(self):

@@ -1,18 +1,19 @@
 import taichi as ti
 from projects.mpm.basic.math_tools import *
+from taichi.lang import impl
 
 
 @ti.func
 def elasticity_energy(sig: ti.template(), la, mu):
     if ti.static(sig.n == 2):
-        sigma = ti.Matrix.zero(ti.get_runtime().default_fp, sig.n, 1)
+        sigma = ti.Vector.zero(impl.get_runtime().default_fp, sig.n)
         for i in ti.static(range(sig.n)):
             sigma[i] = sig[i, 0 if ti.static(sig.m == 1) else i]
         sigmam12Sum = (sigma - ti.Vector([1, 1])).norm_sqr()
         sigmaProdm1 = sigma[0] * sigma[1] - 1
         return mu * sigmam12Sum + la / 2 * sigmaProdm1 * sigmaProdm1
     else:
-        sigma = ti.Matrix.zero(ti.get_runtime().default_fp, sig.n, 1)
+        sigma = ti.Matrix.zero(impl.get_runtime().default_fp, sig.n, 1)
         for i in ti.static(range(sig.n)):
             sigma[i] = sig[i, 0 if ti.static(sig.m == 1) else i]
         sigmam12Sum = (sigma - ti.Vector([1, 1, 1])).norm_sqr()
@@ -23,16 +24,16 @@ def elasticity_energy(sig: ti.template(), la, mu):
 @ti.func
 def elasticity_gradient(sig: ti.template(), la, mu):
     if ti.static(sig.n == 2):
-        sigma = ti.Matrix.zero(ti.get_runtime().default_fp, sig.n, 1)
+        sigma = ti.Vector.zero(impl.get_runtime().default_fp, sig.n)
         for i in ti.static(range(sig.n)):
-            sigma[i] = sig[i, 0 if ti.static(sig.m == 1) else i]
+            sigma[i] = sig[i]
         sigmaProdm1lambda = la * (sigma[0] * sigma[1] - 1)
         sigmaProd_noI = ti.Vector([sigma[1], sigma[0]])
         _2u = mu * 2
         return ti.Vector([_2u * (sigma[0] - 1) + sigmaProd_noI[0] * sigmaProdm1lambda,
                           _2u * (sigma[1] - 1) + sigmaProd_noI[1] * sigmaProdm1lambda])
     else:
-        sigma = ti.Matrix.zero(ti.get_runtime().default_fp, sig.n, 1)
+        sigma = ti.Matrix.zero(impl.get_runtime().default_fp, sig.n, 1)
         for i in ti.static(range(sig.n)):
             sigma[i] = sig[i, 0 if ti.static(sig.m == 1) else i]
         sigmaProdm1lambda = la * (sigma[0] * sigma[1] * sigma[2] - 1)
@@ -46,9 +47,9 @@ def elasticity_gradient(sig: ti.template(), la, mu):
 @ti.func
 def elasticity_hessian(sig: ti.template(), la, mu):
     if ti.static(sig.n == 2):
-        sigma = ti.Matrix.zero(ti.get_runtime().default_fp, sig.n, 1)
+        sigma = ti.Vector.zero(impl.get_runtime().default_fp, sig.n)
         for i in ti.static(range(sig.n)):
-            sigma[i] = sig[i, 0 if ti.static(sig.m == 1) else i]
+            sigma[i] = sig[i]
         sigmaProd = sigma[0] * sigma[1]
         sigmaProd_noI = ti.Vector([sigma[1], sigma[0]])
         _2u = mu * 2
@@ -57,7 +58,7 @@ def elasticity_hessian(sig: ti.template(), la, mu):
                           [la * ((sigmaProd - 1) + sigmaProd_noI[0] * sigmaProd_noI[1]),
                            _2u + la * sigmaProd_noI[1] * sigmaProd_noI[1]]])
     else:
-        sigma = ti.Matrix.zero(ti.get_runtime().default_fp, sig.n, 1)
+        sigma = ti.Matrix.zero(impl.get_runtime().default_fp, sig.n, 1)
         for i in ti.static(range(sig.n)):
             sigma[i] = sig[i, 0 if ti.static(sig.m == 1) else i]
         sigmaProd = sigma[0] * sigma[1] * sigma[2]
